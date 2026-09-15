@@ -1,5 +1,7 @@
 # CLI
 
+[简体中文](./cli.zh-CN.md)
+
 The AIX CLI packages application directories, inspects archive contents, and
 optimizes existing `.aix` artifacts. Two surfaces expose the identical `aix`
 command, sharing the same Rust packing engine:

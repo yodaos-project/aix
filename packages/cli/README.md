@@ -1,5 +1,7 @@
 # @yodaos-pkg/aix-cli
 
+[简体中文](README.zh-CN.md)
+
 Command-line tool for packing, validating, and inspecting **AIX** (AI eXecutable)
 packages — the executable package format for AI agents.
 

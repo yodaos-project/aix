@@ -1,5 +1,7 @@
 # AIX CLI
 
+[简体中文](README.zh-CN.md)
+
 AIX CLI is a command-line utility for managing AIX packages. It packs
 directories into `.aix` artifacts, inspects package contents, and optimizes
 existing archives.
