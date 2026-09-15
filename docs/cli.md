@@ -223,6 +223,147 @@ In `--dev` mode:
 - `--html-out` is not allowed
 - add `--launch` if you want the browser to open automatically
 
+## Show Agent Metadata
+
+Print the effective AIUI DEVELOP Agent Definition without connecting to ADB:
+
+```bash
+aix show ./my-agent
+aix show ./bundle.aix
+```
+
+`show` and `install` use the same resolver, so the JSON shown here is the JSON
+that `install` uploads. Standard output contains JSON only. Write it to a file or
+use compact single-line output when needed:
+
+```bash
+aix show ./my-agent --output ./agent.json
+aix show ./my-agent --compact
+```
+
+An explicit Definition can be inspected with `--definition <file>`. Its
+`agentId` is still replaced by the stable directory/package-derived ID.
+
+For directory inputs, `show` creates `.aix/agent-id` if this is the first time
+the project identity has been resolved.
+
+## Install On Rokid Glasses
+
+Pack a source project and submit it to the public AIUI DEVELOP endpoint over
+ADB:
+
+```bash
+aix install ./my-agent
+aix install ./bundle.aix
+```
+
+For a source directory, the command creates `.aix/agent-id` on the first run
+and reuses it on later runs. For an existing `.aix` file, it derives the ID
+from the package `VERSION` entry. Both become
+`develop.rokid.agent.<id>` in the generated Definition.
+The local `.aix/` state directory is excluded from packaged artifacts.
+
+If `<project>/agent.json` exists, its fields remain authoritative except for
+`agentId`, which always follows the stable rule above. Otherwise `install`
+generates the temporary Definition fields from `app.json` and the first usable
+paragraph in `AGENTS.md`, with protocol defaults for optional fields. Choose a
+different Definition file or ADB device explicitly when needed:
+
+```bash
+aix install ./my-agent --definition ./develop-agent.json --serial <serial>
+```
+
+The glasses must already have Developer Mode enabled and be authorized for ADB.
+The command automatically uses the sole online device. When multiple devices
+are available, it prompts for one in an interactive terminal; pass `--serial`
+to select explicitly or when running non-interactively. It creates a temporary
+AIX package, enforces the 128 MiB limit, clears only the
+documented DEVELOP staging inbox, and executes `prepare -> push -> apply`. It
+validates each structured `result_data`, including the Definition `agentId`,
+Apply outcome, and `operationId`.
+
+After Apply, the command makes one status query. The final JSON distinguishes
+local Apply (`outcome`), phone confirmation (`publishState: "UPLOADED"`), and
+cloud indexing (`cloudIndexed: "unverified"`). A `QUEUED` or `DISPATCHED`
+state is reported as pending; `FAILED_RETRYABLE` and `FAILED_PERMANENT` fail the
+command.
+
+Packing options are also available during installation:
+
+```bash
+aix install ./my-agent --engine '>=0.17.0' --optimize --opt-level 2
+```
+
+## Device Developer Mode
+
+Interactive device operations show a spinner for the active stage. Completed
+intermediate stages collapse to a single check-mark line; only the latest result
+keeps its detailed Agent, path, device, and runtime information.
+
+Query the current environment and Widget readiness without changing device
+state, or explicitly set/unset Developer Mode:
+
+```bash
+aix device
+aix device set-dev
+aix device unset-dev
+```
+
+Setting or unsetting Developer Mode reloads all AIUI Widgets. Permanent Widgets
+are recreated automatically; dynamic Widgets must be launched again. All device
+commands accept `--serial <serial>`. The read-only status also lists installed
+`.aix` packages from the device package directory and enriches them with Agent
+metadata from `developer_manifest.json`.
+
+## Launch An Installed Page
+
+Open the first declared Page full screen, a selected Page, or a card:
+
+```bash
+aix launch-page ./my-agent
+aix launch-page ./my-agent pages/index/index
+aix launch-page ./my-agent pages/index/index --card
+```
+
+Pass parameters with `--params <JSON>` or `--params-file <FILE>`. This command
+only invokes DEVELOP `open`; it does not install or upload the Agent.
+
+## Configure And Launch A Dynamic Widget
+
+Configure a dynamic Widget from the device's current layout and then open it:
+
+```bash
+aix launch-widget ./my-agent widgets/order/index
+aix launch-widget ./my-agent widgets/order/index --position 2
+```
+
+The command reads `widget-snapshot.configurationJson` on every run. If no
+configuration exists, it starts with an empty 4-cell, 2-column layout. Widget
+dimensions come exclusively from the declared `family`; no size option is
+exposed. Existing placements are reused, otherwise the first free position is
+selected. A requested-position conflict replaces the overlapping dynamic
+Widget automatically. If no free position remains, existing dynamic placements
+are cleared and the new Widget is placed without removing permanent Widgets.
+
+When the layout changes, the command runs
+`prepare -> push widget-config.json -> widget-apply -> open`. An unchanged
+layout calls `open` directly; if the device reports a missing runtime placement,
+the CLI reapplies the saved layout and retries once. Layout changes and recovery
+reapplies reload all Widgets, so other dynamic Widgets must be launched again.
+
+## Inspect Or Clear Widget Layout
+
+```bash
+aix widget-layout
+aix widget-layout show
+aix widget-layout --clear
+aix widget-layout --clear --yes
+```
+
+Show is read-only. Clear preserves the grid configuration while emptying both
+module arrays, requires confirmation, and skips `widget-apply` when the layout
+is already empty.
+
 ## Inspect Preview Runtime Versions
 
 Use the `runtime` command group to inspect the preview runtime used by the npm

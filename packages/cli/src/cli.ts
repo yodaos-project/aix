@@ -1,20 +1,36 @@
-import { Command } from "commander";
+import { Argument, Command } from "commander";
 import { cmdOptimize, cmdList, cmdPack } from "./commands/legacy";
 import { cmdRuntimeCurrent } from "./commands/runtime/current";
 import { cmdRuntimeSelect } from "./commands/runtime/select";
 import { cmdRuntimeVersions } from "./commands/runtime/versions";
 import { cmdPreview } from "./preview";
+import {
+  cmdDevice,
+  cmdInstall,
+  cmdLaunchPage,
+  cmdLaunchWidget,
+  cmdWidgetLayout,
+} from "./commands/launch";
+import { cmdShow } from "./commands/show";
 import { formatError } from "./ui/status";
+import { confirm } from "@inquirer/prompts";
+
+const PACKAGE_COMMANDS = "Package Commands:";
+const DEVICE_COMMANDS = "Device Commands:";
+const PREVIEW_COMMANDS = "Preview Commands:";
 
 async function main() {
   const program = new Command();
   program
     .name("aix")
     .description("AIX package manager")
+    .commandsGroup("Other Commands:")
+    .helpCommand(true)
     .showHelpAfterError();
 
   program
     .command("pack <input-dir>")
+    .helpGroup(PACKAGE_COMMANDS)
     .description("Pack a directory into an .aix artifact")
     .option("-o, --output <output>", "Output file")
     .option("-O, --optimize", "Enable optimization")
@@ -33,6 +49,7 @@ async function main() {
 
   program
     .command("list <aix-file>")
+    .helpGroup(PACKAGE_COMMANDS)
     .alias("ls")
     .description("List files inside an .aix artifact")
     .action((aixFile: string) => {
@@ -41,6 +58,7 @@ async function main() {
 
   program
     .command("optimize <aix-file>")
+    .helpGroup(PACKAGE_COMMANDS)
     .description("Optimize an existing .aix artifact")
     .requiredOption("-o, --output <output>", "Output file")
     .option("--level <level>", "Optimization level, 1-3", "2")
@@ -49,7 +67,99 @@ async function main() {
     });
 
   program
+    .command("show <input>")
+    .helpGroup(PACKAGE_COMMANDS)
+    .description("Show the effective Agent Definition JSON")
+    .option("--definition <file>", "Definition JSON override")
+    .option("-o, --output <file>", "Write JSON to a file")
+    .option("--compact", "Print compact single-line JSON")
+    .action((input: string, options: {
+      definition?: string;
+      output?: string;
+      compact?: boolean;
+    }) => {
+      cmdShow(input, options);
+    });
+
+  program
+    .command("install <input>")
+    .helpGroup(DEVICE_COMMANDS)
+    .description("Install an AIX Agent on Rokid Glasses over ADB")
+    .option("--definition <file>", "Definition JSON (default: <project>/agent.json)")
+    .option("-s, --serial <serial>", "ADB device serial")
+    .option("-O, --optimize", "Enable optimization")
+    .option("--opt-level <level>", "Optimization level, 1-3", "2")
+    .option("--engine <range>", "Supported engine range")
+    .action(async (input: string, options) => {
+      await cmdInstall(input, options);
+    });
+
+  program
+    .command("device")
+    .helpGroup(DEVICE_COMMANDS)
+    .description("Inspect the device or set/unset Developer Mode")
+    .addArgument(new Argument("[action]", "Developer Mode action").choices(["set-dev", "unset-dev"]))
+    .option("-s, --serial <serial>", "ADB device serial")
+    .action(async (action: string | undefined, options: { serial?: string }) => {
+      await cmdDevice(action, options.serial);
+    });
+
+  program
+    .command("launch-page <input> [path]")
+    .helpGroup(DEVICE_COMMANDS)
+    .description("Open an installed AIX Agent Page on Rokid Glasses")
+    .option("--card", "Open as a card instead of full screen")
+    .option("--params <json>", "Parameters as a JSON object")
+    .option("--params-file <file>", "Read parameters from a JSON file")
+    .option("-s, --serial <serial>", "ADB device serial")
+    .action(async (input: string, path: string | undefined, options: {
+      card?: boolean;
+      params?: string;
+      paramsFile?: string;
+      serial?: string;
+    }) => {
+      await cmdLaunchPage(input, path, options);
+    });
+
+  program
+    .command("launch-widget <input> <path>")
+    .helpGroup(DEVICE_COMMANDS)
+    .description("Configure and open an installed dynamic Widget on Rokid Glasses")
+    .option("-p, --position <index>", "Widget grid start index")
+    .option("--params <json>", "Parameters as a JSON object")
+    .option("--params-file <file>", "Read parameters from a JSON file")
+    .option("-s, --serial <serial>", "ADB device serial")
+    .action(async (input: string, path: string, options) => {
+      await cmdLaunchWidget(input, path, options);
+    });
+
+  program
+    .command("widget-layout")
+    .helpGroup(DEVICE_COMMANDS)
+    .description("Show or clear the current device Widget layout")
+    .addArgument(new Argument("[action]", "Read-only layout action").choices(["show"]))
+    .option("--clear", "Clear permanent and dynamic Widget placements")
+    .option("--yes", "Skip confirmation for --clear")
+    .option("-s, --serial <serial>", "ADB device serial")
+    .action(async (action: string | undefined, options: {
+      clear?: boolean;
+      yes?: boolean;
+      serial?: string;
+    }) => {
+      if (action !== undefined && action !== "show") throw new Error("Widget layout action must be show.");
+      if (action === "show" && options.clear) throw new Error("show cannot be used with --clear.");
+      if (options.yes && !options.clear) throw new Error("--yes requires --clear.");
+      if (options.clear && !options.yes) {
+        if (!process.stdin.isTTY) throw new Error("--clear requires confirmation; rerun with --yes in a non-interactive shell.");
+        const accepted = await confirm({ message: "Clear all permanent and dynamic Widget placements?", default: false });
+        if (!accepted) throw new Error("Widget layout clear cancelled.");
+      }
+      await cmdWidgetLayout(options.clear ?? false, options.serial);
+    });
+
+  program
     .command("preview <input>")
+    .helpGroup(PREVIEW_COMMANDS)
     .description("Preview an .aix artifact or source directory")
     .option("--html-out <file>", "Write the preview HTML to a file")
     .option("--dev", "Start the preview server in development mode")
@@ -66,6 +176,7 @@ async function main() {
 
   const runtime = program
     .command("runtime")
+    .helpGroup(PREVIEW_COMMANDS)
     .description("Inspect available preview runtime versions")
     .action(() => {
       runtime.outputHelp();

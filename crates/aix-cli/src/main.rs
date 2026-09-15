@@ -1,10 +1,12 @@
 use aix_pack::{collector::CollectOptions, OptimizeOptions, PackOptions};
-use anyhow::Result;
+use anyhow::{bail, Result};
 use clap::{Parser, Subcommand};
 use std::fs::File;
 use std::io::{IsTerminal, Read};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
+
+mod launch;
 
 #[derive(Parser)]
 #[command(name = "aix")]
@@ -16,6 +18,130 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Inspect or change the device Developer Mode
+    Device {
+        /// Device action: set-dev or unset-dev; omit for a read-only status query
+        #[arg(value_parser = ["set-dev", "unset-dev"])]
+        action: Option<String>,
+
+        /// ADB device serial
+        #[arg(short = 's', long)]
+        serial: Option<String>,
+    },
+    /// Open an installed AIX Agent Page on Rokid Glasses
+    LaunchPage {
+        /// Project directory or .aix file used to resolve Agent identity and Page routes
+        #[arg(value_name = "INPUT")]
+        input: PathBuf,
+
+        /// Page path (defaults to the first declared Page)
+        #[arg(value_name = "PATH")]
+        path: Option<String>,
+
+        /// Open as a card instead of full screen
+        #[arg(long)]
+        card: bool,
+
+        /// Parameters as a JSON object
+        #[arg(long, conflicts_with = "params_file")]
+        params: Option<String>,
+
+        /// Read parameters from a JSON file
+        #[arg(long, value_name = "FILE")]
+        params_file: Option<PathBuf>,
+
+        /// ADB device serial
+        #[arg(short = 's', long)]
+        serial: Option<String>,
+    },
+    /// Configure and open an installed dynamic Widget on Rokid Glasses
+    LaunchWidget {
+        /// Project directory or .aix file used to resolve Agent identity and Widget family
+        #[arg(value_name = "INPUT")]
+        input: PathBuf,
+
+        /// Widget path declared in app.json
+        #[arg(value_name = "PATH")]
+        path: String,
+
+        /// Widget grid start index; reuses its current or first free position by default
+        #[arg(short, long)]
+        position: Option<usize>,
+
+        /// Parameters as a JSON object
+        #[arg(long, conflicts_with = "params_file")]
+        params: Option<String>,
+
+        /// Read parameters from a JSON file
+        #[arg(long, value_name = "FILE")]
+        params_file: Option<PathBuf>,
+
+        /// ADB device serial
+        #[arg(short = 's', long)]
+        serial: Option<String>,
+    },
+    /// Show or clear the current device Widget layout
+    WidgetLayout {
+        /// Optional explicit read-only action
+        #[arg(value_parser = ["show"], conflicts_with = "clear")]
+        action: Option<String>,
+
+        /// Clear permanent and dynamic Widget placements
+        #[arg(long)]
+        clear: bool,
+
+        /// Skip confirmation for --clear
+        #[arg(long, requires = "clear")]
+        yes: bool,
+
+        /// ADB device serial
+        #[arg(short = 's', long)]
+        serial: Option<String>,
+    },
+    /// Show the effective Agent Definition JSON
+    Show {
+        /// Project directory or .aix file
+        #[arg(value_name = "INPUT")]
+        input: PathBuf,
+
+        /// Definition JSON override
+        #[arg(long, value_name = "FILE")]
+        definition: Option<PathBuf>,
+
+        /// Write JSON to a file instead of stdout
+        #[arg(short, long, value_name = "FILE")]
+        output: Option<PathBuf>,
+
+        /// Print compact single-line JSON
+        #[arg(long)]
+        compact: bool,
+    },
+    /// Install an AIX Agent on Rokid Glasses over ADB
+    Install {
+        /// Project directory or .aix file to install
+        #[arg(value_name = "INPUT")]
+        input: PathBuf,
+
+        /// Definition JSON (defaults to <project>/agent.json)
+        #[arg(long, value_name = "FILE")]
+        definition: Option<PathBuf>,
+
+        /// ADB device serial
+        #[arg(short = 's', long)]
+        serial: Option<String>,
+
+        /// Enable optimization
+        #[arg(short = 'O', long, default_value_t = false)]
+        optimize: bool,
+
+        /// Optimization level (1-3)
+        #[arg(long, default_value_t = 2, value_parser = clap::value_parser!(u8).range(1..=3))]
+        opt_level: u8,
+
+        /// Supported AIX engine version range
+        #[arg(long)]
+        engine: Option<String>,
+    },
     /// Pack a directory into a .aix file
     Pack {
         /// Input directory to pack
@@ -72,6 +198,82 @@ fn run() -> Result<()> {
     let cli = Cli::parse();
 
     match &cli.command {
+        Commands::Device { action, serial } => match action.as_deref() {
+            Some("set-dev") => launch::set_developer_mode(serial.as_deref(), true)?,
+            Some("unset-dev") => launch::set_developer_mode(serial.as_deref(), false)?,
+            None => launch::device_status(serial.as_deref())?,
+            Some(_) => unreachable!(),
+        },
+        Commands::LaunchPage {
+            input,
+            path,
+            card,
+            params,
+            params_file,
+            serial,
+        } => launch::launch_page(
+            input,
+            launch::PageLaunchOptions {
+                path: path.as_deref(),
+                card: *card,
+                params: params.as_deref(),
+                params_file: params_file.as_deref(),
+                serial: serial.as_deref(),
+            },
+        )?,
+        Commands::LaunchWidget {
+            input,
+            path,
+            position,
+            params,
+            params_file,
+            serial,
+        } => launch::launch_widget(
+            input,
+            launch::WidgetLaunchOptions {
+                path,
+                position: *position,
+                params: params.as_deref(),
+                params_file: params_file.as_deref(),
+                serial: serial.as_deref(),
+            },
+        )?,
+        Commands::WidgetLayout {
+            action: _,
+            clear,
+            yes,
+            serial,
+        } => {
+            if *clear {
+                confirm_clear(*yes)?;
+                launch::clear_widget_layout(serial.as_deref())?;
+            } else {
+                launch::show_widget_layout(serial.as_deref())?;
+            }
+        }
+        Commands::Show {
+            input,
+            definition,
+            output,
+            compact,
+        } => show_definition(input, definition.as_deref(), output.as_deref(), *compact)?,
+        Commands::Install {
+            input,
+            definition,
+            serial,
+            optimize,
+            opt_level,
+            engine,
+        } => launch::install_agent(
+            input,
+            launch::InstallOptions {
+                definition: definition.as_deref(),
+                serial: serial.as_deref(),
+                optimize: *optimize,
+                opt_level: *opt_level,
+                engine: engine.as_deref(),
+            },
+        )?,
         Commands::Pack {
             input_dir,
             output,
@@ -103,15 +305,52 @@ fn run() -> Result<()> {
     Ok(())
 }
 
+fn confirm_clear(yes: bool) -> Result<()> {
+    if yes {
+        return Ok(());
+    }
+    if !std::io::stdin().is_terminal() {
+        bail!("--clear requires confirmation; rerun with --yes in a non-interactive shell");
+    }
+    eprint!("Clear all permanent and dynamic Widget placements? [y/N] ");
+    let mut answer = String::new();
+    std::io::stdin().read_line(&mut answer)?;
+    if !matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
+        bail!("Widget layout clear cancelled");
+    }
+    Ok(())
+}
+
+fn show_definition(
+    input: &Path,
+    definition: Option<&Path>,
+    output: Option<&Path>,
+    compact: bool,
+) -> Result<()> {
+    let value = launch::resolve_definition(input, definition)?.value;
+    let mut json = if compact {
+        serde_json::to_string(&value)?
+    } else {
+        serde_json::to_string_pretty(&value)?
+    };
+    json.push('\n');
+    if let Some(output) = output {
+        std::fs::write(output, json)?;
+    } else {
+        print!("{json}");
+    }
+    Ok(())
+}
+
 fn print_error(error: &anyhow::Error) {
     if std::io::stderr().is_terminal() {
-        eprintln!("\x1b[1;31merror:\x1b[0m \x1b[31m{error:?}\x1b[0m");
+        eprintln!("\x1b[1;31m✖\x1b[0m \x1b[31m{error:?}\x1b[0m");
     } else {
-        eprintln!("error: {error:?}");
+        eprintln!("✖ {error:?}");
     }
 }
 
-fn pack_directory(
+pub(crate) fn pack_directory(
     src_dir: &Path,
     dst_file: &Path,
     optimize: bool,

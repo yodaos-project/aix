@@ -89,7 +89,50 @@ aix pack <INPUT_DIR> -O --opt-level 3
 
 The packer respects `.aixignore` files within the source directory, using the same syntax as `.gitignore`. Use it to exclude source code, documentation, or temporary files.
 
-### 2. List
+### 2. Show
+
+Prints the effective Agent Definition JSON without requiring ADB. This uses the
+same resolver as `install`.
+
+```bash
+aix show ./my-agent
+aix show ./bundle.aix --compact
+aix show ./my-agent -o ./agent.json
+```
+
+### 3. Install
+
+Packs a project, or accepts an existing `.aix`, and submits it to the public
+AIUI DEVELOP endpoint on an authorized Rokid Glasses device over ADB. A project
+reuses `.aix/agent-id`; an artifact uses its `VERSION`. An existing
+`<PROJECT>/agent.json` overrides generated Definition metadata except for the
+rule-derived `agentId`.
+
+```bash
+aix install ./my-agent
+aix install ./bundle.aix
+aix install ./my-agent --definition ./agent.json --serial <serial>
+```
+
+The sole online ADB device is selected automatically. If multiple devices are
+online, the CLI prompts for one; use `--serial` in non-interactive shells.
+
+### 4. Device And Launch
+
+```bash
+aix device
+aix device set-dev
+aix device unset-dev
+aix launch-page ./my-agent pages/index/index --card
+aix launch-widget ./my-agent widgets/order/index --position 2
+aix widget-layout show
+aix widget-layout --clear
+```
+
+`aix device` also lists the `.aix` Agents currently installed in the device
+package directory, including manifest metadata when available.
+
+### 5. List
 
 Lists all files and their size information within an `.aix` package.
 
@@ -99,7 +142,7 @@ aix list <AIX_FILE>
 aix ls <AIX_FILE>
 ```
 
-### 3. Optimize
+### 6. Optimize
 
 Optimizes JSON, PNG, and JPEG entries in an existing package using the same
 cross-platform engine as the Web/WASM package.

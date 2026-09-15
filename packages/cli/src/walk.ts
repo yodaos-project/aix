@@ -17,6 +17,7 @@ export function walkDirectory(dir: string): WalkedFile[] {
     for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
       const abs = path.join(current, entry.name);
       if (entry.isDirectory()) {
+        if (entry.name === ".aix") continue;
         visit(abs);
       } else if (entry.isFile()) {
         const rel = path.relative(rootDir, abs).split(path.sep).join("/");

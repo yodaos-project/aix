@@ -179,6 +179,9 @@ fn read_directory_recursive(root: &Path, current: &Path, files: &mut Vec<InputFi
         let path = entry.path();
         let file_type = entry.file_type()?;
         if file_type.is_dir() {
+            if entry.file_name() == ".aix" {
+                continue;
+            }
             read_directory_recursive(root, &path, files)?;
             continue;
         }

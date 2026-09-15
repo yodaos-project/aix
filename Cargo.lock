@@ -48,6 +48,7 @@ dependencies = [
  "anyhow",
  "clap",
  "ignore",
+ "serde_json",
  "tempfile",
  "uuid",
 ]
