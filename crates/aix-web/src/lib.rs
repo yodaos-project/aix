@@ -278,11 +278,12 @@ impl AixReaderWasm {
         to_value(&self.inner.get_pages())
     }
 
-    pub fn get_widgets(&self) -> Result<JsValue, JsValue> {
-        let widgets = self
-            .inner
-            .get_widgets()
-            .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    pub fn get_widgets(&self, locale: Option<String>) -> Result<JsValue, JsValue> {
+        let widgets = match locale.as_deref() {
+            Some(locale) => self.inner.get_widgets_for_locale(locale),
+            None => self.inner.get_widgets(),
+        }
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
         to_value(&widgets)
     }
 

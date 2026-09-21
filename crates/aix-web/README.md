@@ -170,11 +170,11 @@ const pages = aix.getPages();
 */
 ```
 
-#### `getWidgets(): WidgetInfo[]`
-Returns widget declarations after verifying that every path resolves to an `.ink` entry in the package. Throws when a declared entry is missing.
+#### `getWidgets(locale?): WidgetInfo[]`
+Returns widget declarations after verifying that every path resolves to an `.ink` entry in the package. When `locale` is provided, merges `displayName` and `description` from the matching `app.<locale>.json` overlay. Throws when a declared entry is missing or the selected locale file is invalid.
 ```typescript
-const widgets = aix.getWidgets();
-// [{ path: "widgets/clock/index", family: "1x1", placement: "persistent" }]
+const widgets = aix.getWidgets('en-US');
+// [{ path: "widgets/clock/index", family: "1x1", placement: "persistent", displayName: "Clock", description: "Shows the current time." }]
 ```
 
 #### `getTools(): Tool[]`
@@ -218,6 +218,9 @@ interface PageInfo {
 interface WidgetInfo {
   path: string;
   family: string;
+  placement: "persistent" | "overlay";
+  displayName?: string | null;
+  description?: string | null;
 }
 ```
 

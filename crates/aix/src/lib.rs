@@ -74,6 +74,12 @@ pub struct WidgetInfo {
     /// Host placement policy. Missing values retain the legacy persistent behavior.
     #[serde(default)]
     pub placement: WidgetPlacement,
+    /// User-facing Widget name from `app.json` or a locale overlay.
+    #[serde(rename = "displayName", default)]
+    pub display_name: Option<String>,
+    /// Short description from `app.json` or a locale overlay.
+    #[serde(default)]
+    pub description: Option<String>,
 }
 
 /// Describes how the host manages a Widget's placement.
@@ -129,6 +135,23 @@ struct AppConfig {
     #[serde(default)]
     pub widgets: Vec<WidgetInfo>,
     pub window: Option<WindowConfig>,
+}
+
+#[derive(Deserialize, Default)]
+struct WidgetLocalization {
+    #[serde(rename = "displayName")]
+    display_name: Option<String>,
+    description: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+struct LocaleConfig {
+    #[serde(default)]
+    widgets: HashMap<String, WidgetLocalization>,
+}
+
+fn normalize_locale(value: &str) -> String {
+    value.trim().replace('_', "-").to_ascii_lowercase()
 }
 
 #[derive(Deserialize)]
@@ -715,14 +738,84 @@ impl AixReader {
     /// Every widget path must resolve to an `.ink` single-file entry in the package.
     /// An absent `widgets` property is treated as an empty list.
     pub fn get_widgets(&self) -> Result<Vec<WidgetInfo>> {
+        self.get_widgets_with_locale(None)
+    }
+
+    /// Returns widgets with localized metadata for the requested locale.
+    ///
+    /// The reader selects an `app.<locale>.json` overlay and merges its
+    /// `displayName` and `description` values by widget path. Missing overlays
+    /// and fields retain their values from `app.json`.
+    pub fn get_widgets_for_locale(&self, locale: &str) -> Result<Vec<WidgetInfo>> {
+        self.get_widgets_with_locale(Some(locale))
+    }
+
+    fn get_widgets_with_locale(&self, locale: Option<&str>) -> Result<Vec<WidgetInfo>> {
         let config = self.read_app_config()?;
-        for widget in &config.widgets {
+        let mut widgets = config.widgets;
+        if let Some(locale) = locale.filter(|value| !value.trim().is_empty()) {
+            if let Some(locale_path) = self.find_locale_file(locale) {
+                let locale_config: LocaleConfig =
+                    serde_json::from_slice(&self.read_file(&locale_path)?).map_err(|error| {
+                        anyhow!("Invalid locale configuration {}: {}", locale_path, error)
+                    })?;
+                for widget in &mut widgets {
+                    if let Some(localized) = locale_config.widgets.get(&widget.path) {
+                        if localized.display_name.is_some() {
+                            widget.display_name = localized.display_name.clone();
+                        }
+                        if localized.description.is_some() {
+                            widget.description = localized.description.clone();
+                        }
+                    }
+                }
+            }
+        }
+        for widget in &widgets {
             let entry_path = format!("{}.ink", widget.path);
             if !self.index.contains_key(entry_path.as_str()) {
                 return Err(anyhow!("Widget entry not found: {}", entry_path));
             }
         }
-        Ok(config.widgets)
+        Ok(widgets)
+    }
+
+    fn find_locale_file(&self, requested: &str) -> Option<String> {
+        let requested = normalize_locale(requested);
+        if requested.is_empty() {
+            return None;
+        }
+
+        let mut files = HashMap::new();
+        for name in self.index.keys() {
+            let Some(locale) = name
+                .strip_prefix("app.")
+                .and_then(|value| value.strip_suffix(".json"))
+            else {
+                continue;
+            };
+            if locale != "" {
+                files.insert(normalize_locale(locale), name.clone());
+            }
+        }
+
+        let mut candidate = requested.clone();
+        while !candidate.is_empty() {
+            if let Some(path) = files.get(&candidate) {
+                return Some(path.clone());
+            }
+            candidate = candidate
+                .rsplit_once('-')
+                .map(|(parent, _)| parent.to_string())
+                .unwrap_or_default();
+        }
+
+        let primary = requested.split('-').next().unwrap_or_default();
+        files
+            .into_iter()
+            .filter(|(locale, _)| locale.split('-').next() == Some(primary))
+            .min_by(|left, right| left.0.cmp(&right.0))
+            .map(|(_, path)| path)
     }
 
     /// Derives agent-facing tools from the package page list.
@@ -904,6 +997,24 @@ mod tests {
         buf
     }
 
+    fn create_localized_widget_test_aix() -> Vec<u8> {
+        let mut buf = Vec::new();
+        {
+            let mut zip = zip::ZipWriter::new(Cursor::new(&mut buf));
+            let options = FileOptions::default();
+            zip.start_file("app.json", options).unwrap();
+            zip.write_all(br#"{"pages":[],"widgets":[{"path":"widgets/clock/index","family":"1x1","displayName":"\u65f6\u949f","description":"\u663e\u793a\u5f53\u524d\u65f6\u95f4\u3002"}]}"#).unwrap();
+            zip.start_file("app.en-US.json", options).unwrap();
+            zip.write_all(br#"{"locale":"en-US","widgets":{"widgets/clock/index":{"displayName":"Clock","description":"Shows the current time."}}}"#).unwrap();
+            zip.start_file("app.zh-TW.json", options).unwrap();
+            zip.write_all(br#"{"locale":"zh-TW","widgets":{"widgets/clock/index":{"displayName":"\u6642\u9418"}}}"#).unwrap();
+            zip.start_file("widgets/clock/index.ink", options).unwrap();
+            zip.write_all(b"<widget></widget>").unwrap();
+            zip.finish().unwrap();
+        }
+        buf
+    }
+
     fn create_engine_test_aix(app_json: &[u8], manifest_engine: Option<&str>) -> Vec<u8> {
         let mut buf = Vec::new();
         {
@@ -963,6 +1074,8 @@ mod tests {
                 path: "widgets/clock/index".to_string(),
                 family: "1x1".to_string(),
                 placement: WidgetPlacement::Persistent,
+                display_name: None,
+                description: None,
             }]
         );
     }
@@ -984,6 +1097,42 @@ mod tests {
         assert_eq!(
             reader.get_widgets().unwrap()[0].placement,
             WidgetPlacement::Overlay
+        );
+    }
+
+    #[test]
+    fn resolves_widget_metadata_from_locale_overlay() {
+        let reader = AixReader::new(create_localized_widget_test_aix()).unwrap();
+        let widgets = reader.get_widgets_for_locale("en-US").unwrap();
+
+        assert_eq!(widgets[0].display_name.as_deref(), Some("Clock"));
+        assert_eq!(
+            widgets[0].description.as_deref(),
+            Some("Shows the current time.")
+        );
+    }
+
+    #[test]
+    fn falls_back_to_default_widget_metadata_for_unknown_locale() {
+        let reader = AixReader::new(create_localized_widget_test_aix()).unwrap();
+        let widgets = reader.get_widgets_for_locale("fr-FR").unwrap();
+
+        assert_eq!(widgets[0].display_name.as_deref(), Some("\u{65f6}\u{949f}"));
+        assert_eq!(
+            widgets[0].description.as_deref(),
+            Some("\u{663e}\u{793a}\u{5f53}\u{524d}\u{65f6}\u{95f4}\u{3002}")
+        );
+    }
+
+    #[test]
+    fn falls_back_per_field_when_locale_overlay_is_partial() {
+        let reader = AixReader::new(create_localized_widget_test_aix()).unwrap();
+        let widgets = reader.get_widgets_for_locale("zh-TW").unwrap();
+
+        assert_eq!(widgets[0].display_name.as_deref(), Some("\u{6642}\u{9418}"));
+        assert_eq!(
+            widgets[0].description.as_deref(),
+            Some("\u{663e}\u{793a}\u{5f53}\u{524d}\u{65f6}\u{95f4}\u{3002}")
         );
     }
 

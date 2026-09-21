@@ -109,6 +109,8 @@ export interface WidgetInfo {
   path: string;
   family: string;
   placement: 'persistent' | 'overlay';
+  displayName?: string | null;
+  description?: string | null;
 }
 
 export interface Tool {
@@ -243,9 +245,10 @@ export class AIX {
 
   /**
    * Get all widgets from app.json after validating that each .ink entry exists.
+   * When locale is provided, merge displayName and description from app.<locale>.json.
    */
-  getWidgets(): WidgetInfo[] {
-    return (this.reader as any).get_widgets() as WidgetInfo[];
+  getWidgets(locale?: string): WidgetInfo[] {
+    return (this.reader as any).get_widgets(locale) as WidgetInfo[];
   }
 
   /**
