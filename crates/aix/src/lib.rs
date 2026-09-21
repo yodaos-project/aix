@@ -794,7 +794,7 @@ impl AixReader {
             else {
                 continue;
             };
-            if locale != "" {
+            if !locale.is_empty() {
                 files.insert(normalize_locale(locale), name.clone());
             }
         }
