@@ -125,7 +125,7 @@ aix launch-widget ./my-agent widgets/order/index
 aix launch-widget ./my-agent widgets/order/index --position 2
 ```
 
-尺寸来自 `app.json.widgets[].family`。兼容的 placements 会保留；位置冲突时替换相交的动态 Widget；没有空间时清理旧的动态 placements。常驻 Widget 永远不会被自动删除。
+尺寸来自 `app.json.widgets[].family`。兼容的 placements 会保留；位置冲突时替换相交的可叠加 Widget；没有空间时清理旧的可叠加 placements。常驻 Widget 永远不会被自动删除。
 
 必要时执行 `prepare -> push widget-config.json -> widget-apply -> open`。运行时 placement 丢失时会重新提交布局并重试一次 Open。
 

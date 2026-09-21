@@ -71,6 +71,23 @@ pub struct WidgetInfo {
     pub path: String,
     /// Widget family declared by the application, such as `1x1` or `1x2`.
     pub family: String,
+    /// Host placement policy. Missing values retain the legacy persistent behavior.
+    #[serde(default)]
+    pub placement: WidgetPlacement,
+}
+
+/// Describes how the host manages a Widget's placement.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum WidgetPlacement {
+    Persistent,
+    Overlay,
+}
+
+impl Default for WidgetPlacement {
+    fn default() -> Self {
+        Self::Persistent
+    }
 }
 
 /// Represents an OpenAI-style tool derived from a page definition.
@@ -866,22 +883,21 @@ mod tests {
         buf
     }
 
-    fn create_widget_test_aix(include_entry: bool) -> Vec<u8> {
+    fn create_widget_test_aix(include_entry: bool, placement: Option<&str>) -> Vec<u8> {
         let mut buf = Vec::new();
         {
             let mut zip = zip::ZipWriter::new(Cursor::new(&mut buf));
             let options = FileOptions::default();
 
             zip.start_file("app.json", options).unwrap();
-            zip.write_all(
-                br#"{
-                    "pages": [],
-                    "widgets": [
-                        { "path": "widgets/clock/index", "family": "1x1" }
-                    ]
-                }"#,
-            )
-            .unwrap();
+            let widget = match placement {
+                Some(placement) => format!(
+                    r#"{{"pages":[],"widgets":[{{"path":"widgets/clock/index","family":"1x1","placement":"{placement}"}}]}}"#
+                ),
+                None => r#"{"pages":[],"widgets":[{"path":"widgets/clock/index","family":"1x1"}]}"#
+                    .to_string(),
+            };
+            zip.write_all(widget.as_bytes()).unwrap();
 
             if include_entry {
                 zip.start_file("widgets/clock/index.ink", options).unwrap();
@@ -944,24 +960,35 @@ mod tests {
 
     #[test]
     fn returns_declared_widgets_when_entries_exist() {
-        let reader = AixReader::new(create_widget_test_aix(true)).unwrap();
+        let reader = AixReader::new(create_widget_test_aix(true, None)).unwrap();
 
         assert_eq!(
             reader.get_widgets().unwrap(),
             vec![WidgetInfo {
                 path: "widgets/clock/index".to_string(),
                 family: "1x1".to_string(),
+                placement: WidgetPlacement::Persistent,
             }]
         );
     }
 
     #[test]
     fn rejects_widget_with_missing_entry() {
-        let reader = AixReader::new(create_widget_test_aix(false)).unwrap();
+        let reader = AixReader::new(create_widget_test_aix(false, None)).unwrap();
 
         assert_eq!(
             reader.get_widgets().unwrap_err().to_string(),
             "Widget entry not found: widgets/clock/index.ink"
+        );
+    }
+
+    #[test]
+    fn reads_overlay_widget_placement() {
+        let reader = AixReader::new(create_widget_test_aix(true, Some("overlay"))).unwrap();
+
+        assert_eq!(
+            reader.get_widgets().unwrap()[0].placement,
+            WidgetPlacement::Overlay
         );
     }
 

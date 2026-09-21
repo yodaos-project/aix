@@ -202,14 +202,14 @@ aix launch-widget ./my-agent widgets/order/index
 aix launch-widget ./my-agent widgets/order/index --position 2
 ```
 
-每次执行都会读取 `widget-snapshot.configurationJson`；无配置时从 4 格、2 列的空布局开始。尺寸仅从 `app.json.widgets[].family` 推导，不提供 size 参数。
+每次执行都会读取 `widget-snapshot.configurationJson`；无配置时从 4 格、2 列的空布局开始。尺寸从 `app.json.widgets[].family` 推导，不提供 size 参数。Widget 声明支持 `placement: "persistent" | "overlay"`，省略时默认为 `persistent`。
 
 布局策略：
 
 - 同一 Widget 复用原位置；
-- 有兼容空位时保留已有动态 Widget；
-- 指定位置冲突时自动替换相交的动态 Widget；
-- 完全放不下时清空旧的动态 placements 后重新放置；
+- 有兼容空位时保留已有可叠加 Widget；
+- 指定位置冲突时自动替换相交的可叠加 Widget；
+- 完全放不下时清空旧的可叠加 placements 后重新放置；
 - 永远不自动删除常驻 Widget。
 
 布局变化时执行 `prepare -> push widget-config.json -> widget-apply -> open`。布局未变化时直接 Open；如果设备返回 `WIDGET_PLACEMENT_MISSING`，CLI 会重新提交已保存布局并重试一次。

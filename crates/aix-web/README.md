@@ -174,7 +174,7 @@ const pages = aix.getPages();
 Returns widget declarations after verifying that every path resolves to an `.ink` entry in the package. Throws when a declared entry is missing.
 ```typescript
 const widgets = aix.getWidgets();
-// [{ path: "widgets/clock/index", family: "1x1" }]
+// [{ path: "widgets/clock/index", family: "1x1", placement: "persistent" }]
 ```
 
 #### `getTools(): Tool[]`

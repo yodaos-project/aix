@@ -124,7 +124,7 @@ async function main() {
   program
     .command("launch-widget <input> <path>")
     .helpGroup(DEVICE_COMMANDS)
-    .description("Configure and open an installed dynamic Widget on Rokid Glasses")
+    .description("Configure and open an installed overlay Widget on Rokid Glasses")
     .option("-p, --position <index>", "Widget grid start index")
     .option("--params <json>", "Parameters as a JSON object")
     .option("--params-file <file>", "Read parameters from a JSON file")
@@ -138,7 +138,7 @@ async function main() {
     .helpGroup(DEVICE_COMMANDS)
     .description("Show or clear the current device Widget layout")
     .addArgument(new Argument("[action]", "Read-only layout action").choices(["show"]))
-    .option("--clear", "Clear permanent and dynamic Widget placements")
+    .option("--clear", "Clear persistent and overlay Widget placements")
     .option("--yes", "Skip confirmation for --clear")
     .option("-s, --serial <serial>", "ADB device serial")
     .action(async (action: string | undefined, options: {

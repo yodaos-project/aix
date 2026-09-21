@@ -140,8 +140,8 @@ aix launch-widget ./my-agent widgets/order/index --position 2
 ```
 
 Size comes from `app.json.widgets[].family`. Compatible placements are kept.
-Position conflicts replace overlapping dynamic Widgets; when no space remains,
-old dynamic placements are cleared. Permanent Widgets are never removed.
+Position conflicts replace overlapping overlay Widgets; when no space remains,
+old overlay placements are cleared. Persistent Widgets are never removed.
 
 When needed, the command runs
 `prepare -> push widget-config.json -> widget-apply -> open`. A missing runtime

@@ -108,6 +108,7 @@ export interface PageInfo {
 export interface WidgetInfo {
   path: string;
   family: string;
+  placement: 'persistent' | 'overlay';
 }
 
 export interface Tool {

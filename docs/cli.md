@@ -312,7 +312,7 @@ aix device unset-dev
 ```
 
 Setting or unsetting Developer Mode reloads all AIUI Widgets. Permanent Widgets
-are recreated automatically; dynamic Widgets must be launched again. All device
+are recreated automatically; overlay Widgets must be launched again. All device
 commands accept `--serial <serial>`. The read-only status also lists installed
 `.aix` packages from the device package directory and enriches them with Agent
 metadata from `developer_manifest.json`.
@@ -332,7 +332,7 @@ only invokes DEVELOP `open`; it does not install or upload the Agent.
 
 ## Configure And Launch A Dynamic Widget
 
-Configure a dynamic Widget from the device's current layout and then open it:
+Configure an overlay Widget from the device's current layout and then open it:
 
 ```bash
 aix launch-widget ./my-agent widgets/order/index
@@ -344,14 +344,14 @@ configuration exists, it starts with an empty 4-cell, 2-column layout. Widget
 dimensions come exclusively from the declared `family`; no size option is
 exposed. Existing placements are reused, otherwise the first free position is
 selected. A requested-position conflict replaces the overlapping dynamic
-Widget automatically. If no free position remains, existing dynamic placements
+Widget automatically. If no free position remains, existing overlay placements
 are cleared and the new Widget is placed without removing permanent Widgets.
 
 When the layout changes, the command runs
 `prepare -> push widget-config.json -> widget-apply -> open`. An unchanged
 layout calls `open` directly; if the device reports a missing runtime placement,
 the CLI reapplies the saved layout and retries once. Layout changes and recovery
-reapplies reload all Widgets, so other dynamic Widgets must be launched again.
+reapplies reload all Widgets, so other overlay Widgets must be launched again.
 
 ## Inspect Or Clear Widget Layout
 
