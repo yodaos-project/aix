@@ -77,17 +77,12 @@ pub struct WidgetInfo {
 }
 
 /// Describes how the host manages a Widget's placement.
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum WidgetPlacement {
+    #[default]
     Persistent,
     Overlay,
-}
-
-impl Default for WidgetPlacement {
-    fn default() -> Self {
-        Self::Persistent
-    }
 }
 
 /// Represents an OpenAI-style tool derived from a page definition.

@@ -54,7 +54,7 @@ enum Commands {
         #[arg(short = 's', long)]
         serial: Option<String>,
     },
-        /// Configure and open an installed overlay Widget on Rokid Glasses
+    /// Configure and open an installed overlay Widget on Rokid Glasses
     LaunchWidget {
         /// Project directory or .aix file used to resolve Agent identity and Widget family
         #[arg(value_name = "INPUT")]
