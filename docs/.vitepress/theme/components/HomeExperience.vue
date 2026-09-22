@@ -87,16 +87,7 @@ const packageSections = [
 ];
 
 const installOptions = [
-  {
-    id: "npm",
-    label: "npm",
-    command: "npm install -g @yodaos-pkg/aix-cli"
-  },
-  {
-    id: "cargo",
-    label: "cargo",
-    command: "cargo install aiui-aix-cli"
-  }
+  { id: "npm", label: "npm", command: "npm install -g @yodaos-pkg/aix-cli" }
 ] as const;
 
 const activeInstallId = ref<(typeof installOptions)[number]["id"]>("npm");

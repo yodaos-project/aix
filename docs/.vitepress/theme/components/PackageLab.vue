@@ -58,6 +58,87 @@ const buildError = ref<string | null>(null);
 const buildReport = ref<OptimizeReport | null>(null);
 const optimizeBuild = ref(true);
 const optimizeLevel = ref<1 | 2 | 3>(2);
+const locale = ref<"en" | "zh-CN">("en");
+
+const text = computed(() => locale.value === "zh-CN" ? {
+  play: "体验",
+  hint: "在浏览器中检查和构建 AIX 包。",
+  inspect: "检查",
+  build: "构建",
+  reading: "正在读取包…",
+  replacePackage: "替换包",
+  uploadPackage: "上传包",
+  replaceDirectory: "替换目录",
+  chooseDirectory: "选择目录",
+  error: "错误：",
+  noDirectory: "未选择目录",
+  directory: "目录",
+  files: "文件",
+  sourceSize: "源文件大小",
+  optimize: "优化资源",
+  level: "级别",
+  building: "正在构建包…",
+  buildDownload: "构建并下载",
+  downloaded: "包已下载",
+  saved: "已节省",
+  noPackage: "尚未加载包",
+  compressed: "压缩后",
+  preview: "预览",
+  notPreviewable: "该文件不是可预览的 UTF-8 文本。",
+  noPreview: "未选择可预览的文件。",
+  details: "包详情",
+  meta: "元数据",
+  pages: "页面",
+  tools: "工具",
+  untitled: "未命名页面",
+  schema: "Schema",
+  noSchema: "无 Schema",
+  noPages: "没有页面。",
+  noTools: "没有工具。",
+  title: "标题",
+  version: "版本",
+  entries: "条目",
+  unknown: "未知"
+} : {
+  play: "Play",
+  hint: "Inspect and build AIX packages in the browser.",
+  inspect: "Inspect",
+  build: "Build",
+  reading: "Reading package…",
+  replacePackage: "Replace package",
+  uploadPackage: "Upload package",
+  replaceDirectory: "Replace directory",
+  chooseDirectory: "Choose directory",
+  error: "Error:",
+  noDirectory: "No directory selected",
+  directory: "Directory",
+  files: "Files",
+  sourceSize: "Source size",
+  optimize: "Optimize resources",
+  level: "Level",
+  building: "Building package…",
+  buildDownload: "Build and download",
+  downloaded: "Package downloaded",
+  saved: "saved",
+  noPackage: "No package loaded",
+  compressed: "compressed",
+  preview: "Preview",
+  notPreviewable: "This file is not previewable as UTF-8 text.",
+  noPreview: "No previewable file was selected.",
+  details: "Package details",
+  meta: "Meta",
+  pages: "Pages",
+  tools: "Tools",
+  untitled: "Untitled page",
+  schema: "Schema",
+  noSchema: "No schema",
+  noPages: "No pages.",
+  noTools: "No tools.",
+  title: "Title",
+  version: "Version",
+  entries: "Entries",
+  unknown: "Unknown"
+});
 
 const TEXT_FILE_PATTERN =
   /\.(md|txt|json|js|ts|jsx|tsx|css|html|xml|yaml|yml|toml|ini|cfg|ink|wxml|wxss|wcss|svg)$/i;
@@ -66,20 +147,25 @@ const hasPackage = computed(() => entries.value.length > 0);
 const selectedEntry = computed(() => entries.value.find((entry) => entry.name === selectedFile.value) ?? null);
 const packageLabel = computed(() => title.value ?? "No package loaded");
 const packageStats = computed(() => [
-  { label: "Entries", value: String(entries.value.length) },
-  { label: "Pages", value: String(pages.value.length) },
-  { label: "Tools", value: String(tools.value.length) },
-  { label: "Version", value: version.value ?? "Unknown" }
+  { label: text.value.entries, value: String(entries.value.length) },
+  { label: text.value.pages, value: String(pages.value.length) },
+  { label: text.value.tools, value: String(tools.value.length) },
+  { label: text.value.version, value: version.value ?? text.value.unknown }
 ]);
 const metadataRows = computed(() => [
-  { label: "Title", value: title.value ?? "Untitled" },
-  { label: "Version", value: version.value ?? "Unknown" },
-  { label: "Entries", value: String(entries.value.length) },
-  { label: "Pages", value: String(pages.value.length) },
-  { label: "Tools", value: String(tools.value.length) }
+  { label: text.value.title, value: title.value ?? text.value.untitled },
+  { label: text.value.version, value: version.value ?? text.value.unknown },
+  { label: text.value.entries, value: String(entries.value.length) },
+  { label: text.value.pages, value: String(pages.value.length) },
+  { label: text.value.tools, value: String(tools.value.length) }
 ]);
 const directorySize = computed(() => directoryFiles.value.reduce((total, file) => total + file.size, 0));
 const hasDirectory = computed(() => directoryFiles.value.length > 0);
+
+if (typeof window !== "undefined") {
+  locale.value = new URLSearchParams(window.location.search).get("lang") === "zh-CN"
+    || window.location.pathname.includes("/zh-CN/") ? "zh-CN" : "en";
+}
 
 function resetState() {
   error.value = null;
@@ -262,16 +348,16 @@ function formatTool(tool: LabTool): string {
   <div class="lab-shell">
     <section class="lab-topbar">
       <div class="lab-topbar-copy">
-        <strong class="lab-topbar-title">Play</strong>
-        <span class="lab-topbar-hint">Inspect and build AIX packages in the browser.</span>
+        <strong class="lab-topbar-title">{{ text.play }}</strong>
+        <span class="lab-topbar-hint">{{ text.hint }}</span>
       </div>
 
       <div class="lab-mode-switch">
         <button type="button" :class="{ 'is-active': mode === 'inspect' }" @click="mode = 'inspect'">
-          Inspect
+          {{ text.inspect }}
         </button>
         <button type="button" :class="{ 'is-active': mode === 'build' }" @click="mode = 'build'">
-          Build
+          {{ text.build }}
         </button>
       </div>
 
@@ -283,7 +369,7 @@ function formatTool(tool: LabTool): string {
           class="lab-hidden-input"
           @change="handleFileUpload"
         />
-        <span>{{ loading ? "Reading package..." : hasPackage ? "Replace package" : "Upload package" }}</span>
+        <span>{{ loading ? text.reading : hasPackage ? text.replacePackage : text.uploadPackage }}</span>
       </label>
 
       <label v-else class="lab-upload-button" for="directory-input">
@@ -295,31 +381,31 @@ function formatTool(tool: LabTool): string {
           class="lab-hidden-input"
           @change="handleDirectorySelection"
         />
-        <span>{{ hasDirectory ? "Replace directory" : "Choose directory" }}</span>
+        <span>{{ hasDirectory ? text.replaceDirectory : text.chooseDirectory }}</span>
       </label>
     </section>
 
     <template v-if="mode === 'build'">
-      <div v-if="buildError" class="lab-error"><strong>Error:</strong> {{ buildError }}</div>
+      <div v-if="buildError" class="lab-error"><strong>{{ text.error }}</strong> {{ buildError }}</div>
 
       <section v-if="!hasDirectory" class="lab-empty-stage">
         <div class="lab-empty-stage-card">
-          <strong>No directory selected</strong>
+            <strong>{{ text.noDirectory }}</strong>
         </div>
       </section>
 
       <section v-else class="lab-builder-panel">
         <div class="lab-builder-summary">
           <div>
-            <span>Directory</span>
+            <span>{{ text.directory }}</span>
             <strong>{{ directoryName }}</strong>
           </div>
           <div>
-            <span>Files</span>
+            <span>{{ text.files }}</span>
             <strong>{{ directoryFiles.length }}</strong>
           </div>
           <div>
-            <span>Source size</span>
+            <span>{{ text.sourceSize }}</span>
             <strong>{{ formatBytes(directorySize) }}</strong>
           </div>
         </div>
@@ -327,11 +413,11 @@ function formatTool(tool: LabTool): string {
         <div class="lab-builder-controls">
           <label class="lab-check-control">
             <input v-model="optimizeBuild" type="checkbox" />
-            <span>Optimize resources</span>
+            <span>{{ text.optimize }}</span>
           </label>
 
           <label class="lab-level-control">
-            <span>Level</span>
+            <span>{{ text.level }}</span>
             <select v-model="optimizeLevel" :disabled="!optimizeBuild">
               <option :value="1">1</option>
               <option :value="2">2</option>
@@ -340,24 +426,24 @@ function formatTool(tool: LabTool): string {
           </label>
 
           <button class="lab-build-button" type="button" :disabled="building" @click="buildAndDownload">
-            {{ building ? "Building package..." : "Build and download" }}
+            {{ building ? text.building : text.buildDownload }}
           </button>
         </div>
 
         <div v-if="buildReport" class="lab-build-result" role="status">
-          <strong>Package downloaded</strong>
+          <strong>{{ text.downloaded }}</strong>
           <span>{{ formatBytes(buildReport.output_size) }}</span>
-          <span>{{ formatBytes(buildReport.saved_bytes) }} saved</span>
+          <span>{{ formatBytes(buildReport.saved_bytes) }} {{ text.saved }}</span>
         </div>
       </section>
     </template>
 
     <template v-else>
-    <div v-if="error" class="lab-error"><strong>Error:</strong> {{ error }}</div>
+    <div v-if="error" class="lab-error"><strong>{{ text.error }}</strong> {{ error }}</div>
 
     <section v-if="!hasPackage" class="lab-empty-stage">
       <div class="lab-empty-stage-card">
-        <strong>{{ loading ? "Reading package..." : "No package loaded" }}</strong>
+      <strong>{{ loading ? text.reading : text.noPackage }}</strong>
       </div>
     </section>
 
@@ -386,7 +472,7 @@ function formatTool(tool: LabTool): string {
               <h3>{{ entry.name }}</h3>
               <div class="lab-file-meta">
                 <span>{{ formatBytes(entry.size) }}</span>
-                <span>compressed {{ formatBytes(entry.compressed_size) }}</span>
+                <span>{{ text.compressed }} {{ formatBytes(entry.compressed_size) }}</span>
               </div>
             </button>
           </div>
@@ -395,7 +481,7 @@ function formatTool(tool: LabTool): string {
         <section class="lab-preview-panel">
           <div class="lab-panel-head">
             <div>
-              <h2>{{ selectedFile ?? "Preview" }}</h2>
+              <h2>{{ selectedFile ?? text.preview }}</h2>
               <p v-if="selectedEntry" class="lab-panel-subtitle">
                 {{ formatBytes(selectedEntry.size) }}
               </p>
@@ -406,8 +492,8 @@ function formatTool(tool: LabTool): string {
             <p>
               {{
                 selectedFile
-                  ? "This file is not previewable as UTF-8 text."
-                  : "No previewable file was selected."
+                  ? text.notPreviewable
+                  : text.noPreview
               }}
             </p>
           </div>
@@ -415,14 +501,14 @@ function formatTool(tool: LabTool): string {
       </section>
 
       <section class="lab-secondary">
-        <div class="lab-secondary-tabs" role="tablist" aria-label="Package details">
+        <div class="lab-secondary-tabs" role="tablist" :aria-label="text.details">
           <button
             type="button"
             class="lab-tab"
             :class="{ 'is-active': currentTab === 'meta' }"
             @click="currentTab = 'meta'"
           >
-            Meta
+            {{ text.meta }}
           </button>
           <button
             type="button"
@@ -430,7 +516,7 @@ function formatTool(tool: LabTool): string {
             :class="{ 'is-active': currentTab === 'pages' }"
             @click="currentTab = 'pages'"
           >
-            Pages
+            {{ text.pages }}
           </button>
           <button
             type="button"
@@ -438,7 +524,7 @@ function formatTool(tool: LabTool): string {
             :class="{ 'is-active': currentTab === 'tools' }"
             @click="currentTab = 'tools'"
           >
-            Tools
+            {{ text.tools }}
           </button>
         </div>
 
@@ -452,8 +538,8 @@ function formatTool(tool: LabTool): string {
         <div v-else-if="currentTab === 'pages'" class="lab-secondary-panel lab-pages-grid">
           <article v-for="page in pages" :key="page.name" class="lab-page-card">
             <div class="lab-page-head">
-              <h3>{{ page.title || "Untitled page" }}</h3>
-              <span class="lab-chip">{{ page.data_schema && Object.keys(page.data_schema).length > 0 ? "Schema" : "No schema" }}</span>
+              <h3>{{ page.title || text.untitled }}</h3>
+              <span class="lab-chip">{{ page.data_schema && Object.keys(page.data_schema).length > 0 ? text.schema : text.noSchema }}</span>
             </div>
             <p>{{ page.name }}</p>
             <div class="lab-page-meta">
@@ -462,7 +548,7 @@ function formatTool(tool: LabTool): string {
             </div>
           </article>
           <div v-if="pages.length === 0" class="lab-empty lab-empty-compact">
-            <p>No pages.</p>
+            <p>{{ text.noPages }}</p>
           </div>
         </div>
 
@@ -475,7 +561,7 @@ function formatTool(tool: LabTool): string {
             <pre class="lab-code">{{ formatTool(tool) }}</pre>
           </article>
           <div v-if="tools.length === 0" class="lab-empty lab-empty-compact">
-            <p>No tools.</p>
+            <p>{{ text.noTools }}</p>
           </div>
         </div>
       </section>

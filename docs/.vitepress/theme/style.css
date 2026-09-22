@@ -1,3 +1,5 @@
+@import url("https://cdn.jsdelivr.net/npm/lxgw-wenkai-webfont@1.6.0/style.css");
+
 :root {
   --vp-c-bg: #f4f1e9;
   --vp-c-bg-soft: #efebe3;
@@ -11,7 +13,8 @@
   --vp-c-brand-3: #048944;
   --vp-home-hero-name-color: #1b2230;
   --vp-home-hero-image-background-image: radial-gradient(circle at center, rgba(88, 106, 138, 0.22), rgba(88, 106, 138, 0));
-  --vp-font-family-base: "Outfit", "Avenir Next", "Segoe UI", sans-serif;
+  --vp-font-family-base: "Inter", "Avenir Next", "Segoe UI", sans-serif;
+  --vp-font-family-heading: "Avenir Next", "Inter", "Segoe UI", sans-serif;
   --vp-font-family-mono: "SFMono-Regular", "SF Mono", Consolas, monospace;
   --aix-paper: #f4f1e9;
   --aix-paper-deep: #ece6db;
@@ -22,6 +25,27 @@
   --aix-dark: #161b24;
   --aix-highlight: #07c160;
   --aix-shadow: 0 20px 80px rgba(36, 42, 54, 0.1);
+}
+
+:root.dark {
+  --vp-c-bg: #10141b;
+  --vp-c-bg-soft: #171d27;
+  --vp-c-bg-alt: #0c1016;
+  --vp-c-default-1: #edf2f7;
+  --vp-c-default-2: #b5c0ce;
+  --vp-c-default-3: #8996a8;
+  --vp-c-divider: rgba(225, 233, 242, 0.14);
+  --vp-c-brand-1: #35d77e;
+  --vp-c-brand-2: #22bd68;
+  --vp-c-brand-3: #159652;
+  --vp-home-hero-name-color: #f2f6fa;
+  --aix-paper: #10141b;
+  --aix-paper-deep: #171d27;
+  --aix-ink: #edf2f7;
+  --aix-muted: #aebaca;
+  --aix-border: rgba(225, 233, 242, 0.14);
+  --aix-card: rgba(23, 29, 39, 0.82);
+  --aix-shadow: 0 20px 80px rgba(0, 0, 0, 0.28);
 }
 
 html {
@@ -36,10 +60,22 @@ body {
   color: var(--aix-ink);
 }
 
+:root.dark body {
+  background:
+    radial-gradient(circle at top left, rgba(47, 76, 92, 0.18), transparent 28%),
+    radial-gradient(circle at bottom right, rgba(24, 74, 55, 0.16), transparent 24%),
+    var(--aix-paper);
+}
+
 .VPNavBar {
   background: rgba(244, 241, 233, 0.72) !important;
   backdrop-filter: blur(18px);
   border-bottom: 1px solid rgba(23, 29, 40, 0.08);
+}
+
+:root.dark .VPNavBar {
+  background: rgba(16, 20, 27, 0.78) !important;
+  border-bottom-color: rgba(225, 233, 242, 0.12);
 }
 
 .VPNavBar .title,
@@ -71,6 +107,10 @@ body {
   display: none;
 }
 
+.aix-zh-home-page .VPHome {
+  display: block;
+}
+
 .VPDoc.has-aside .content-container,
 .VPDoc .content-container {
   max-width: 960px !important;
@@ -82,6 +122,74 @@ body {
   border-radius: 28px;
   box-shadow: var(--aix-shadow);
   padding: 2rem;
+}
+
+:root.dark .VPDoc .main {
+  background: rgba(23, 29, 39, 0.72);
+  border-color: rgba(225, 233, 242, 0.12);
+}
+
+/* Chinese locale: use a readable Kai-style system font without changing code typography. */
+html[lang="zh-CN"] body,
+html[lang="zh-CN"] button,
+html[lang="zh-CN"] input,
+html[lang="zh-CN"] .vp-doc,
+html[lang="zh-CN"] .VPNavBar,
+html[lang="zh-CN"] .VPSidebar {
+  font-family: "LXGW WenKai", "LXGWWenKai", "Noto Serif CJK SC", serif;
+}
+
+body,
+.vp-doc,
+.VPNavBar,
+.VPSidebar {
+  font-family: "Inter", "Avenir Next", "Segoe UI", sans-serif;
+  font-weight: 400;
+}
+
+h1, h2, h3, h4, h5, h6,
+.VPNavBarTitle,
+.VPNavBarMenuLink,
+.VPButton,
+.aix-doc-hero-title,
+.aix-doc-section-head h2,
+.aix-doc-card h3,
+.aix-doc-step h3 {
+  font-family: "Avenir Next", "Inter", "Segoe UI", sans-serif;
+  font-weight: 600;
+}
+
+html[lang="zh-CN"] h1,
+html[lang="zh-CN"] h2,
+html[lang="zh-CN"] h3,
+html[lang="zh-CN"] h4,
+html[lang="zh-CN"] h5,
+html[lang="zh-CN"] h6,
+html[lang="zh-CN"] .VPNavBarTitle,
+html[lang="zh-CN"] .VPNavBarMenuLink,
+html[lang="zh-CN"] .VPButton,
+html[lang="zh-CN"] .aix-doc-hero-title,
+html[lang="zh-CN"] .aix-doc-section-head h2,
+html[lang="zh-CN"] .aix-doc-card h3,
+html[lang="zh-CN"] .aix-doc-step h3,
+html[lang="zh-CN"] .aix-doc-install-title,
+html[lang="zh-CN"] .aix-doc-kicker,
+html[lang="zh-CN"] .aix-doc-command-label,
+html[lang="zh-CN"] .aix-doc-package-meta {
+  font-family: "Avenir Next", "Inter", "LXGW WenKai", sans-serif;
+  font-weight: 600;
+}
+
+html[lang="zh-CN"] .aix-doc-install-title,
+html[lang="zh-CN"] .aix-doc-kicker,
+html[lang="zh-CN"] .aix-doc-command-label {
+  font-family: "LXGW WenKai", "LXGWWenKai", "Noto Serif CJK SC", serif;
+}
+
+html[lang="zh-CN"] code,
+html[lang="zh-CN"] pre,
+html[lang="zh-CN"] kbd {
+  font-family: var(--vp-font-family-mono);
 }
 
 .aix-home-page .VPSidebar,
@@ -553,6 +661,162 @@ body {
 .aix-tree-detail-block li,
 .aix-tree-detail-block p {
   line-height: 1.7;
+}
+
+:root.dark .aix-tree-shell {
+  border-color: rgba(225, 233, 242, 0.14);
+  background: rgba(23, 29, 39, 0.82);
+  box-shadow: 0 18px 56px rgba(0, 0, 0, 0.28);
+}
+
+:root.dark .aix-tree-header {
+  border-bottom-color: rgba(225, 233, 242, 0.12);
+  background: rgba(31, 39, 51, 0.92);
+}
+
+:root.dark .aix-tree-browser {
+  border-right-color: rgba(225, 233, 242, 0.12);
+}
+
+:root.dark .aix-tree-row.is-selected {
+  background: rgba(53, 215, 126, 0.14);
+}
+
+:root.dark .aix-tree-toggle {
+  background: rgba(53, 215, 126, 0.16);
+  color: #6ee7a2;
+}
+
+:root.dark .aix-tree-kind {
+  background: rgba(225, 233, 242, 0.09);
+}
+
+:root.dark .aix-tree-detail {
+  background: rgba(16, 20, 27, 0.72);
+}
+
+:root.dark .aix-doc-button-light {
+  background: rgba(31, 39, 51, 0.88);
+  border-color: rgba(225, 233, 242, 0.16);
+  color: var(--aix-ink);
+}
+
+:root.dark .aix-doc-card,
+:root.dark .aix-doc-step {
+  border-color: rgba(225, 233, 242, 0.14);
+  background: rgba(23, 29, 39, 0.82);
+  box-shadow: 0 14px 42px rgba(0, 0, 0, 0.2);
+}
+
+:root.dark .aix-doc-command {
+  border-color: rgba(225, 233, 242, 0.14);
+  background: rgba(12, 16, 22, 0.9);
+}
+
+:root.dark .aix-doc-package-grid,
+:root.dark .aix-doc-package-meta-row {
+  border-color: rgba(225, 233, 242, 0.14);
+}
+
+:root.dark .aix-doc-step-number {
+  background: rgba(53, 215, 126, 0.16);
+  color: #b9f5ce;
+}
+
+:root.dark .lab-hero {
+  border-color: rgba(225, 233, 242, 0.14);
+  background:
+    radial-gradient(circle at top right, rgba(47, 76, 92, 0.24), transparent 24%),
+    linear-gradient(180deg, rgba(31, 39, 51, 0.9), rgba(16, 20, 27, 0.92));
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.28);
+}
+
+:root.dark .lab-upload-card,
+:root.dark .lab-overview-card,
+:root.dark .lab-page-card,
+:root.dark .lab-tool-card,
+:root.dark .lab-file-card,
+:root.dark .lab-preview-card,
+:root.dark .lab-panel {
+  border-color: rgba(225, 233, 242, 0.14);
+  background: rgba(23, 29, 39, 0.82);
+  box-shadow: 0 18px 52px rgba(0, 0, 0, 0.22);
+}
+
+:root.dark .lab-button-light,
+:root.dark .lab-tab,
+:root.dark .lab-level-control select {
+  border-color: rgba(225, 233, 242, 0.16);
+  background: rgba(31, 39, 51, 0.88);
+  color: var(--aix-ink);
+}
+
+:root.dark .lab-upload-zone,
+:root.dark .lab-empty {
+  border-color: rgba(53, 215, 126, 0.42);
+  background:
+    radial-gradient(circle at center, rgba(53, 215, 126, 0.12), transparent 55%),
+    rgba(12, 16, 22, 0.72);
+}
+
+:root.dark .lab-upload-zone:hover,
+:root.dark .lab-file-card:hover,
+:root.dark .lab-file-card.is-active {
+  background: rgba(31, 39, 51, 0.96);
+}
+
+:root.dark .lab-note {
+  background: rgba(31, 39, 51, 0.9);
+}
+
+:root.dark .lab-build-result {
+  background: rgba(53, 215, 126, 0.12);
+}
+
+:root.dark .aix-doc-final-grid {
+  border-color: rgba(225, 233, 242, 0.14);
+  background: rgba(23, 29, 39, 0.82);
+  box-shadow: 0 14px 42px rgba(0, 0, 0, 0.22);
+}
+
+:root.dark .lab-topbar,
+:root.dark .lab-workspace,
+:root.dark .lab-builder-summary,
+:root.dark .lab-builder-controls,
+:root.dark .lab-footer-card {
+  border-color: rgba(225, 233, 242, 0.14);
+  background: rgba(23, 29, 39, 0.82);
+}
+
+:root.dark .lab-topbar,
+:root.dark .lab-empty-stage-card,
+:root.dark .lab-sidebar,
+:root.dark .lab-preview-panel,
+:root.dark .lab-secondary-panel,
+:root.dark .lab-stat-card,
+:root.dark .lab-builder-panel,
+:root.dark .lab-page-card,
+:root.dark .lab-tool-card,
+:root.dark .lab-meta-card,
+:root.dark .lab-file-card {
+  border-color: rgba(225, 233, 242, 0.14);
+  background: rgba(23, 29, 39, 0.82);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.22);
+}
+
+:root.dark .lab-mode-switch {
+  border-color: rgba(225, 233, 242, 0.14);
+  background: rgba(225, 233, 242, 0.08);
+}
+
+:root.dark .lab-mode-switch button.is-active {
+  background: rgba(53, 215, 126, 0.16);
+  color: var(--aix-ink);
+  box-shadow: none;
+}
+
+:root.dark .lab-builder-summary > div + div {
+  border-left-color: rgba(225, 233, 242, 0.14);
 }
 
 .aix-doc-section {
