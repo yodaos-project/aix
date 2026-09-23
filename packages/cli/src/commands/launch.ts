@@ -740,6 +740,9 @@ function requireEmptyErrorCode(result: DevelopResult, stage: string) {
       : typeof result.errorMessage === "string" && result.errorMessage
         ? `: ${result.errorMessage}`
         : "";
+    if (stage === "prepare" && result.errorCode === "ENTRYPOINT_DISABLED") {
+      throw new Error(`prepare failed (ENTRYPOINT_DISABLED)${message}\nDevice Developer Mode is disabled. Run \`aix device set-dev\`, then retry the install.`);
+    }
     throw new Error(`${stage} failed (${String(result.errorCode ?? "unknown error")})${message}`);
   }
 }

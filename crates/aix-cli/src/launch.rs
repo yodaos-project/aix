@@ -1137,6 +1137,14 @@ fn require_empty_error_code(result: &Value, stage: &str) -> Result<()> {
             .or_else(|| result.get("errorMessage"))
             .and_then(Value::as_str)
             .filter(|message| !message.is_empty());
+        if stage == "prepare" && code == "ENTRYPOINT_DISABLED" {
+            let detail = message
+                .map(|message| format!(": {message}"))
+                .unwrap_or_default();
+            bail!(
+                "prepare failed ({code}){detail}\nDevice Developer Mode is disabled. Run `aix device set-dev`, then retry the install."
+            );
+        }
         if let Some(message) = message {
             bail!("{stage} failed ({code}): {message}");
         }
@@ -1212,6 +1220,16 @@ mod tests {
         .unwrap();
         assert_eq!(result["ready"], true);
         assert_eq!(result["nested"]["value"], "}");
+    }
+
+    #[test]
+    fn prepare_entrypoint_disabled_suggests_developer_mode() {
+        let result = serde_json::json!({"errorCode": "ENTRYPOINT_DISABLED"});
+        let error = require_empty_error_code(&result, "prepare")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("ENTRYPOINT_DISABLED"));
+        assert!(error.contains("aix device set-dev"));
     }
 
     #[test]
