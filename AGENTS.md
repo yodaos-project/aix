@@ -9,20 +9,16 @@ The directory name, Cargo package name, and npm package name all differ. Use the
 | Directory | Cargo package (`-p`) | Role |
 |---|---|---|
 | `crates/aix` | `aiui-aix` | Core reader: zip parsing, crypto, page analysis, tool derivation. Supports `no_std + alloc`. |
-| `crates/aix-pack` | `aiui-aix-pack` | In-memory packer/optimizer (no filesystem). Shared by native CLI, WASM + npm CLI. |
+| `crates/aix-pack` | `aiui-aix-pack` | In-memory packer/optimizer (no filesystem). Shared by WASM + npm CLI. |
 | `crates/aix-web` | `aiui-aix-web` | WASM + TypeScript surface. npm package `@yodaos-pkg/aix`. |
-| `crates/aix-cli` | `aiui-aix-cli` | Native Rust CLI, binary named `aix`. Install via `cargo install aiui-aix-cli`. |
 | `packages/cli` | — | npm CLI `@yodaos-pkg/aix-cli`. TS shell over the same WASM engine. Install via `npm install -g @yodaos-pkg/aix-cli`. |
 | `docs/` | — | VitePress site (`/spec`, `/cli`, `/packages`, `/play`). |
 
-All four crates are versioned `0.9.0`. Dependencies embed both `path` and `version`, so bump versions across `crates/*/Cargo.toml` together.
+All three crates are versioned `0.10.1`. Dependencies embed both `path` and `version`, so bump versions across `crates/*/Cargo.toml` together.
 
-## CLI surfaces (two install paths, one `aix` command)
+## npm CLI (`aix` command)
 
-The `aix` command can be installed two ways; pick one. Both share the same packing engine and behave identically:
-
-- Native Rust binary: `cargo install aiui-aix-cli` (compiled from `crates/aix-cli`).
-- npm package: `npm install -g @yodaos-pkg/aix-cli` (compiled from `packages/cli`, a TypeScript shell over the Rust engine built to a Node.js WASM bundle).
+The `aix` command is installed from the npm package: `npm install -g @yodaos-pkg/aix-cli` (compiled from `packages/cli`, a TypeScript shell over the Rust engine built to a Node.js WASM bundle).
 
 ## npm CLI (`packages/cli`)
 
@@ -39,7 +35,7 @@ cd packages/cli && npm install && npm run build
 
 ```bash
 # Baseline validation (matches CI)
-cargo test -p aiui-aix -p aiui-aix-cli
+cargo test -p aiui-aix -p aiui-aix-pack
 cargo check -p aiui-aix-web --target wasm32-unknown-unknown
 cargo clippy --workspace --all-targets -- -D warnings   # CI enforces -D warnings
 
@@ -47,7 +43,7 @@ cargo clippy --workspace --all-targets -- -D warnings   # CI enforces -D warning
 cargo check -p aiui-aix --no-default-features
 ```
 
-- CI runs `cargo test -p aiui-aix -p aiui-aix-cli` on native, plus a wasm check and an npm CLI build job. `aiui-aix-pack` has its own unit tests but CI does **not** run them — run `cargo test -p aiui-aix-pack` yourself when you touch it.
+- CI runs `cargo test -p aiui-aix -p aiui-aix-pack` on native, plus a wasm check and an npm CLI build job. `aiui-aix-pack` unit tests run in CI.
 - WASM checks require `cargo` with the `wasm32-unknown-unknown` target installed: `rustup target add wasm32-unknown-unknown`.
 - Evaluating a full WASM build requires `wasm-pack`: `cd crates/aix-web && npm install && npm run build` (outputs to `crates/aix-web/dist`).
 - Building the npm CLI requires the same toolchain (rustup + wasm32 target + wasm-pack): `cd packages/cli && npm install && npm run build`. The build script first tries `wasm-pack --no-opt` to avoid binaryen downloads, then falls back automatically when that flag is unsupported by the installed `wasm-pack`.
@@ -90,13 +86,13 @@ cd docs && npm install && npm run dev
 
 ## CLI behavior
 
-- `aix pack <INPUT_DIR>` auto-generates a UUID v4 as the build id / `VERSION`; rejects input named `VERSION`. Native (`crates/aix-cli`) and npm (`packages/cli`) surfaces are behavior-identical.
+- `aix pack <INPUT_DIR>` auto-generates a UUID v4 as the build id / `VERSION`; rejects input named `VERSION`. The npm CLI lives in `packages/cli`.
 - Packing validates all `.json`; converts non-UTF-8 `.json`/`.js`/`.ink` (UTF-16/GB18030/detected) to UTF-8; binary PNG/JPEG may be compressed per `--opt-level` (1-3).
 - `.aixignore` uses `.gitignore` syntax and is honored when packing (rule file itself is excluded). There is no `.aixignore` in this repo — README examples referencing a `fixtures/` directory are **stale** (no `fixtures/` exists).
 
 ## Crate publishing order
 
-`aiui-aix-cli` depends on `aiui-aix`. Publish `aiui-aix` first, then `aiui-aix-cli` (wait for crates.io index). Use the manual workflow `.github/workflows/publish-crates.yml` with `dry_run: true` first. The npm CLI has its own manual workflow `.github/workflows/publish-npm-cli.yml` (requires `NPM_TOKEN` secret).
+Publish `aiui-aix`, then `aiui-aix-pack`, then `aiui-aix-web` using the manual `.github/workflows/publish-crates.yml` workflow with `dry_run: true` first. The npm CLI has its own manual `.github/workflows/publish-npm-cli.yml` workflow (requires `NPM_TOKEN`).
 
 ## Conventions
 

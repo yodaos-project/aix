@@ -6,10 +6,10 @@ This document describes the versioning policy and release procedure for the AIX 
 
 AIX uses Semantic Versioning. A release version is shared by the Rust workspace crates and the two published npm packages:
 
-- Rust crates: `aiui-aix`, `aiui-aix-pack`, `aiui-aix-cli`, and `aiui-aix-web`
+- Rust crates: `aiui-aix`, `aiui-aix-pack`, and `aiui-aix-web`
 - npm packages: `@yodaos-pkg/aix` and `@yodaos-pkg/aix-cli`
 
-For a release such as `0.10.1`, update all four `crates/*/Cargo.toml` package versions, internal path-dependency constraints, `Cargo.lock`, both npm `package.json` files, and both npm lockfiles. The `docs` package has an independent version and is not part of an AIX release.
+For a release such as `0.10.1`, update all three `crates/*/Cargo.toml` package versions, internal path-dependency constraints, `Cargo.lock`, both npm `package.json` files, and both npm lockfiles. The `docs` package has an independent version and is not part of an AIX release.
 
 Use patch releases for fixes, documentation-only changes, and backwards-compatible metadata additions; minor releases for backwards-compatible API or format features; and major releases for incompatible API, package, or manifest changes.
 
@@ -51,7 +51,7 @@ Start the `Publish Crates` workflow from GitHub Actions with `workflow_dispatch`
 2. Inspect the package contents and resolve packaging errors.
 3. Run `crate=all` with `dry_run=false`.
 
-The workflow currently publishes `aiui-aix` and `aiui-aix-cli`. Since `aiui-aix-cli` depends on `aiui-aix-pack`, publish that dependency first when it is not already available at the release version:
+The workflow publishes `aiui-aix`, `aiui-aix-pack`, and `aiui-aix-web` in dependency order. All three can also be published manually:
 
 ```bash
 cargo publish -p aiui-aix --dry-run
@@ -60,8 +60,6 @@ cargo publish -p aiui-aix-web --dry-run
 cargo publish -p aiui-aix --token "$CARGO_REGISTRY_TOKEN"
 cargo publish -p aiui-aix-pack --token "$CARGO_REGISTRY_TOKEN"
 cargo publish -p aiui-aix-web --token "$CARGO_REGISTRY_TOKEN"
-sleep 30
-cargo publish -p aiui-aix-cli --token "$CARGO_REGISTRY_TOKEN"
 ```
 
 Keep the crates.io token in a secure environment variable. Never commit it or print it in a workflow log. Allow index propagation between publishing a dependency and its dependents.

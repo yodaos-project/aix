@@ -5,7 +5,7 @@
 //! values before packaging.
 //!
 //! The collector centralizes behavior that must stay consistent across the
-//! native CLI, the npm CLI, and Web/WASM surfaces:
+//! filesystem callers, the npm CLI, and Web/WASM surfaces:
 //!
 //! - source path normalization
 //! - `.aixignore` parsing and matching

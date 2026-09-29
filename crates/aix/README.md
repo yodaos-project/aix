@@ -76,9 +76,8 @@ let content = reader.read_file("app.json")?;
 
 ## CLI Tool
 
-Two CLI surfaces expose the same `aix` command:
+Install the `aix` command from npm:
 
-- native Rust: [aix-cli](../aix-cli), install with `cargo install aiui-aix-cli`
 - npm: `npm install -g @yodaos-pkg/aix-cli`
 
 ## Web Support

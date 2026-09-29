@@ -10,7 +10,6 @@ This repository centers on a Rust workspace with these package-facing surfaces:
 
 - `crates/aix`: the `no_std + alloc` package reader, cryptography, signature verification, page analysis, and tool derivation layer
 - `crates/aix-pack`: the in-memory Native/WASM packaging and optimization layer
-- `crates/aix-cli`: the native Rust CLI (`aiui-aix-cli`), binary named `aix`
 - `crates/aix-web`: the WASM and TypeScript surface for browser-based AIX inspection and integration
 - `packages/cli`: the npm-published CLI (`@yodaos-pkg/aix-cli`), a TypeScript shell over the same WASM engine
 - `docs`: the official documentation site, including `Specification`, `API`, and `Play`
@@ -22,7 +21,6 @@ This repository centers on a Rust workspace with these package-facing surfaces:
 ├── crates/
 │   ├── aix/
 │   ├── aix-pack/
-│   ├── aix-cli/
 │   └── aix-web/
 ├── packages/
 │   └── cli/
@@ -70,12 +68,10 @@ shared by the CLI and Web/WASM package. Every newly packed artifact contains a
 manifest. Callers may optionally supply an Ed25519 private key to sign the final,
 optimized package contents.
 
-### `crates/aix-cli` and `packages/cli`
+### `packages/cli`
 
-Two CLI surfaces share the same packing engine and expose the identical `aix`
-command. Pick whichever install path suits you:
+The npm CLI exposes the `aix` command using the Rust packing engine:
 
-- **Native (Rust):** `cargo install aiui-aix-cli` — compiled from `crates/aix-cli`.
 - **npm:** `npm install -g @yodaos-pkg/aix-cli` — a TypeScript shell from
   `packages/cli` over the Rust engine compiled to a Node.js WASM bundle.
 
@@ -154,14 +150,10 @@ fn main() -> anyhow::Result<()> {
 
 ### Package Or Inspect With The CLI
 
-Install the `aix` command either way — both surfaces are behavior-identical:
+Install the `aix` command from npm:
 
 ```bash
-# npm (no Rust toolchain needed)
 npm install -g @yodaos-pkg/aix-cli
-
-# or native Rust
-cargo install aiui-aix-cli
 ```
 
 Then:
@@ -257,7 +249,7 @@ crate publishing workflow, and npm publishing commands.
 Validate the workspace from the repository root:
 
 ```bash
-cargo test -p aiui-aix -p aiui-aix-cli
+cargo test -p aiui-aix -p aiui-aix-pack
 cargo check -p aiui-aix-web --target wasm32-unknown-unknown
 ```
 

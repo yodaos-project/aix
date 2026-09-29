@@ -6,10 +6,10 @@
 
 AIX 使用语义化版本。一次发布使用同一个版本号，覆盖 Rust workspace crate 和两个 npm 包：
 
-- Rust crate：`aiui-aix`、`aiui-aix-pack`、`aiui-aix-cli`、`aiui-aix-web`
+- Rust crate：`aiui-aix`、`aiui-aix-pack`、`aiui-aix-web`
 - npm 包：`@yodaos-pkg/aix`、`@yodaos-pkg/aix-cli`
 
-例如发布 `0.10.1` 时，需要同步修改四个 `crates/*/Cargo.toml` 的 package 版本、内部 path dependency 版本约束、`Cargo.lock`、两个 npm `package.json` 以及两个 npm lockfile。`docs` 是独立的文档站点包，不参与 AIX 版本发布。
+例如发布 `0.10.1` 时，需要同步修改三个 `crates/*/Cargo.toml` 的 package 版本、内部 path dependency 版本约束、`Cargo.lock`、两个 npm `package.json` 以及两个 npm lockfile。`docs` 是独立的文档站点包，不参与 AIX 版本发布。
 
 版本类型按以下规则选择：patch 用于修复、文档更新和向后兼容的元数据扩展；minor 用于向后兼容的 API 或格式能力；major 用于不兼容的 API、包格式或 manifest 变化。
 
@@ -51,7 +51,7 @@ AIX 使用语义化版本。一次发布使用同一个版本号，覆盖 Rust w
 2. 检查打包内容并解决所有打包错误。
 3. 使用 `crate=all`、`dry_run=false` 再运行一次。
 
-当前 workflow 只发布 `aiui-aix` 和 `aiui-aix-cli`。`aiui-aix-cli` 依赖 `aiui-aix-pack`；如果该版本尚未发布，需要先在仓库根目录手动发布依赖：
+该 workflow 按依赖顺序发布 `aiui-aix`、`aiui-aix-pack` 和 `aiui-aix-web`。也可以手动发布：
 
 ```bash
 cargo publish -p aiui-aix --dry-run
@@ -60,8 +60,6 @@ cargo publish -p aiui-aix-web --dry-run
 cargo publish -p aiui-aix --token "$CARGO_REGISTRY_TOKEN"
 cargo publish -p aiui-aix-pack --token "$CARGO_REGISTRY_TOKEN"
 cargo publish -p aiui-aix-web --token "$CARGO_REGISTRY_TOKEN"
-sleep 30
-cargo publish -p aiui-aix-cli --token "$CARGO_REGISTRY_TOKEN"
 ```
 
 Token 必须通过安全的环境变量提供，不能提交到仓库或输出到 workflow 日志。发布依赖 crate 后，应等待 crates.io 索引传播，再发布依赖它的 crate。
