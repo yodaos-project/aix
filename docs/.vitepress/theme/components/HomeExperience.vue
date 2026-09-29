@@ -60,12 +60,12 @@ const packageSections = [
     kicker: "CLI package",
     title: null,
     definition:
-      "The `aix-cli` crate turns the format model into terminal workflows. It is the command-line entry point for packaging, validating, and inspecting `.aix` artifacts.",
+      "The npm CLI turns the Rust/WASM format model into terminal workflows for packaging, validating, and inspecting `.aix` artifacts.",
     usage:
       "Use it when you want to work with AIX from automation scripts, local development, or release pipelines without embedding the format library directly.",
-    command: "cargo run -p aix-cli -- --help",
+    command: "npx @yodaos-pkg/aix-cli --help",
     meta: [
-      { label: "Crate", value: "crates/aix-cli" },
+      { label: "Package", value: "packages/cli" },
       { label: "Provides", value: "Inspect, package, validate, CLI workflows" },
       { label: "Depends on", value: "aix" }
     ]

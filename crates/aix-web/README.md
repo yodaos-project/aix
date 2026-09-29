@@ -79,7 +79,7 @@ This is useful for verifying whether `app.json`, page schemas, and `getTools()` 
 ### Pack and Optimize
 
 The Web package includes the same in-memory packer and pure Rust resource
-optimizer as the native CLI:
+optimizer used by the npm CLI:
 
 ```ts
 const packed = await AIX.pack(

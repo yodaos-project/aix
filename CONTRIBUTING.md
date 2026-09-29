@@ -6,7 +6,6 @@ AIX is an executable package format for AI agents. This repository centers on a 
 
 - `crates/aix`: core Rust library
 - `crates/aix-pack`: in-memory Native/WASM packer and optimizer
-- `crates/aix-cli`: native Rust CLI (`aiui-aix-cli`)
 - `crates/aix-web`: WASM and TypeScript package
 - `packages/cli`: npm-published CLI (`@yodaos-pkg/aix-cli`)
 - `docs`: the VitePress documentation site
@@ -38,7 +37,6 @@ npm --version
 ├── crates/
 │   ├── aix/
 │   ├── aix-pack/
-│   ├── aix-cli/
 │   └── aix-web/
 ├── packages/
 │   └── cli/
@@ -52,7 +50,6 @@ The workspace is intentionally split by surface area:
 
 - `aix` owns the package model and analysis logic
 - `aix-pack` owns in-memory packaging, normalization, and resource optimization
-- `aix-cli` is the native Rust command-line interface (binary `aix`)
 - `aix-web` exposes the same capabilities through WASM and TypeScript
 - `packages/cli` is the npm-published command-line interface (`@yodaos-pkg/aix-cli`, binary `aix`) — a TypeScript shell over the same engine
 - `docs` is the official site for `Specification`, `Packages`, and `Play`
@@ -64,7 +61,7 @@ The workspace is intentionally split by surface area:
 From the repository root:
 
 ```bash
-cargo test -p aiui-aix -p aiui-aix-cli
+cargo test -p aiui-aix -p aiui-aix-pack
 cargo check -p aiui-aix-web --target wasm32-unknown-unknown
 ```
 
@@ -112,10 +109,9 @@ When changing multiple surfaces, prefer validating them in this order:
 
 1. `crates/aix`
 2. `crates/aix-pack`
-3. `crates/aix-cli`
-4. `crates/aix-web`
-5. `packages/cli`
-6. `docs`
+3. `crates/aix-web`
+4. `packages/cli`
+5. `docs`
 
 This keeps the core model stable before checking derived interfaces.
 
@@ -157,7 +153,7 @@ Common commands:
 
 ```bash
 # Rust validation
-cargo test -p aiui-aix -p aiui-aix-cli
+cargo test -p aiui-aix -p aiui-aix-pack
 cargo check -p aiui-aix-web --target wasm32-unknown-unknown
 
 # Web package build
@@ -192,31 +188,14 @@ Before any release:
 
 The repository already includes a manual GitHub Actions workflow at `.github/workflows/publish-crates.yml`.
 
-It supports:
+It supports `aiui-aix`, `aiui-aix-pack`, `aiui-aix-web`, or `all`, with an optional dry run. Publish the crates in that dependency order and allow the crates.io index to update between dependent packages. The workflow expects `CARGO_REGISTRY_TOKEN` in GitHub Actions secrets for real releases.
 
-- `aiui-aix`
-- `aiui-aix-cli`
-- `all`
-- optional dry run mode
-
-Recommended order:
-
-1. Run the workflow with `dry_run: true`.
-2. Publish `aiui-aix` first.
-3. Publish `aiui-aix-cli` after `aiui-aix` is available on crates.io.
-
-Why this order matters:
-
-- `aiui-aix-cli` depends on `aiui-aix`
-- when publishing `all`, the workflow waits briefly for crates.io index propagation before publishing `aiui-aix-cli`
-
-The workflow expects `CARGO_REGISTRY_TOKEN` to be configured in GitHub Actions secrets for non-dry-run releases.
-
-If you need to validate locally before using the workflow:
+Validate locally with:
 
 ```bash
 cargo publish -p aiui-aix --dry-run
-cargo package -p aiui-aix-cli --list
+cargo publish -p aiui-aix-pack --dry-run
+cargo publish -p aiui-aix-web --dry-run
 ```
 
 ### Publish the npm CLI package
@@ -249,7 +228,7 @@ Notes:
 If a release includes both crates and npm:
 
 1. publish `aiui-aix`
-2. publish `aiui-aix-cli`
+2. publish `aiui-aix-pack` and `aiui-aix-web`
 3. build and publish `@yodaos-pkg/aix`
 4. build and publish `@yodaos-pkg/aix-cli`
 5. verify the docs site still resolves the released package as expected

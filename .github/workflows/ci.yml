@@ -50,7 +50,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Run native unit tests
-        run: cargo test -p aiui-aix -p aiui-aix-cli
+        run: cargo test -p aiui-aix -p aiui-aix-pack
 
   wasm-check:
     name: WASM Check

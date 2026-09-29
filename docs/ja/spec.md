@@ -16,7 +16,7 @@
 
 AIX（AI eXecutable）は、検査可能なユーザーインターフェースを備えた AI Agent 向けの移植可能なパッケージ形式です。[Open Agent Format（OAF）](https://openagentformat.com/spec.html) を ZIP ベースで拡張します。OAF は Agent の識別、指示、構成、Harness に依存しないリソースを定義し、AIX は決定的アーカイブ、Ink Mini Program ページ、ページ Schema、レイアウトヒント、Agent 向けツールサーフェスを追加します。
 
-本書は `aiui-aix`、`aiui-aix-pack`、`aiui-aix-cli`、`aiui-aix-web` crate が実装する形式を説明します。**must** または **must not** と記載した箇所は規範的要件です。
+本書は `aiui-aix`、`aiui-aix-pack`、`aiui-aix-web` crate が実装する形式を説明します。**must** または **must not** と記載した箇所は規範的要件です。
 
 ## 0.1 形式のバージョン管理
 
