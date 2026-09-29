@@ -1,241 +1,89 @@
 # AIX
 
-AIX 是一种面向 AI agents 的可执行包格式。
+**构建、检查并交付带有交互界面的 AI Agent。**
 
-它把页面、schema 和 tools 打包成一个可分发的 artifact，同时保持对 Rust 工具、命令行和浏览器环境可读。
+AIX（AI eXecutable）是一种面向 AI Agent 的可移植包格式。一个 `.aix` 文件汇集 Agent 资源、Ink 页面与 Widget、输入 Schema，以及宿主展示这些内容所需的元数据。AIX 还能从页面派生面向 Agent 的 Tool，让开发者和兼容的运行时读取同一个包。
 
-## 仓库包含什么
+AIX 扩展了 [Open Agent Format](https://openagentformat.com/spec.html)：保留 Agent 指令及其他 OAF 资源，同时加入可检查的界面与可分发的归档文件。
 
-这个仓库以 Rust workspace 为核心，包含多层面向格式本身的实现：
-
-- `crates/aix`：支持 `no_std + alloc` 的包读取、页面分析和 tool 推导核心
-- `crates/aix-pack`：面向 Native 和 Web/WASM 的纯内存打包与资源优化能力
-- `crates/aix-web`：面向浏览器的 WASM 和 TypeScript 接口
-- `packages/cli`：通过 npm 发布的命令行入口（`@yodaos-pkg/aix-cli`），基于同一 WASM 引擎的 TypeScript 壳
-- `docs`：官方文档站，包含 `Specification`、`API` 和 `Play`
-
-## Workspace 结构
-
-```text
-.
-├── crates/
-│   ├── aix/
-│   ├── aix-pack/
-│   └── aix-web/
-├── packages/
-│   └── cli/
-├── docs/
-├── Cargo.toml
-└── README.zh-CN.md
-```
-
-## AIX 承载什么
-
-`.aix` 不只是一个 zip 包，它是一个保留结构语义的 artifact，可以承载：
-
-- 包内文件与版本元信息
-- 应用和页面定义
-- schema 定义的输入契约
-- 布局与目标环境提示
-- 面向 AI agents 的派生 tool surface
-
-因此，同一个 `.aix` 包可以被 Rust、CLI 和 Web/WASM 工具链读取，而不丢失其原生结构。
-
-## API
-
-### `crates/aix`
-
-核心 crate 定义了 AIX 的读取模型，主要负责：
-
-- 列出包内文件
-- 读取归档中的具体文件
-- 解析版本和标题元信息
-- 解析页面定义
-- 提取页面 schema
-- 基于包内容推导 tool 定义
-
-关闭默认 feature 后，核心包支持 `no_std + alloc`。
-
-### `crates/aix-pack`
-
-`aix-pack` 完全在内存中构建和优化 `.aix`，负责文本规范化、JSON 紧凑化以及使用纯 Rust 编解码器优化 PNG/JPEG，并由 CLI 和 Web/WASM 共同使用。
-
-### `packages/cli`
-
-npm CLI 使用 Rust 打包引擎，提供 `aix` 命令：
-
-- **npm**：`npm install -g @yodaos-pkg/aix-cli`（源码在 `packages/cli`，是把 Rust 引擎编译成 Node.js WASM 包的 TypeScript 壳）
-
-CLI 把格式能力转成终端工作流，目前主要包括：
-
-- `aix pack <INPUT_DIR>`：构建 `.aix` artifact
-- `aix list <AIX_FILE>` 或 `aix ls <AIX_FILE>`：检查包内容
-- `aix optimize <AIX_FILE> -o <OUTPUT_FILE>`：优化已有 artifact
-- 打包阶段的校验与规范化处理
-- `.aixignore` 支持与可选优化流程
-
-### `crates/aix-web`
-
-Web 包通过 WASM 和 TypeScript 暴露同一套 AIX 能力。
-
-典型接口包括：
-
-- `AIX.From(data)`，从 `Uint8Array` 或 `File` 初始化
-- `list()`，获取包内文件
-- `readFile(name)`，读取原始文件
-- `getVersion()`、`getTitle()`、`getPages()` 和 `getTools()`
-
-这个包对应的官方浏览器入口是 `docs/play.md`，发布后的路由是 `/play`。
-
-## 典型包结构
-
-```text
-.
-├── AGENTS.md
-├── VERSION
-├── app.json
-├── app.js
-└── pages/
-```
-
-这些文件通常表示：
-
-- `AGENTS.md`：agent 身份和能力上下文
-- `VERSION`：包版本
-- `app.json`：应用级元数据和路由配置
-- `app.js`：运行时入口逻辑
-- `pages/`：页面定义、资源以及包含 schema 的文件
+[English](README.md) · [格式规范](docs/zh-CN/spec.md) · [CLI 指南](docs/zh-CN/cli.md) · [Web API](docs/zh-CN/api.md) · [Play](docs/zh-CN/play.md)
 
 ## 快速开始
 
-### 在 Rust 中读取 AIX
-
-```rust
-use aix::AixReader;
-
-fn main() -> anyhow::Result<()> {
-    let data = std::fs::read("bundle.aix")?;
-    let reader = AixReader::new(data)?;
-
-    println!("version = {:?}", reader.get_version());
-    println!("title = {:?}", reader.get_title());
-    println!("pages = {:?}", reader.get_pages());
-    println!("tools = {:?}", reader.get_tools());
-    println!(
-        "supports engine 0.14.2 = {}",
-        reader.supports_engine("0.14.2")?
-    );
-
-    Ok(())
-}
-```
-
-### 用 CLI 打包或检查
-
-通过 npm 安装 `aix`：
+通过 npm 安装 CLI，然后检查并打包 AIX 项目：
 
 ```bash
 npm install -g @yodaos-pkg/aix-cli
 
+aix check ./my-agent
+aix pack ./my-agent -o my-agent.aix
+aix list ./my-agent.aix
 ```
 
-```bash
-aix pack ./my-agent -o bundle.aix --engine '^0.14.0'
-aix list ./bundle.aix
+`check` 只报告静态源码问题，不生成包；`pack` 生成可分发的 `.aix` 文件及其 Manifest；`list` 列出包内文件。已有项目还可以用 `aix preview ./my-agent` 打开本地预览，或用 `aix show ./my-agent` 查看最终生效的 Agent Definition。
+
+典型的 AIX 项目结构如下：
+
+```text
+my-agent/
+├── AGENTS.md             # Agent 身份与指令
+├── app.json              # 页面、Widget 与应用元数据
+└── pages/                # Ink 页面代码与资源
 ```
 
-如果没有显式传入 `--engine`，打包器会依次回退到 `app.json.engine` 和
-`*`，并把最终解析出的范围写入 `META-INF/aix/manifest.json`。对于已经打
-包好的 artifact，读取侧会把 manifest 作为 engine 判断的唯一来源。像
-`0.14.0` 这样的完整版本表示精确匹配，`>=0.14.0`、`^0.14.0` 这样的范围
-也都支持。
+打包器会生成 `VERSION` 和 `META-INF/aix/manifest.json`，源码目录中无需放置这些文件。完整包结构和页面格式见[格式规范](docs/zh-CN/spec.md)。
 
-### 在 Rust 中签名和校验
+## 从源码到设备
 
-下面的例子展示了如何在打包时写入 engine 范围、为包签名，并在读取时校验
-签名与运行时兼容性：
+| 步骤 | 作用 | 命令 |
+| --- | --- | --- |
+| 检查 | 发现支持范围内的源码与权限问题 | `aix check ./my-agent` |
+| 预览 | 启动本地 Ink 预览 | `aix preview ./my-agent` |
+| 打包 | 生成可移植的文件 | `aix pack ./my-agent -o my-agent.aix` |
+| 查看 | 检查文件或最终生效的 Agent Definition | `aix list my-agent.aix` / `aix show my-agent.aix` |
+| 安装 | 通过 ADB 提交到已连接的 Rokid Glasses 设备 | `aix install my-agent.aix` |
 
-```rust
-use aix::crypto::{PrivateKey, PublicKey};
-use aix_pack::{pack, InputFile, PackOptions};
-use rand_core::OsRng;
+CLI 还支持启动已安装的页面和 Widget、查看设备状态以及优化包。命令选项与设备要求见 [CLI 指南](docs/zh-CN/cli.md)。静态检查和本地预览用于开发；设备上的实际行为取决于宿主运行时。
 
-fn main() -> anyhow::Result<()> {
-    let private_key = PrivateKey::generate(&mut OsRng);
-    let mut options = PackOptions::new("build-1");
-    options.engine = Some("^0.14.0".into());
-    options.signing_key = Some(&private_key);
+## AIX 包提供什么
 
-    let output = pack(
-        vec![InputFile::new("app.json", br#"{"pages":[]}"#)],
-        options,
-    )?;
+- **可检查的界面。** Ink 页面、Widget、资源及应用元数据保存在同一个归档中。
+- **Agent 可调用的页面。** 页面 Schema 派生为 OpenAI 风格的 Tool 定义，附带布局与目标提示；宿主决定如何使用。
+- **跨环境读取。** Rust、浏览器和 CLI 都能读取包文件、页面及派生 Tool。
+- **完整性与兼容性元数据。** 生成的 Manifest 记录文件摘要、基于内容计算的 Package ID 和 Engine 范围。发布者可选用 Ed25519 签名；校验方必须使用可信公钥。
 
-    let trusted_key: PublicKey = private_key.public_key();
-    let reader = AixReader::new(output.data)?;
-    let report = reader.verify_signature(&trusted_key)?;
+## 在应用中使用 AIX
 
-    assert!(reader.supports_engine("0.14.2")?);
-    println!("verified package {}", report.package_id);
-    Ok(())
-}
-```
+| 接口 | 包 | 用途 |
+| --- | --- | --- |
+| Rust 读取器 | [`aiui-aix`](crates/aix) | 读取包、检查页面与 Tool、校验签名；支持 `no_std + alloc`。 |
+| Rust 打包器 | [`aiui-aix-pack`](crates/aix-pack) | 在内存中构建、优化包。 |
+| Web / TypeScript | [`@yodaos-pkg/aix`](crates/aix-web) | 通过 WASM 读取、打包和检查 `.aix` 文件。 |
+| CLI | [`@yodaos-pkg/aix-cli`](packages/cli) | 在终端检查、预览、打包、查看和安装。 |
 
-对于已打包 artifact，`supports_engine()` 读取的是
-`META-INF/aix/manifest.json` 中已经解析好的 engine 范围。
-
-### 在浏览器中读取 AIX
+例如，Web 包可以检查浏览器中选取的文件：
 
 ```ts
 import { AIX } from "@yodaos-pkg/aix";
 
-async function inspect(file: File) {
-  const aix = await AIX.From(file);
-  console.log(aix.getTitle());
-  console.log(aix.getPages());
-  console.log(aix.getTools());
-  console.log(aix.supportsEngine("0.14.2"));
-}
+const packageFile = await AIX.From(file);
+console.log(packageFile.getPages());
+console.log(packageFile.getTools());
 ```
 
-对于已打包 artifact，`supportsEngine()` 同样会从
-`META-INF/aix/manifest.json` 读取 engine 范围。
+安装和完整接口见 [Web API](docs/zh-CN/api.md)。也可以通过 [Play](docs/zh-CN/play.md) 在浏览器中检查 `.aix` 文件。
 
-## 文档站
+## 开发本仓库
 
-文档站位于 `docs/`，当前主要包括三个路由：
-
-- `/spec`：AIX Specification 概览
-- `/api`：`@yodaos-pkg/aix` WebAssembly 和 TypeScript API 参考
-- `/play`：在浏览器里上传并检查真实的 `.aix` artifact
-
-本地启动：
-
-```bash
-cd docs
-npm install
-npm run dev
-```
-
-## 开发
-
-版本策略、发布检查清单、crate 发布 workflow 和 npm 发布命令请参阅
-[RELEASING.zh-CN.md](./RELEASING.zh-CN.md)。
-
-在仓库根目录进行基础校验：
+实现位于 `crates/aix`、`crates/aix-pack` 和 `crates/aix-web`；npm CLI 位于 `packages/cli`，文档站位于 `docs`。
 
 ```bash
 cargo test -p aiui-aix -p aiui-aix-pack
+cargo check -p aiui-aix --no-default-features
 cargo check -p aiui-aix-web --target wasm32-unknown-unknown
 ```
 
-构建 Web 包输出：
-
-```bash
-cd crates/aix-web
-npm install
-npm run build
-```
+WASM 检查需要 `wasm32-unknown-unknown` target。版本与发布流程见 [RELEASING.zh-CN.md](RELEASING.zh-CN.md)。
 
 ## License
 
