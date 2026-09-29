@@ -39,6 +39,26 @@ aix pack ./my-agent -O --opt-level 3
 
 未传 `--engine` 时优先使用 `app.json.engine`，否则使用 `*`。 `.aixignore` 遵循 `.gitignore` 语法；`--log-time` 为日志添加时间戳。
 
+### `aix check <INPUT_DIR>`
+
+仅检查源目录，不生成归档。校验 `app.json`、Page 和 Widget 入口、本地组件引用、JS/TS 语法，以及可静态识别的权限使用；与 `pack` 一样遵循 `.aixignore`。存在 error 时退出码为 1，warning 不影响退出码。`--format json` 输出包含文件、行列、级别和规则编号的诊断列表。
+
+```bash
+aix check ./my-agent
+aix check ./my-agent --format json
+```
+
+权限检查识别 `navigator.geolocation`、`navigator.mediaDevices.getUserMedia()` 和媒体库读取等直接调用。动态参数与宿主组件无法在本地确认时会给出 warning。检查通过不代表运行时和平台权限一定可用。
+
+| 已识别调用 | 所需声明 |
+| --- | --- |
+| `navigator.geolocation.getCurrentPosition()` / `watchPosition()` | `GEOLOCATION` |
+| `navigator.mediaDevices.getUserMedia({ audio: true })` | `RECORD_AUDIO` |
+| `navigator.mediaDevices.getUserMedia({ video: true })` | `CAMERA` |
+| 媒体类型确定的 `navigator.mediaLibrary.list()` / `get()` | `READ_MEDIA_IMAGES` 或 `READ_MEDIA_AUDIO` |
+
+网络调用缺少 `INTERNET`、以及 `mediaLibrary.save()` 调用会产生 warning。第一版检查已包含的 JS/TS 文件和 Ink `<script>` 块中的直接调用；别名和动态构造调用暂不覆盖。
+
 ### `aix show <INPUT>`
 
 在不使用 ADB 的情况下输出生效的 Agent Definition JSON。 `show` 与 `install` 使用同一个解析器。
@@ -93,6 +113,18 @@ aix install ./my-agent --definition ./agent.json --serial <serial>
 ```
 
 目录使用 `.aix/agent-id`，产物使用 `VERSION`。 `agent.json` 可以覆盖生成的元数据，但不能覆盖 `agentId`。Apply 和手机上传结果会被校验；手机确认不代表云端已完成索引。
+
+### `aix uninstall <INPUT>`
+
+按项目目录、`.aix` 文件或明确的 `develop.rokid.*` Agent ID，从设备删除单个 DEVELOP Agent：
+
+```bash
+aix uninstall ./my-agent
+aix uninstall ./bundle.aix
+aix uninstall develop.rokid.mobility.ride --serial <serial>
+```
+
+命令直接调用设备的 `remove`，无需 Prepare 或 Push。成功要求设备确认本地清理完成且派发已接受；不代表云端删除完成。它不保证关闭已打开的页面，也不会删除内置 Agent。
 
 ### `aix launch-page <INPUT> [PATH]`
 
@@ -182,4 +214,3 @@ node dist/cli.js --help
 ## 许可证
 
 MIT
-

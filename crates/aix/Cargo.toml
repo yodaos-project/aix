@@ -21,7 +21,7 @@ serde-wasm-bindgen = { version = "0.6", optional = true }
 anyhow = { version = "1", default-features = false }
 rawzip = { version = "0.5.1", default-features = false, features = ["alloc"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["with-alloc"] }
-hashbrown = { version = "0.15", default-features = false, features = ["default-hasher", "inline-more", "allocator-api2"] }
+hashbrown = { version = "0.15", default-features = false, features = ["default-hasher", "inline-more", "allocator-api2", "serde"] }
 serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
 serde_json = { version = "1", default-features = false, features = ["alloc"] }
 log = { version = "0.4", default-features = false }

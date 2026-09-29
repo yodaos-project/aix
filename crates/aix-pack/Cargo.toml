@@ -14,6 +14,8 @@ encoding_rs = "0.8"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 ignore = "0.4"
 oxc_allocator = "0.139"
+oxc_ast = "0.139"
+oxc_ast_visit = "0.139"
 oxc_codegen = "0.139"
 oxc_minifier = "0.139"
 oxc_parser = "0.139"

@@ -132,6 +132,16 @@ pub fn pack_aix_from_source(
     })
 }
 
+/// Check source files using the same collection rules as the pack command.
+#[wasm_bindgen]
+pub fn check_aix_from_source(files: JsValue) -> Result<JsValue, JsValue> {
+    let files: Vec<InputFile> = serde_wasm_bindgen::from_value(files)
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    let report = aix_pack::check::check_source(files)
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    to_value(&report)
+}
+
 #[wasm_bindgen]
 pub fn pack_aix_from_source_with_progress(
     files: JsValue,

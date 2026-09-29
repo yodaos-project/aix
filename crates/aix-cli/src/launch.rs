@@ -94,6 +94,37 @@ pub(crate) fn launch_page(input: &Path, options: PageLaunchOptions<'_>) -> Resul
     Ok(())
 }
 
+pub(crate) fn uninstall_agent(input: &Path, serial: Option<&str>) -> Result<()> {
+    let agent_id = if let Some(value) = input
+        .to_str()
+        .filter(|value| value.starts_with("develop.rokid."))
+    {
+        validate_definition(&serde_json::json!({ "agentId": value }))?.to_owned()
+    } else {
+        let resolved = resolve_definition(input, None)?;
+        validate_definition(&resolved.value)?.to_owned()
+    };
+    let serial = select_device(serial)?;
+    let result =
+        parse_develop_result(&run_adb(&serial, &content_call("remove", Some(&agent_id)))?)?;
+    require_remove_result(&result)?;
+    println!("✔ Agent uninstalled from device");
+    println!("  ID: {agent_id}");
+    println!("  Device: {serial}");
+    println!("  Dispatch: accepted; cloud removal is not verified");
+    Ok(())
+}
+
+fn require_remove_result(result: &Value) -> Result<()> {
+    require_empty_error_code(result, "remove")?;
+    for field in ["localCompleted", "success", "dispatched"] {
+        if result.get(field).and_then(Value::as_bool) != Some(true) {
+            bail!("remove did not report {field}=true");
+        }
+    }
+    Ok(())
+}
+
 fn open_request(
     serial: &str,
     agent_id: &str,
@@ -1230,6 +1261,27 @@ mod tests {
             .to_string();
         assert!(error.contains("ENTRYPOINT_DISABLED"));
         assert!(error.contains("aix device set-dev"));
+    }
+
+    #[test]
+    fn remove_requires_local_completion_and_dispatch() {
+        let complete = serde_json::json!({
+            "errorCode": "", "localCompleted": true, "success": true, "dispatched": true
+        });
+        require_remove_result(&complete).unwrap();
+        for field in ["localCompleted", "success", "dispatched"] {
+            let mut incomplete = complete.clone();
+            incomplete[field] = serde_json::json!(false);
+            assert!(require_remove_result(&incomplete).is_err());
+        }
+        let failed = serde_json::json!({
+            "errorCode": "REMOVE_FAILED", "localCompleted": true,
+            "success": false, "dispatched": false
+        });
+        assert!(require_remove_result(&failed)
+            .unwrap_err()
+            .to_string()
+            .contains("REMOVE_FAILED"));
     }
 
     #[test]

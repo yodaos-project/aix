@@ -10,12 +10,14 @@ Command-line tool for packing, inspecting, installing, and previewing **AIX**
 - [Installation](#installation)
 - [Package Commands](#package-commands)
   - [`aix pack`](#aix-pack-input_dir)
+  - [`aix check`](#aix-check-input_dir)
   - [`aix show`](#aix-show-input)
   - [`aix list`](#aix-list-aix_file)
   - [`aix optimize`](#aix-optimize-aix_file)
 - [Device Commands](#device-commands)
   - [`aix device`](#aix-device-action)
   - [`aix install`](#aix-install-input)
+  - [`aix uninstall`](#aix-uninstall-input)
   - [`aix launch-page`](#aix-launch-page-input-path)
   - [`aix launch-widget`](#aix-launch-widget-input-path)
   - [`aix widget-layout`](#aix-widget-layout-show)
@@ -56,6 +58,19 @@ aix pack ./my-agent -O --opt-level 3
 
 Without `--engine`, the range comes from `app.json.engine`, then `*`.
 `.aixignore` uses `.gitignore` syntax. `--log-time` timestamps pack logs.
+
+### `aix check <INPUT_DIR>`
+
+Run static checks without writing an artifact. Checks include `app.json`,
+Page and Widget entries, local components, JS/TS syntax, and direct API calls
+with known permission requirements. Errors exit with status 1; warnings do not.
+Use `--format json` for structured diagnostics. Dynamic permission use and
+host components may need manual review.
+
+```bash
+aix check ./my-agent
+aix check ./my-agent --format json
+```
 
 ### `aix show <INPUT>`
 
@@ -119,6 +134,19 @@ aix install ./my-agent --definition ./agent.json --serial <serial>
 Directories reuse `.aix/agent-id`; artifacts use `VERSION`. `agent.json` may
 override generated metadata except `agentId`. Apply and phone-upload results
 are validated; phone confirmation does not prove cloud indexing.
+
+### `aix uninstall <INPUT>`
+
+Remove one DEVELOP Agent by project directory, `.aix` file, or Agent ID:
+
+```bash
+aix uninstall ./my-agent
+aix uninstall ./bundle.aix
+aix uninstall develop.rokid.mobility.ride --serial <serial>
+```
+
+The device must confirm local removal and dispatch. Cloud removal is not
+verified, and the command does not guarantee that an already open Page closes.
 
 ### `aix launch-page <INPUT> [PATH]`
 

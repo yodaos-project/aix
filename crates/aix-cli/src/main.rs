@@ -18,6 +18,16 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Statically check an AIX source directory
+    Check {
+        /// Project directory to check
+        #[arg(value_name = "INPUT_DIR")]
+        input_dir: PathBuf,
+
+        /// Diagnostic output format
+        #[arg(long, value_parser = ["text", "json"], default_value = "text")]
+        format: String,
+    },
     /// Inspect or change the device Developer Mode
     Device {
         /// Device action: set-dev or unset-dev; omit for a read-only status query
@@ -142,6 +152,16 @@ enum Commands {
         #[arg(long)]
         engine: Option<String>,
     },
+    /// Uninstall a DEVELOP Agent from Rokid Glasses over ADB
+    Uninstall {
+        /// Project directory, .aix file, or develop.rokid.* Agent ID
+        #[arg(value_name = "INPUT")]
+        input: PathBuf,
+
+        /// ADB device serial
+        #[arg(short = 's', long)]
+        serial: Option<String>,
+    },
     /// Pack a directory into a .aix file
     Pack {
         /// Input directory to pack
@@ -198,6 +218,32 @@ fn run() -> Result<()> {
     let cli = Cli::parse();
 
     match &cli.command {
+        Commands::Check { input_dir, format } => {
+            let report = aix_pack::check::check_directory(input_dir)?;
+            if format == "json" {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                for diagnostic in &report.diagnostics {
+                    let severity = match diagnostic.severity {
+                        aix_pack::check::Severity::Error => "error",
+                        aix_pack::check::Severity::Warning => "warning",
+                    };
+                    println!(
+                        "{}:{}:{}: {} [{}] {}",
+                        diagnostic.path,
+                        diagnostic.line,
+                        diagnostic.column,
+                        severity,
+                        diagnostic.code,
+                        diagnostic.message
+                    );
+                }
+                println!("{} diagnostic(s)", report.diagnostics.len());
+            }
+            if report.has_errors() {
+                bail!("static checks failed");
+            }
+        }
         Commands::Device { action, serial } => match action.as_deref() {
             Some("set-dev") => launch::set_developer_mode(serial.as_deref(), true)?,
             Some("unset-dev") => launch::set_developer_mode(serial.as_deref(), false)?,
@@ -274,6 +320,7 @@ fn run() -> Result<()> {
                 engine: engine.as_deref(),
             },
         )?,
+        Commands::Uninstall { input, serial } => launch::uninstall_agent(input, serial.as_deref())?,
         Commands::Pack {
             input_dir,
             output,

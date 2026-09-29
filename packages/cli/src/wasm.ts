@@ -4,6 +4,7 @@
 import path from 'node:path';
 
 type WasmEngine = {
+  check_aix_from_source: (files: AixInputFile[]) => CheckReport;
   AixReaderWasm: new (data: Uint8Array) => AixReaderInstance;
   AixSourcePackBuilderWasm?: new () => AixSourcePackBuilderInstance;
   pack_aix: (
@@ -29,6 +30,16 @@ type WasmEngine = {
 };
 
 export type AixInputFile = { path: string; data: Uint8Array };
+
+export type CheckDiagnostic = {
+  code: string;
+  severity: 'error' | 'warning';
+  path: string;
+  line: number;
+  column: number;
+  message: string;
+};
+export type CheckReport = { diagnostics: CheckDiagnostic[] };
 
 export type AixEntry = { name: string; size: number; compressed_size: number };
 

@@ -72,6 +72,26 @@ export function resolveDefinition(inputValue: string, definitionOverride?: strin
   return { input, isProject, definition, app: metadata.app };
 }
 
+export async function cmdUninstall(input: string, serialOption?: string): Promise<void> {
+  const agentId = input.startsWith("develop.rokid.")
+    ? validateDefinition({ agentId: input })
+    : validateDefinition(resolveDefinition(input).definition);
+  const serial = await selectDevice(serialOption);
+  await runStep("Uninstalling Agent", "Agent uninstalled from device", async () => {
+    const result = parseDevelopResult(await runAdb(serial, contentCall("remove", agentId)));
+    requireRemoveResult(result);
+    return result;
+  });
+  process.stdout.write(`  ID: ${agentId}\n  Device: ${serial}\n  Dispatch: accepted; cloud removal is not verified\n`);
+}
+
+function requireRemoveResult(result: DevelopResult): void {
+  requireEmptyErrorCode(result, "remove");
+  for (const field of ["localCompleted", "success", "dispatched"]) {
+    if (result[field] !== true) throw new Error(`remove did not report ${field}=true.`);
+  }
+}
+
 export type PageLaunchOptions = {
   card?: boolean;
   params?: string;
