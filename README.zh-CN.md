@@ -6,7 +6,7 @@ AIX（AI eXecutable）是一种面向 AI Agent 的可移植包格式。一个 `.
 
 AIX 扩展了 [Open Agent Format](https://openagentformat.com/spec.html)：保留 Agent 指令及其他 OAF 资源，同时加入可检查的界面与可分发的归档文件。
 
-[English](README.md) · [格式规范](docs/zh-CN/spec.md) · [CLI 指南](docs/zh-CN/cli.md) · [Web API](docs/zh-CN/api.md) · [Play](docs/zh-CN/play.md)
+[English](README.md) · [格式规范](docs/zh-CN/spec.md) · [CLI 指南](docs/zh-CN/cli.md) · [Web API](docs/zh-CN/api.md) · [Play](https://yodaos-project.github.io/aix/play)
 
 ## 快速开始
 
@@ -71,7 +71,7 @@ console.log(packageFile.getPages());
 console.log(packageFile.getTools());
 ```
 
-安装和完整接口见 [Web API](docs/zh-CN/api.md)。也可以通过 [Play](docs/zh-CN/play.md) 在浏览器中检查 `.aix` 文件。
+安装和完整接口见 [Web API](docs/zh-CN/api.md)。也可以通过 [Play](https://yodaos-project.github.io/aix/play) 在浏览器中检查 `.aix` 文件。
 
 ## 开发本仓库
 

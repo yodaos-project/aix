@@ -6,7 +6,7 @@ AIX (AI eXecutable) is a portable package format for AI agents. One `.aix` file 
 
 AIX extends the [Open Agent Format](https://openagentformat.com/spec.html): agent instructions and other OAF resources remain intact while AIX adds an inspectable UI and a distributable archive.
 
-[简体中文](README.zh-CN.md) · [Specification](docs/spec.md) · [CLI guide](docs/cli.md) · [Web API](docs/api.md) · [Play](docs/play.md)
+[简体中文](README.zh-CN.md) · [Specification](docs/spec.md) · [CLI guide](docs/cli.md) · [Web API](docs/api.md) · [Play](https://yodaos-project.github.io/aix/play)
 
 ## Get started
 
@@ -71,7 +71,7 @@ console.log(packageFile.getPages());
 console.log(packageFile.getTools());
 ```
 
-See the [Web API](docs/api.md) for setup and the full API. You can also use [Play](docs/play.md) to inspect an `.aix` file in the browser.
+See the [Web API](docs/api.md) for setup and the full API. You can also use [Play](https://yodaos-project.github.io/aix/play) to inspect an `.aix` file in the browser.
 
 ## Develop this repository
 
