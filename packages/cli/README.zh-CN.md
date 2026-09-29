@@ -9,12 +9,14 @@
 - [安装](#安装)
 - [包管理命令](#包管理命令)
   - [`aix pack`](#aix-pack-input_dir)
+  - [`aix check`](#aix-check-input_dir)
   - [`aix show`](#aix-show-input)
   - [`aix list`](#aix-list-aix_file)
   - [`aix optimize`](#aix-optimize-aix_file)
 - [设备命令](#设备命令)
   - [`aix device`](#aix-device-action)
   - [`aix install`](#aix-install-input)
+  - [`aix uninstall`](#aix-uninstall-input)
   - [`aix launch-page`](#aix-launch-page-input-path)
   - [`aix launch-widget`](#aix-launch-widget-input-path)
   - [`aix widget-layout`](#aix-widget-layout-show)
@@ -51,6 +53,15 @@ aix pack ./my-agent -O --opt-level 3
 ```
 
 未传 `--engine` 时依次使用 `app.json.engine` 和 `*`。`.aixignore` 使用 `.gitignore` 语法；`--log-time` 为打包日志添加时间。
+
+### `aix check <INPUT_DIR>`
+
+执行静态检查且不生成归档。检查 `app.json`、Page 与 Widget 入口、本地组件、JS/TS 语法及权限需求明确的 API 调用。存在 error 时退出码为 1，warning 不影响退出码。`--format json` 输出结构化诊断。动态权限使用及宿主组件可能仍需人工确认。
+
+```bash
+aix check ./my-agent
+aix check ./my-agent --format json
+```
 
 ### `aix show <INPUT>`
 
@@ -106,6 +117,18 @@ aix install ./my-agent --definition ./agent.json --serial <serial>
 ```
 
 目录复用 `.aix/agent-id`，归档使用 `VERSION`。`agent.json` 可覆盖生成的元数据，但不能覆盖 `agentId`。命令校验 Apply 和手机上传结果；手机确认不代表云端完成索引。
+
+### `aix uninstall <INPUT>`
+
+按项目目录、`.aix` 文件或 Agent ID 删除单个 DEVELOP Agent：
+
+```bash
+aix uninstall ./my-agent
+aix uninstall ./bundle.aix
+aix uninstall develop.rokid.mobility.ride --serial <serial>
+```
+
+设备必须确认本地清理完成且派发已接受。命令不验证云端删除，也不保证关闭已打开的页面。
 
 ### `aix launch-page <INPUT> [PATH]`
 

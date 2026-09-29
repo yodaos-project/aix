@@ -74,6 +74,8 @@ aix install ./my-agent --definition ./agent.json --serial <serial>
 aix device
 aix device set-dev
 aix device unset-dev
+aix uninstall ./my-agent
+aix uninstall develop.rokid.mobility.ride --serial <serial>
 aix launch-page ./my-agent pages/index/index --card
 aix launch-widget ./my-agent widgets/order/index --position 2
 aix widget-layout show
@@ -81,6 +83,7 @@ aix widget-layout --clear
 ```
 
 `aix device` 还会列出设备包目录中实际存在的 `.aix` Agent，并在可用时补充 manifest 元数据。
+`aix uninstall` 删除单个 DEVELOP Agent，要求设备确认本地清理与派发，但不验证云端删除，也不保证关闭已打开的页面。
 
 设备操作在执行期间显示 spinner；中间阶段完成后只保留简短的成功状态，详细信息只附在最终结果下。
 
@@ -102,6 +105,15 @@ aix optimize input.aix -o output.aix --level 2
 ```
 
 `aix pack` 默认压缩 JS/TS；`aix pack --optimize` 额外处理 JSON/PNG/JPEG；`aix optimize` 只重新处理已有包中的 JSON/PNG/JPEG。
+
+### 7. 静态检查
+
+检查源目录且不生成包。命令校验 manifest 和入口结构、本地组件、JS/TS 语法及已识别 API 调用的权限声明。存在 error 时退出码为 1，warning 不影响退出码。动态权限使用和宿主组件可能需要人工确认。
+
+```bash
+aix check ./my-agent
+aix check ./my-agent --format json
+```
 
 ## 开发与调试
 

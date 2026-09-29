@@ -44,6 +44,38 @@ aix pack ./my-agent -O --opt-level 3
 Without `--engine`, the range comes from `app.json.engine`, then `*`.
 `.aixignore` uses `.gitignore` syntax. `--log-time` timestamps pack logs.
 
+### `aix check <INPUT_DIR>`
+
+Checks source files without creating an artifact. It validates `app.json`, Page
+and Widget entries, local component references, JS/TS syntax, and statically
+recognizable permission use. It applies `.aixignore` like `pack`. Errors make
+the command exit with status 1; warnings do not. `--format json` emits a
+machine-readable diagnostic list with file, line, column, severity, and rule
+code.
+
+```bash
+aix check ./my-agent
+aix check ./my-agent --format json
+```
+
+Permission analysis recognizes direct calls such as `navigator.geolocation`,
+`navigator.mediaDevices.getUserMedia()`, and media-library reads. Dynamic
+arguments and host-provided components produce warnings when they cannot be
+verified locally. A clean result does not prove runtime or platform permission
+availability.
+
+| Recognized use | Required declaration |
+| --- | --- |
+| `navigator.geolocation.getCurrentPosition()` / `watchPosition()` | `GEOLOCATION` |
+| `navigator.mediaDevices.getUserMedia({ audio: true })` | `RECORD_AUDIO` |
+| `navigator.mediaDevices.getUserMedia({ video: true })` | `CAMERA` |
+| `navigator.mediaLibrary.list()` / `get()` with a known media type | `READ_MEDIA_IMAGES` or `READ_MEDIA_AUDIO` |
+
+Network calls without `INTERNET` and `mediaLibrary.save()` produce warnings.
+This first version checks direct calls in included
+JS/TS files and Ink `<script>` blocks; aliases and dynamically constructed
+calls are outside its coverage.
+
 ### `aix show <INPUT>`
 
 Prints the effective Agent Definition JSON without ADB. `show` and `install`
@@ -106,6 +138,22 @@ aix install ./my-agent --definition ./agent.json --serial <serial>
 Directories reuse `.aix/agent-id`; artifacts use `VERSION`. `agent.json` may
 override generated metadata except `agentId`. Apply and phone-upload results
 are validated; phone confirmation does not prove cloud indexing.
+
+### `aix uninstall <INPUT>`
+
+Remove one DEVELOP Agent from the device by project directory, `.aix` file, or
+explicit `develop.rokid.*` Agent ID:
+
+```bash
+aix uninstall ./my-agent
+aix uninstall ./bundle.aix
+aix uninstall develop.rokid.mobility.ride --serial <serial>
+```
+
+This calls the device's `remove` operation without Prepare or Push. Success
+requires local removal and dispatch confirmation; cloud removal is not verified.
+It does not guarantee that an already open Page closes, and it cannot remove
+built-in Agents.
 
 ### `aix launch-page <INPUT> [PATH]`
 

@@ -14,6 +14,7 @@ use std::io::{Cursor, Write};
 use std::path::Path;
 use zip::write::FileOptions;
 
+pub mod check;
 pub mod collector;
 
 const UTF8_TEXT_EXTENSIONS: &[&str] = &["ink"];

@@ -125,6 +125,8 @@ online, the CLI prompts for one; use `--serial` in non-interactive shells.
 aix device
 aix device set-dev
 aix device unset-dev
+aix uninstall ./my-agent
+aix uninstall develop.rokid.mobility.ride --serial <serial>
 aix launch-page ./my-agent pages/index/index --card
 aix launch-widget ./my-agent widgets/order/index --position 2
 aix widget-layout show
@@ -133,6 +135,9 @@ aix widget-layout --clear
 
 `aix device` also lists the `.aix` Agents currently installed in the device
 package directory, including manifest metadata when available.
+`aix uninstall` removes one DEVELOP Agent; it requires local removal and
+dispatch confirmation, but does not verify cloud removal or guarantee that
+open Pages close.
 
 ### 5. List
 
@@ -157,6 +162,18 @@ This command is different from the default JS/TS processing in `aix pack`:
 
 ```bash
 aix optimize input.aix -o output.aix --level 2
+```
+
+### 7. Check
+
+Check a source directory without creating a package. The command validates
+manifest and entry structure, local components, JS/TS syntax, and permission
+use in recognized API calls. Errors exit with status 1; warnings do not.
+Dynamic permission use and host components may need manual review.
+
+```bash
+aix check ./my-agent
+aix check ./my-agent --format json
 ```
 
 ## Development & Debugging

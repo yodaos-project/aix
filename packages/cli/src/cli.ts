@@ -1,4 +1,4 @@
-import { Argument, Command } from "commander";
+import { Argument, Command, Option } from "commander";
 import { cmdOptimize, cmdList, cmdPack } from "./commands/legacy";
 import { cmdRuntimeCurrent } from "./commands/runtime/current";
 import { cmdRuntimeSelect } from "./commands/runtime/select";
@@ -7,11 +7,13 @@ import { cmdPreview } from "./preview";
 import {
   cmdDevice,
   cmdInstall,
+  cmdUninstall,
   cmdLaunchPage,
   cmdLaunchWidget,
   cmdWidgetLayout,
 } from "./commands/launch";
 import { cmdShow } from "./commands/show";
+import { cmdCheck } from "./commands/check";
 import { formatError } from "./ui/status";
 import { confirm } from "@inquirer/prompts";
 
@@ -45,6 +47,15 @@ async function main() {
       logTime?: boolean;
     }) => {
       await cmdPack(buildPackArgs(inputDir, options));
+    });
+
+  program
+    .command("check <input-dir>")
+    .helpGroup(PACKAGE_COMMANDS)
+    .description("Statically check an AIX source directory")
+    .addOption(new Option("--format <format>", "Diagnostic output format").choices(["text", "json"]).default("text"))
+    .action((inputDir: string, options: { format: string }) => {
+      cmdCheck(inputDir, options.format as "text" | "json");
     });
 
   program
@@ -92,6 +103,15 @@ async function main() {
     .option("--engine <range>", "Supported engine range")
     .action(async (input: string, options) => {
       await cmdInstall(input, options);
+    });
+
+  program
+    .command("uninstall <input>")
+    .helpGroup(DEVICE_COMMANDS)
+    .description("Uninstall a DEVELOP Agent from Rokid Glasses over ADB")
+    .option("-s, --serial <serial>", "ADB device serial")
+    .action(async (input: string, options: { serial?: string }) => {
+      await cmdUninstall(input, options.serial);
     });
 
   program
