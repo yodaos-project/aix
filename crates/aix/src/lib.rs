@@ -9,10 +9,10 @@ use hashbrown::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "std")]
 use std::collections::{HashMap, HashSet};
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", target_arch = "wasm32"))]
 use wasm_bindgen::prelude::*;
 
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", target_arch = "wasm32"))]
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_namespace = console, js_name = warn)]
@@ -20,7 +20,7 @@ extern "C" {
 }
 
 fn aix_warn(msg: &str) {
-    #[cfg(feature = "wasm")]
+    #[cfg(all(feature = "wasm", target_arch = "wasm32"))]
     console_warn(msg);
     log::warn!("{}", msg);
 }
@@ -907,6 +907,191 @@ mod tests {
     use super::*;
     use std::io::{Cursor, Write};
     use zip::write::FileOptions;
+
+    fn archive(entries: Vec<(&str, Vec<u8>)>) -> AixReader {
+        let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        for (name, data) in entries {
+            zip.start_file(name, FileOptions::default()).unwrap();
+            zip.write_all(&data).unwrap();
+        }
+        AixReader::new(zip.finish().unwrap().into_inner()).unwrap()
+    }
+
+    #[test]
+    fn rejects_each_signed_manifest_invariant_even_with_a_valid_signature() {
+        let key = crypto::PrivateKey::from_seed([7; 32]);
+        let entries = vec![
+            crypto::ManifestEntry {
+                path: "VERSION".into(),
+                size: 5,
+                sha256: crypto::sha256(b"build"),
+            },
+            crypto::ManifestEntry {
+                path: "app.json".into(),
+                size: 12,
+                sha256: crypto::sha256(br#"{"pages":[]}"#),
+            },
+        ];
+        let manifest = crypto::PackageManifest {
+            format: "aix".into(),
+            version: "build".into(),
+            engine: "*".into(),
+            algorithm: "ed25519".into(),
+            digest: "sha256".into(),
+            key_id: key.public_key().key_id(),
+            package_id: crypto::calculate_package_id(&entries),
+            entries,
+        };
+        let fixture = |manifest: &crypto::PackageManifest,
+                       payload: Vec<(&str, Vec<u8>)>,
+                       signature: Option<Vec<u8>>| {
+            let bytes = serde_json::to_vec(manifest).unwrap();
+            let signature = signature
+                .unwrap_or_else(|| key.sign(b"package-manifest", &bytes).to_bytes().to_vec());
+            let mut files = payload;
+            files.push((crypto::MANIFEST_PATH, bytes));
+            files.push((crypto::SIGNATURE_PATH, signature));
+            archive(files)
+        };
+        let payload = || {
+            vec![
+                ("VERSION", b"build".to_vec()),
+                ("app.json", br#"{"pages":[]}"#.to_vec()),
+                ("folder/", vec![]),
+            ]
+        };
+        assert_eq!(
+            fixture(&manifest, payload(), None)
+                .verify_signature(&key.public_key())
+                .unwrap()
+                .entry_count,
+            2
+        );
+        enum Mutation {
+            Format,
+            Engine,
+            Key,
+            Order,
+            Metadata,
+            Size,
+            Digest,
+            Version,
+            Id,
+        }
+        for (case, expected) in [
+            (Mutation::Format, "Unsupported AIX signature manifest"),
+            (Mutation::Engine, "Invalid engine range"),
+            (Mutation::Key, "Manifest key ID does not match"),
+            (Mutation::Order, "Invalid or unsorted manifest entry"),
+            (Mutation::Metadata, "Invalid or unsorted manifest entry"),
+            (Mutation::Size, "Package entry digest mismatch"),
+            (Mutation::Digest, "Package entry digest mismatch"),
+            (Mutation::Version, "Manifest version does not match"),
+            (Mutation::Id, "Manifest package ID mismatch"),
+        ] {
+            let mut altered = manifest.clone();
+            match case {
+                Mutation::Format => altered.format = "other".into(),
+                Mutation::Engine => altered.engine = "invalid".into(),
+                Mutation::Key => altered.key_id = "wrong".into(),
+                Mutation::Order => altered.entries.reverse(),
+                Mutation::Metadata => altered.entries[0].path = crypto::MANIFEST_PATH.into(),
+                Mutation::Size => altered.entries[0].size += 1,
+                Mutation::Digest => altered.entries[0].sha256 = "wrong".into(),
+                Mutation::Version => altered.version = "different".into(),
+                Mutation::Id => altered.package_id = "wrong".into(),
+            }
+            let error = fixture(&altered, payload(), None)
+                .verify_signature(&key.public_key())
+                .unwrap_err();
+            assert!(error.to_string().contains(expected), "{error}");
+        }
+        for (signature, expected) in [
+            (vec![0], "Invalid Ed25519 signature length"),
+            (vec![0; 64], "AIX signature verification failed"),
+        ] {
+            assert!(fixture(&manifest, payload(), Some(signature))
+                .verify_signature(&key.public_key())
+                .unwrap_err()
+                .to_string()
+                .contains(expected));
+        }
+        let mut extra = payload();
+        extra.push(("unsigned", b"extra".to_vec()));
+        assert!(fixture(&manifest, extra, None)
+            .verify_signature(&key.public_key())
+            .unwrap_err()
+            .to_string()
+            .contains("Unsigned package entry"));
+        let mut without_version = manifest;
+        without_version.entries.remove(0);
+        assert!(fixture(
+            &without_version,
+            vec![("app.json", br#"{"pages":[]}"#.to_vec())],
+            None
+        )
+        .verify_signature(&key.public_key())
+        .unwrap_err()
+        .to_string()
+        .contains("VERSION entry not found"));
+        assert!(archive(vec![(crypto::MANIFEST_PATH, b"{broken".to_vec())])
+            .verify_signature(&key.public_key())
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid AIX manifest"));
+    }
+
+    #[test]
+    fn page_metadata_defaults_survive_missing_schema_and_invalid_inputs() {
+        for config in [b"{}".as_slice(), br#"{"schema":{}}"#] {
+            for extension in ["home.ink", "home.json"] {
+                let body = if extension.ends_with("ink") {
+                    [
+                        b"<script def>".as_slice(),
+                        config,
+                        b"</script><page><view /></page>",
+                    ]
+                    .concat()
+                } else {
+                    config.to_vec()
+                };
+                let reader = archive(vec![
+                    ("app.json", br#"{"pages":["home"]}"#.to_vec()),
+                    (extension, body),
+                ]);
+                assert_eq!(reader.get_pages()[0].data_schema, serde_json::json!({}));
+                assert_eq!(reader.get_tools()[0].target, ToolTarget::Blank);
+            }
+        }
+        let reader = archive(vec![
+            ("app.json", b"invalid".to_vec()),
+            ("VERSION", vec![0xff]),
+        ]);
+        assert!(reader.get_pages().is_empty());
+        assert!(reader.get_title().is_none());
+        assert!(reader.get_version().is_none());
+        assert!(satisfy("invalid", "1.0.0").is_err());
+        assert!(!page_has_parameters(&serde_json::Value::Null));
+        assert!(page_has_parameters(&serde_json::json!(true)));
+        for (bytes, text) in [
+            (1, "1 bytes"),
+            (1024, "1.00 KB"),
+            (1 << 20, "1.00 MB"),
+            (1 << 30, "1.00 GB"),
+        ] {
+            assert_eq!(format_size(bytes), text);
+        }
+        assert_eq!(reader.find_locale_file("  "), None);
+        let reader = archive(vec![
+            ("app.json", br#"{"pages":[],"widgets":[]}"#.to_vec()),
+            ("app.en.json", b"invalid".to_vec()),
+        ]);
+        assert!(reader
+            .get_widgets_for_locale("en")
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid locale configuration"));
+    }
 
     fn create_test_aix() -> Vec<u8> {
         let mut buf = Vec::new();

@@ -16,5 +16,10 @@ anyhow = { workspace = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { workspace = true }
 
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "=0.3.76"
+# The coverage job pins LLVM 21; minicov 0.3.9 uses LLVM 23's profile layout.
+minicov = "=0.3.8"
+
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = ["-O", "--enable-bulk-memory"]

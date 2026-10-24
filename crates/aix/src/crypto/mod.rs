@@ -190,6 +190,44 @@ mod tests {
     use super::*;
 
     #[test]
+    fn key_and_signature_encodings_and_error_messages_are_stable() {
+        use rand_chacha::ChaCha20Rng;
+        use rand_core::SeedableRng;
+
+        let mut expected_seed = [0; 32];
+        ChaCha20Rng::from_seed([7; 32]).fill_bytes(&mut expected_seed);
+        let key = PrivateKey::generate(&mut ChaCha20Rng::from_seed([7; 32]));
+        assert_eq!(key.to_seed_bytes(), expected_seed);
+        let public = key.public_key();
+        assert_eq!(PublicKey::from_bytes(public.to_bytes()).unwrap(), public);
+        let signature = key.sign(b"context", b"message");
+        assert_eq!(Signature::from_bytes(signature.to_bytes()), signature);
+        assert!(public
+            .verify(b"other context", b"message", &signature)
+            .is_err());
+        assert!(PublicKey::from_bytes([2; 32]).is_err());
+        for (error, message) in [
+            (CryptoError::InvalidPublicKey, "invalid Ed25519 public key"),
+            (CryptoError::InvalidSignature, "invalid Ed25519 signature"),
+            (
+                CryptoError::InvalidEngineRange,
+                "invalid engine version range",
+            ),
+            (CryptoError::InvalidEngineVersion, "invalid engine version"),
+        ] {
+            assert_eq!(format!("{error}"), message);
+        }
+        assert_eq!(
+            engine_satisfies("invalid", "1.0.0"),
+            Err(CryptoError::InvalidEngineRange)
+        );
+        assert_eq!(
+            engine_satisfies("*", "invalid"),
+            Err(CryptoError::InvalidEngineVersion)
+        );
+    }
+
+    #[test]
     fn signs_and_verifies() {
         let key = PrivateKey::from_seed([7; 32]);
         let signature = key.sign(b"test", b"payload");

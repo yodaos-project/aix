@@ -538,9 +538,11 @@ fn finish(mut report: CheckReport) -> CheckReport {
     report
 }
 fn is_source(path: &str) -> bool {
-    [".ink", ".js", ".ts", ".mjs", ".mts", ".cjs", ".cts"]
-        .iter()
-        .any(|ext| path.ends_with(ext))
+    [
+        ".ink", ".wxml", ".js", ".ts", ".mjs", ".mts", ".cjs", ".cts",
+    ]
+    .iter()
+    .any(|ext| path.ends_with(ext))
 }
 
 fn is_typescript_source(path: &str) -> bool {
@@ -1471,6 +1473,230 @@ fn check_script(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn assert_codes(files: Vec<InputFile>, expected: &[&str]) {
+        let report = check_source(files).unwrap();
+        let codes: BTreeSet<_> = report.diagnostics.iter().map(|d| d.code).collect();
+        assert_eq!(
+            codes,
+            expected.iter().copied().collect(),
+            "{:#?}",
+            report.diagnostics
+        );
+        assert_eq!(
+            report.has_errors(),
+            report
+                .diagnostics
+                .iter()
+                .any(|d| d.severity == Severity::Error)
+        );
+    }
+
+    #[test]
+    fn validates_all_app_field_shapes_and_entry_paths() {
+        for (app, codes) in [
+            (r#"{"pages":[],"engine":"invalid"}"#, vec!["AIX005"]),
+            (
+                r#"{"engine":123,"window":null,"permissions":false,"widgets":{}}"#,
+                vec!["AIX005", "AIX008", "AIX010", "AIX034", "AIX038"],
+            ),
+            (
+                r#"{"pages":[1,"","../bad","a.ink"],"permissions":[1,"UNKNOWN","UNKNOWN"]}"#,
+                vec!["AIX006", "AIX007", "AIX037", "AIX039", "AIX040"],
+            ),
+            (
+                r#"{"pages":[],"widgets":[null,{}, {"path":"card","family":"bad","placement":"bad","displayName":1,"description":false}]}"#,
+                vec!["AIX011", "AIX012", "AIX017", "AIX035", "AIX043", "AIX044"],
+            ),
+            (
+                r#"{"pages":["home","home"],"widgets":[{"path":"home","family":"1x1"}]}"#,
+                vec!["AIX009", "AIX016"],
+            ),
+            (r#"{"pages":[],"usingComponents":[]}"#, vec!["AIX020"]),
+        ] {
+            assert_codes(vec![InputFile::new("app.json", app)], &codes);
+        }
+        assert_codes(
+            vec![InputFile::new("app.json", b"\xef\xbb\xbf\xff")],
+            &["AIX002"],
+        );
+        assert_codes(vec![], &["AIX003"]);
+        let prepared = prepare_check_source(vec![InputFile::new("app.json", b"null")]).unwrap();
+        assert!(!prepared.coverage.structure);
+        assert!(prepared.report.has_errors());
+    }
+
+    #[test]
+    fn diagnoses_page_widget_and_component_structure() {
+        for (entry, source, codes) in [
+            (
+                "home",
+                "<script def>null</script><page><view /></page><widget></widget>",
+                vec!["AIX030", "AIX041"],
+            ),
+            (
+                "home",
+                "<script def>{\"schema\":false}</script><page><view</page>",
+                vec!["AIX031", "AIX036"],
+            ),
+            (
+                "home",
+                "<script def>{bad}</script><page></page><page></page>",
+                vec!["AIX014", "AIX015"],
+            ),
+            (
+                "card",
+                "<widget></widget><page></page>",
+                vec!["AIX013", "AIX046"],
+            ),
+            (
+                "card",
+                "<script def>{}</script><widget></widget><widget></widget>",
+                vec!["AIX018", "AIX019"],
+            ),
+        ] {
+            let app = if entry == "home" {
+                r#"{"pages":["home"]}"#
+            } else {
+                r#"{"pages":[],"widgets":[{"path":"card","family":"1x1"}]}"#
+            };
+            assert_codes(
+                vec![
+                    InputFile::new("app.json", app),
+                    InputFile::new(format!("{entry}.ink"), source),
+                ],
+                &codes,
+            );
+        }
+        assert_codes(
+            vec![
+                InputFile::new("app.json", br#"{"pages":["home"]}"#),
+                InputFile::new("home.json", b"null"),
+                InputFile::new("home.wxml", b"<view"),
+            ],
+            &["AIX030", "AIX036"],
+        );
+        // Legacy markup must be decoded and validated, just like an Ink body.
+        let prepared = prepare_check_source(vec![
+            InputFile::new("app.json", br#"{"pages":["home"]}"#),
+            InputFile::new("home.json", b"{}"),
+            InputFile::new("home.wxml", b"<view />"),
+        ])
+        .unwrap();
+        assert!(!prepared.report.has_errors());
+        assert_eq!(prepared.coverage.text_files, 3);
+    }
+
+    #[test]
+    fn validates_component_references_and_legacy_cycles() {
+        assert_codes(
+            vec![
+                InputFile::new(
+                    "app.json",
+                    br#"{"pages":[],"usingComponents":{"a-card":"a","b-card":"b"}}"#,
+                ),
+                InputFile::new("a.ink", b"<script def>{\"component\":true}</script>"),
+                InputFile::new("b.json", br#"{"component":false}"#),
+                InputFile::new("b.wxml", b"<view />"),
+            ],
+            &["AIX025", "AIX026"],
+        );
+        assert_codes(vec![InputFile::new("app.json", br#"{"pages":[],"usingComponents":{"not-string":1,"plain":"@host/view","bad-path":"../bad","missing-entry":"missing","bad-component":"bad","legacy-component":"legacy"}}"#),
+            InputFile::new("bad.ink", b"<script def>{\"component\":false}</script><template><view</template>"),
+            InputFile::new("legacy.json", br#"{"component":false}"#)],
+            &["AIX021", "AIX022", "AIX023", "AIX024", "AIX026", "AIX036", "AIX042", "AIX045"]);
+        assert_codes(vec![InputFile::new("app.json", br#"{"pages":[],"usingComponents":{"a-card":"a"}}"#),
+            InputFile::new("a.json", br#"{"component":true,"usingComponents":{"b-card":"b"}}"#), InputFile::new("a.wxml", b"<view />"),
+            InputFile::new("b.ink", b"<script def>{\"component\":true,\"usingComponents\":{\"a-card\":\"a\"}}</script><template><view /></template>")], &["AIX032"]);
+        assert_codes(
+            vec![
+                InputFile::new("app.json", br#"{"pages":[]}"#),
+                InputFile::new("orphan.ink", b"<script def>{\"component\":true}</script>"),
+            ],
+            &["AIX025"],
+        );
+    }
+
+    #[test]
+    fn checks_direct_and_dynamic_media_constraints_without_guessing() {
+        let source = r#"
+            navigator.mediaDevices.getUserMedia();
+            navigator.mediaDevices.getUserMedia(...args);
+            navigator.mediaDevices.getUserMedia(options);
+            navigator.mediaDevices.getUserMedia({ ...options, [key]: true });
+            navigator.mediaDevices.getUserMedia({audio: false, video: false});
+            navigator.mediaDevices.getUserMedia({audio: {}, video: {width: 480}});
+            navigator.mediaDevices.getUserMedia({audio: enabled, video: true});
+            navigator.mediaDevices.getUserMedia({audio: true});
+            navigator.mediaDevices.getUserMedia({unrelated: true});
+            navigator.mediaLibrary.list();
+            navigator.mediaLibrary.get('id', {});
+            navigator.mediaLibrary.list({mediaType: 'audio'});
+            navigator.mediaLibrary.list({mediaType: type});
+            navigator.mediaLibrary.list({mediaType: 'video'});
+            navigator.mediaLibrary.list(options);
+            navigator.mediaLibrary.list(...args);
+            navigator.mediaLibrary.save(blob);
+            navigator.geolocation.watchPosition(() => {});
+            new WebSocket('wss://example.com'); new EventSource('/events'); new XMLHttpRequest();
+            wx.request({}); wx.uploadFile({}); wx.downloadFile({});
+            getObject()[key](); (fetch)('/'); otherCall();
+        "#;
+        assert_codes(
+            vec![
+                InputFile::new("app.json", br#"{"pages":[]}"#),
+                InputFile::new("main.js", source),
+            ],
+            &["AIX027", "AIX028", "AIX033"],
+        );
+        assert_codes(vec![InputFile::new("app.json", br#"{"pages":[],"permissions":["INTERNET","RECORD_AUDIO","CAMERA","READ_MEDIA_IMAGES","READ_MEDIA_AUDIO","GEOLOCATION"]}"#), InputFile::new("main.js", b"fetch('/'); navigator.mediaDevices.getUserMedia({audio:true,video:true}); navigator.mediaLibrary.list({mediaType:'audio'}); navigator.mediaLibrary.get('id'); navigator.geolocation.watchPosition(()=>{});")], &[]);
+    }
+
+    #[test]
+    fn json_spans_handle_escaped_keys_arrays_and_truncated_input() {
+        let source = r#"{"a/b~":[{"quoted":"a\\\"b"},true,null],"last":{}}"#;
+        let offset = json_pointer_offset(source, 0, "/a~1b~0/0/quoted");
+        assert!(source[offset..].starts_with('"'));
+        assert_eq!(json_pointer_offset(source, 0, "/missing"), 0);
+        assert!(json_pointer_offset(source, 0, "/a~1b~0/99") > 0);
+        assert_eq!(field_offset("text \"field\"", "field"), 5);
+        assert_eq!(field_offset("nothing", "field"), 0);
+        assert_eq!(component_value_offset("{}", "missing"), 0);
+        for malformed in [
+            "",
+            "{",
+            "{\"key\" true}",
+            "{\"key\":{} ?}",
+            "[{} ?]",
+            "[",
+            "[\"unfinished",
+        ] {
+            assert!(value_end(malformed, 0).is_none(), "{malformed}");
+        }
+        for malformed in [
+            "[]",
+            "{}",
+            "{\"key\" true}",
+            "{\"key\":0 ?}",
+            "{\"bad\\q\":0}",
+        ] {
+            assert!(object_field(malformed, 0, "missing").is_none());
+        }
+        assert!(array_items("{}", 0).is_empty());
+        assert!(array_items("[", 0).is_empty());
+        assert_eq!(array_items("[{} ?]", 0), vec![(1, 3)]);
+        let mut report = CheckReport::default();
+        report.error("test", "main.js", "😀\nx", 2, "boundary");
+        report.error("test", "main.js", "😀\nx", usize::MAX, "end");
+        assert_eq!(
+            (report.diagnostics[0].line, report.diagnostics[0].column),
+            (1, 1)
+        );
+        assert_eq!(
+            (report.diagnostics[1].line, report.diagnostics[1].column),
+            (2, 2)
+        );
+    }
 
     #[test]
     fn source_and_archive_agree_on_sfc_boundaries() {

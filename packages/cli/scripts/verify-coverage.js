@@ -30,4 +30,32 @@ for (const source of ['cli.ts', 'commands/check.ts', 'commands/check-worker.ts',
   );
 }
 
-console.log('Coverage verified: all CLI sources, subprocesses, and check Worker');
+// Codecov treats a line with an unexecuted branch as a miss or partial even
+// when C8 counts the line as executed. Enforce the floor conservatively for
+// that interpretation as well, retaining every BRDA entry in the upload.
+let totalLines = 0;
+let completeLines = 0;
+const lcovSources = [];
+for (const record of fs.readFileSync(path.join(root, 'coverage/lcov.info'), 'utf8').split('end_of_record')) {
+  const lines = new Map();
+  const incomplete = new Set();
+  for (const entry of record.split('\n')) {
+    if (entry.startsWith('SF:')) lcovSources.push(path.resolve(root, entry.slice(3)));
+    if (entry.startsWith('DA:')) {
+      const [line, hits] = entry.slice(3).split(',').map(Number);
+      assert(Number.isInteger(line) && line > 0 && Number.isFinite(hits) && hits >= 0, 'Invalid LCOV line counts');
+      lines.set(line, hits);
+    }
+    if (entry.startsWith('BRDA:')) {
+      const [line, , , hits] = entry.slice(5).split(',');
+      if (hits === '-' || Number(hits) === 0) incomplete.add(Number(line));
+    }
+  }
+  totalLines += lines.size;
+  completeLines += [...lines].filter(([line, hits]) => hits > 0 && !incomplete.has(line)).length;
+}
+assert.deepEqual(lcovSources.sort(), sources(path.join(root, 'src')).sort(), 'LCOV must include every CLI source');
+assert.equal(totalLines, report.total.lines.total, 'LCOV and C8 must agree on the line denominator');
+const completePercent = 100 * completeLines / totalLines;
+assert(completePercent >= 98, `CLI coverage with incomplete branches counted as misses is ${completePercent.toFixed(2)}%; expected at least 98%`);
+console.log(`Coverage verified: all CLI sources, subprocesses, and check Worker; branch-complete lines ${completePercent.toFixed(2)}%`);

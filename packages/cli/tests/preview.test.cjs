@@ -119,15 +119,16 @@ test('dev preview broadcasts changes and retains the last valid state after arch
   assert.equal(reload.type, 'reload');
   assert(reload.revision > error.revision);
   assert.deepEqual(await (await fetch(stateUrl)).json(), initial);
-  ws.terminate();
   const stopped = await command.stop();
   if (process.platform !== 'win32') assert.equal(stopped.status, 0);
 });
 
 test('dev preview observes new nested source files', { timeout: 15000 }, async (t) => {
   const f = fixture(t);
-  const command = f.start(['preview', f.project(), '--dev']);
+  const command = f.start(['preview', f.project(), '--dev', '--launch']);
   const [, url] = await command.output(/Preview dev server running at (http:\/\/127\.0\.0\.1:\d+\/)/);
+  await (await fetch(url)).text();
+  assert.equal(f.calls().find((call) => call.kind === 'browser').args.at(-1), `${url}?target=blank`);
   const ws = new WebSocket(url.replace('http:', 'ws:') + '__aix_preview_ws');
   t.after(() => ws.terminate());
   await once(ws, 'open', { signal: AbortSignal.timeout(5000) });

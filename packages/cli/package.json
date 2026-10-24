@@ -12,7 +12,7 @@
   ],
   "scripts": {
     "build": "node scripts/build.js",
-    "test": "node scripts/test-check.js && node --test --test-concurrency=1 tests",
+    "test": "node scripts/test-check.js && node scripts/test-unit.js",
     "test:coverage": "npm run build -- --coverage && c8 npm test && node scripts/verify-coverage.js"
   },
   "dependencies": {

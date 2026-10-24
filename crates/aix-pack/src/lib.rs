@@ -629,6 +629,163 @@ mod tests {
     use super::*;
 
     #[test]
+    fn optimizes_png_and_jpeg_at_each_level_without_growing_images() {
+        let image = image::RgbImage::from_fn(32, 32, |x, y| {
+            image::Rgb([(x * 7) as u8, (y * 7) as u8, 80])
+        });
+        let mut png = Vec::new();
+        PngEncoder::new_with_quality(&mut png, CompressionType::Fast, FilterType::NoFilter)
+            .write_image(image.as_raw(), 32, 32, image::ExtendedColorType::Rgb8)
+            .unwrap();
+        let mut jpeg = Vec::new();
+        JpegEncoder::new_with_quality(&mut jpeg, 100)
+            .encode_image(&image)
+            .unwrap();
+        for level in [1, 2, 3] {
+            for (path, original, format) in [
+                ("image.png", &png, image::ImageFormat::Png),
+                ("image.jpeg", &jpeg, image::ImageFormat::Jpeg),
+            ] {
+                let prepared = prepare_file(
+                    path,
+                    original.clone(),
+                    Some(&OptimizeOptions {
+                        level,
+                        ..Default::default()
+                    }),
+                )
+                .unwrap();
+                assert!(prepared.data.len() <= original.len());
+                assert!(prepared.supported);
+                let decoded = image::load_from_memory_with_format(&prepared.data, format).unwrap();
+                assert_eq!((decoded.width(), decoded.height()), (32, 32));
+            }
+        }
+        assert!(prepare_file("bad.png", vec![], Some(&OptimizeOptions::default())).is_err());
+        assert!(prepare_file("bad.jpg", vec![], Some(&OptimizeOptions::default())).is_err());
+        assert_eq!(smaller_image(vec![1], vec![1, 2]).data, vec![1]);
+        assert_eq!(smaller_image(vec![1, 2], vec![1]).data, vec![1]);
+    }
+
+    #[test]
+    fn optimization_preserves_payloads_and_drops_the_old_signature() {
+        let key = aix::crypto::PrivateKey::from_seed([7; 32]);
+        let original = pack(
+            vec![InputFile::new("app.json", br#"{"pages":[]}"#)],
+            PackOptions {
+                signing_key: Some(&key),
+                ..PackOptions::new("build")
+            },
+        )
+        .unwrap();
+        let optimized = optimize_package(&original.data, &OptimizeOptions::default()).unwrap();
+        let reader = aix::AixReader::new(optimized.data).unwrap();
+        assert_eq!(reader.get_version().as_deref(), Some("build"));
+        assert_eq!(reader.get_engine().as_deref(), Some("*"));
+        assert!(reader.read_file(aix::crypto::SIGNATURE_PATH).is_err());
+        assert!(reader.get_manifest().unwrap().unwrap().key_id.is_empty());
+        assert!(optimize_package(b"bad zip", &OptimizeOptions::default()).is_err());
+    }
+
+    #[test]
+    fn rejects_invalid_pack_options_and_propagates_progress_cancellation() {
+        for progress in [false, true] {
+            for (files, options, message) in [
+                (vec![], PackOptions::new(""), "build_id must not be empty"),
+                (
+                    vec![InputFile::new("VERSION", b"reserved")],
+                    PackOptions::new("build"),
+                    "VERSION is generated",
+                ),
+                (
+                    vec![
+                        InputFile::new("app.json", br#"{"pages":[]}"#),
+                        InputFile::new("app.json", b"{}"),
+                    ],
+                    PackOptions::new("build"),
+                    "duplicate package path",
+                ),
+                (
+                    vec![InputFile::new(
+                        "app.json",
+                        br#"{"pages":[],"engine":"invalid"}"#,
+                    )],
+                    PackOptions::new("build"),
+                    "invalid engine range",
+                ),
+            ] {
+                let error = if progress {
+                    pack_with_progress(files, options, |_| Ok(()))
+                } else {
+                    pack(files, options)
+                }
+                .unwrap_err();
+                assert!(error.to_string().contains(message), "{error}");
+            }
+        }
+        for stage in ["engine", "prepare", "file", "final"] {
+            let error = pack_with_progress(
+                vec![InputFile::new("app.json", br#"{"pages":[]}"#)],
+                PackOptions::new("build"),
+                |event| {
+                    if matches!(
+                        (stage, event),
+                        ("engine", PackProgressEvent::ResolvingEngine)
+                            | ("prepare", PackProgressEvent::PreparingFiles)
+                            | ("file", PackProgressEvent::FileFinished { .. })
+                            | ("final", PackProgressEvent::FinalizingArchive)
+                    ) {
+                        Err(anyhow!("cancelled"))
+                    } else {
+                        Ok(())
+                    }
+                },
+            )
+            .unwrap_err();
+            assert_eq!(error.to_string(), "cancelled");
+        }
+        assert_eq!(resolve_engine_range(&[], None).unwrap(), "*");
+        assert!(
+            validate_app_config(&[InputFile::new("app.json", b"\xef\xbb\xbf\xff")])
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            validate_app_config(&[InputFile::new("app.json", br#"{"pages":[""]}"#)])
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn normalizes_big_endian_text_and_reports_invalid_encoding_and_scripts() {
+        let text = "你好";
+        let mut encoded = vec![0xfe, 0xff];
+        encoded.extend(text.encode_utf16().flat_map(u16::to_be_bytes));
+        assert_eq!(
+            normalize_text_to_utf8("source.ink", &encoded).unwrap(),
+            (text.as_bytes().to_vec(), true)
+        );
+        assert!(normalize_text_to_utf8("source.json", b"\xef\xbb\xbf\xff").is_err());
+        assert!(normalize_text_to_utf8("source.ink", b"\xff\xfe\x00").is_err());
+        assert!(decode("source", &[0xff], UTF_8).is_err());
+        assert!(normalize_text_to_utf8("legacy.ink", &[0xff]).is_ok());
+        let (gb, _, _) = GB18030.encode(text);
+        assert_eq!(
+            normalize_text_to_utf8("source.ink", &gb).unwrap().0,
+            text.as_bytes()
+        );
+        assert!(minify_script("source.unknown", "let x = 1;").is_err());
+        assert!(minify_script("source.js", "function {").is_err());
+        assert!(prepare_script("source.js", b"\xef\xbb\xbf\xff").is_err());
+        assert_eq!(
+            prepare_script("source.js", b"let x=1;").unwrap().data,
+            b"let x=1;"
+        );
+    }
+
+    #[test]
     fn packs_and_reads_an_artifact() {
         let output = pack(
             vec![InputFile::new("app.json", br#"{ "pages": [] }"#)],

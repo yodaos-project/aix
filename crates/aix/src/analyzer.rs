@@ -172,6 +172,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn id_dimensions_override_classes_and_partial_inline_sizes_preserve_other_dimensions() {
+        let size = PageAnalyzer::analyze(Some(r#"<view id="card" class="first second" style="height: 40px"/>"#), Some("#card {width:320px;height:60px} .first,.second, {width:200px;height:20px} .ignored {display:flex}"));
+        assert_eq!(
+            size,
+            PageConstraint {
+                width: 320.0,
+                height: 40.0
+            }
+        );
+        assert_eq!(
+            PageAnalyzer::analyze(Some("<view style='height: 0px'/>"), None),
+            PageConstraint::default()
+        );
+        assert_eq!(
+            PageAnalyzer::analyze(Some("<view"), None),
+            PageConstraint::default()
+        );
+    }
+
+    #[test]
     fn test_analyze_inline_style() {
         let wxml = r#"<view style="width: 100px; height: 200px;"></view>"#;
         let size = PageAnalyzer::analyze(Some(wxml), None);

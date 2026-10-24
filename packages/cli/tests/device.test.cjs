@@ -28,6 +28,16 @@ const calls = (f) => f.calls().filter((call) => call.kind === 'adb');
 const layouts = (f) => calls(f).filter((call) => call.method === 'push')
   .flatMap((call) => call.files).filter((file) => file.path.endsWith('widget-config.json')).map((file) => file.json);
 
+test('first Widget launch creates the default grid when the device has no configuration', (t) => {
+  const f = setup(t);
+  succeeds(f.run(['launch-widget', f.project, widgetPath]));
+  const config = layouts(f)[0];
+  assert.equal(config.totalGridCount, 4);
+  assert.equal(config.totalColumnCount, 2);
+  assert.deepEqual(config.permanentModules, []);
+  assert.equal(config.overlayModules[0].agentId, agentId);
+});
+
 test('install stages a real package and derived definition, validates status, and cleans temporary files', (t) => {
   const f = setup(t);
   const output = succeeds(f.run(['install', f.project, '--serial', 'test-device', '-O', '--opt-level', '1', '--engine', '^0.18.0']));
@@ -243,4 +253,115 @@ test('widget-layout refuses destructive or inconsistent arguments without device
     [['show', '--clear', '--yes'], /show cannot be used with --clear/],
   ]) await t.test(args.join(' '), () => fails(f.run(['widget-layout', ...args]), error));
   assert.deepEqual(calls(f), []);
+});
+
+test('terminal device progress handles successful steps, failed steps, and placement retries', (t) => {
+  const f = setup(t);
+  f.configure({ tty: true, adb: { agentId } });
+  succeeds(f.run(['install', f.project]));
+  f.configure({ tty: true, adb: { agentId, responses: { prepare: { errorCode: '', ready: false } } } });
+  fails(f.run(['install', f.project]), /Prepare did not report ready=true/);
+  const config = grid([], [moduleAt(0)]);
+  f.configure({ tty: true, adb: { agentId, responses: {
+    'widget-snapshot': snapshot(config),
+    open: [{ errorCode: 'WIDGET_PLACEMENT_MISSING' }, { errorCode: '', ok: true }],
+  } } });
+  const result = f.run(['launch-widget', f.project, widgetPath]);
+  succeeds(result);
+  assert.match(result.stdout + result.stderr, /Widget placement restored/);
+});
+
+test('device status tolerates incomplete remote metadata and malformed layout items', (t) => {
+  const config = { permanentModules: [null, [], 1, {}, { name: 1, agentId: 2, path: 3 }], overlayModules: 'invalid' };
+  const f = setup(t, { responses: { 'widget-snapshot': { errorCode: '', ok: true, configurationJson: config } }, manifest: { packages: {} } });
+  const output = succeeds(f.run(['device']));
+  assert.match(output, /Developer Mode: unknown/);
+  assert.match(output, /Environment Epoch: unknown/);
+  assert.match(output, /Configuration Version: none/);
+  assert.match(output, /unnamed: unknown agent -> unknown path/);
+  assert.match(output, /position \?, size \?x\?/);
+  assert.match(output, /Widget Layout: \? columns, \? cells/);
+  const layout = succeeds(f.run(['widget-layout', 'show']));
+  assert.match(layout, /Environment: unknown[\s\S]*not ready[\s\S]*Configuration: none[\s\S]*Grid: \? columns, \? cells/);
+  f.configure({ adb: { responses: { 'widget-snapshot': snapshot(grid([], [moduleAt(0)])), 'widget-apply': { errorCode: '', ok: true } } } });
+  assert.match(succeeds(f.run(['widget-layout', '--clear', '--yes'])), /Configuration: updated/);
+});
+
+test('Widget placement applies default dimensions and evicts overlays only when necessary', async (t) => {
+  for (const [name, config, expectedIndex] of [
+    ['default grid', {}, 0],
+    ['occupied overlays', grid([], [moduleAt(0, { agentId: 'other' }), moduleAt(2, { agentId: 'other2' })]), 0],
+    ['name collision', grid([moduleAt(0, { agentId: 'other', name: 'custom_1' })]), 2],
+  ]) await t.test(name, (t) => {
+    const f = setup(t, { responses: { 'widget-snapshot': snapshot(config) } });
+    succeeds(f.run(['launch-widget', f.project, widgetPath]));
+    const layout = layouts(f)[0];
+    assert.equal(layout.overlayModules[0].startIndex, expectedIndex);
+    assert.equal(layout.overlayModules[0].name, name === 'name collision' ? 'custom_2' : 'custom_1');
+  });
+  const f = setup(t, { responses: { 'widget-snapshot': snapshot(grid([moduleAt(0, { agentId: 'other' }), moduleAt(2, { agentId: 'other2' })])) } });
+  fails(f.run(['launch-widget', f.project, widgetPath]), /No position can fit/);
+  f.write('agent/app.json', { pages: [], widgets: [{ path: widgetPath, family: '1x3' }] });
+  f.configure({ adb: { responses: { 'widget-snapshot': snapshot(grid()) } } });
+  fails(f.run(['launch-widget', f.project, widgetPath]), /No position can fit/);
+  assert.deepEqual(layouts(f), []);
+});
+
+test('page routing ignores malformed Widget declarations in source metadata', (t) => {
+  const f = setup(t);
+  f.write('agent/app.json', { pages: [null, 'pages/home'], widgets: [null, [], 1, {}, { path: 1 }] });
+  succeeds(f.run(['launch-page', f.project]));
+  assert.equal(calls(f).at(-1).request.path, 'pages/home');
+  f.write('agent/app.json', { widgets: [] });
+  fails(f.run(['launch-page', f.project]), /declares no pages/);
+  f.write('agent/app.json', { pages: [] });
+  fails(f.run(['launch-widget', f.project, widgetPath]), /Widget path or family is not declared/);
+});
+
+test('install enforces the package upload limit before contacting the staging API', async (t) => {
+  for (const size of [128 * 1024 * 1024, 128 * 1024 * 1024 + 1, 1024 * 1024 * 1024]) {
+    await t.test(String(size), (t) => {
+      const f = setup(t);
+      f.write('agent/agent.json', { agentName: '' });
+      f.configure({ packageSize: size, adb: { agentId } });
+      const result = f.run(['install', f.project]);
+      if (size === 128 * 1024 * 1024) {
+        assert.match(succeeds(result), new RegExp(`Agent installed: ${agentId}`));
+      } else {
+        fails(result, /Package is larger than 128 MiB/);
+        assert.deepEqual(calls(f).map((call) => call.method), ['devices']);
+      }
+    });
+  }
+});
+
+test('device responses distinguish missing codes, absent outcomes, and unsuccessful operations', (t) => {
+  const f = setup(t, { responses: { remove: {} } });
+  fails(f.run(['uninstall', agentId]), /remove failed \(unknown error\)/);
+  f.configure({ adb: { responses: { open: { errorCode: '', ok: false } } } });
+  fails(f.run(['launch-page', f.project]), /open did not report ok=true/);
+  f.configure({ adb: { responses: { apply: { errorCode: '', agentId } } } });
+  fails(f.run(['install', f.project]), /Unexpected Apply outcome: missing/);
+});
+
+test('interactive selection chooses an authorized device and confirms layout changes', { timeout: 20000 }, async (t) => {
+  const f = setup(t);
+  f.configure({ tty: true, adb: { devices: 'first\tdevice\nsecond\tdevice\n' } });
+  const device = f.start(['device']);
+  await device.output(/Select a Rokid Glasses device/);
+  device.child.stdin.write('\r');
+  succeeds(await device.done);
+  assert.equal(calls(f).find((call) => call.method === 'widget-snapshot').args[1], 'first');
+  f.configure({ tty: true, adb: { responses: { 'widget-snapshot': snapshot(grid([], [moduleAt(0)])) } } });
+  for (const [answer, accepted] of [['\r', false], ['y\r', true]]) {
+    const command = f.start(['widget-layout', '--clear']);
+    await command.output(/Clear all permanent and dynamic Widget placements/);
+    command.child.stdin.write(answer);
+    const result = await command.done;
+    if (accepted) {
+      succeeds(result);
+      assert.match(result.stdout + result.stderr, /Widget layout cleared/);
+    }
+    else fails(result, /Widget layout clear cancelled/);
+  }
 });

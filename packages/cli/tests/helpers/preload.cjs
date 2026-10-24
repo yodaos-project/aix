@@ -5,6 +5,17 @@ const childProcess = require('node:child_process');
 const config = JSON.parse(fs.readFileSync(process.env.AIX_CLI_TEST_CONFIG, 'utf8'));
 const record = (value) => fs.appendFileSync(process.env.AIX_CLI_TEST_LOG, JSON.stringify(value) + '\n');
 
+// Simulate the filesystem boundary at the upload limit without allocating a
+// 128 MiB fixture. Package bytes and archive parsing still use the real engine.
+if (config.packageSize !== undefined) {
+  const stat = fs.statSync;
+  fs.statSync = (file, ...args) => {
+    const value = stat(file, ...args);
+    if (path.basename(String(file)) === 'package.aix' && path.basename(path.dirname(String(file))).startsWith('aix-install-')) value.size = config.packageSize;
+    return value;
+  };
+}
+
 globalThis.fetch = async (url, options) => {
   record({ kind: 'fetch', url: String(url), headers: options?.headers });
   if (!/^https:\/\/registry\.(npmjs\.org|npmmirror\.com)\//.test(String(url))) {
@@ -36,5 +47,9 @@ if (config.tty) {
   for (const stream of [process.stdin, process.stdout, process.stderr]) {
     Object.defineProperty(stream, 'isTTY', { value: true });
   }
-  process.stderr.columns = process.stdout.columns = 100;
+  process.stderr.columns = process.stdout.columns = config.columns ?? 100;
+  const readline = require('node:readline');
+  for (const stream of [process.stdout, process.stderr]) {
+    for (const method of ['cursorTo', 'clearLine', 'moveCursor']) stream[method] = (...args) => readline[method](stream, ...args);
+  }
 }
