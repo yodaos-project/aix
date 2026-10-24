@@ -23,7 +23,7 @@ const rows = metrics.map((metric) => {
 
 const scope = kind === 'rust'
   ? 'Native tests across all three crates plus instrumented WASM binding tests in Node.js. LLVM combines execution counts across targets; doc-test coverage is not included. Regions are reported rather than branches.'
-  : 'CLI TypeScript sources, including subprocesses and the check Worker. Unexecuted source files count as uncovered; dependencies, shared SDK code, and WASM internals are excluded.';
+  : 'CLI TypeScript sources, including subprocesses and the check Worker. Unexecuted source files count as uncovered; dependencies, shared SDK code, and WASM internals are excluded. The 98% floor also applies conservatively with branch-incomplete lines counted as misses.';
 const markdown = [
   `## ${kind === 'rust' ? 'Rust' : 'CLI'} test coverage`,
   '',

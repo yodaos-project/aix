@@ -967,34 +967,44 @@ mod tests {
                 .entry_count,
             2
         );
+        enum Mutation {
+            Format,
+            Engine,
+            Key,
+            Order,
+            Metadata,
+            Size,
+            Digest,
+            Version,
+            Id,
+        }
         for (case, expected) in [
-            ("format", "Unsupported AIX signature manifest"),
-            ("engine", "Invalid engine range"),
-            ("key", "Manifest key ID does not match"),
-            ("order", "Invalid or unsorted manifest entry"),
-            ("metadata", "Invalid or unsorted manifest entry"),
-            ("size", "Package entry digest mismatch"),
-            ("digest", "Package entry digest mismatch"),
-            ("version", "Manifest version does not match"),
-            ("id", "Manifest package ID mismatch"),
+            (Mutation::Format, "Unsupported AIX signature manifest"),
+            (Mutation::Engine, "Invalid engine range"),
+            (Mutation::Key, "Manifest key ID does not match"),
+            (Mutation::Order, "Invalid or unsorted manifest entry"),
+            (Mutation::Metadata, "Invalid or unsorted manifest entry"),
+            (Mutation::Size, "Package entry digest mismatch"),
+            (Mutation::Digest, "Package entry digest mismatch"),
+            (Mutation::Version, "Manifest version does not match"),
+            (Mutation::Id, "Manifest package ID mismatch"),
         ] {
             let mut altered = manifest.clone();
             match case {
-                "format" => altered.format = "other".into(),
-                "engine" => altered.engine = "invalid".into(),
-                "key" => altered.key_id = "wrong".into(),
-                "order" => altered.entries.reverse(),
-                "metadata" => altered.entries[0].path = crypto::MANIFEST_PATH.into(),
-                "size" => altered.entries[0].size += 1,
-                "digest" => altered.entries[0].sha256 = "wrong".into(),
-                "version" => altered.version = "different".into(),
-                "id" => altered.package_id = "wrong".into(),
-                _ => unreachable!(),
+                Mutation::Format => altered.format = "other".into(),
+                Mutation::Engine => altered.engine = "invalid".into(),
+                Mutation::Key => altered.key_id = "wrong".into(),
+                Mutation::Order => altered.entries.reverse(),
+                Mutation::Metadata => altered.entries[0].path = crypto::MANIFEST_PATH.into(),
+                Mutation::Size => altered.entries[0].size += 1,
+                Mutation::Digest => altered.entries[0].sha256 = "wrong".into(),
+                Mutation::Version => altered.version = "different".into(),
+                Mutation::Id => altered.package_id = "wrong".into(),
             }
             let error = fixture(&altered, payload(), None)
                 .verify_signature(&key.public_key())
                 .unwrap_err();
-            assert!(error.to_string().contains(expected), "{case}: {error}");
+            assert!(error.to_string().contains(expected), "{error}");
         }
         for (signature, expected) in [
             (vec![0], "Invalid Ed25519 signature length"),

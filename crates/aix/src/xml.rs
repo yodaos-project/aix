@@ -244,18 +244,22 @@ mod tests {
         assert_eq!(nodes.len(), 3);
         assert_eq!(nodes[0], Node::Text("before".into()));
         assert_eq!(nodes[2], Node::Text("after".into()));
-        let Node::Element {
-            attributes,
-            children,
-            ..
-        } = &nodes[1]
-        else {
-            unreachable!()
-        };
-        assert_eq!(attributes.get("a").unwrap(), "one");
-        assert_eq!(attributes.get("b").unwrap(), "two");
-        assert_eq!(attributes.get("flag").unwrap(), "");
-        assert!(matches!(&children[0], Node::Element { name, .. } if name == "text"));
+        assert_eq!(
+            nodes[1],
+            Node::Element {
+                name: "view".into(),
+                attributes: HashMap::from([
+                    ("a".into(), "one".into()),
+                    ("b".into(), "two".into()),
+                    ("flag".into(), "".into()),
+                ]),
+                children: vec![Node::Element {
+                    name: "text".into(),
+                    attributes: HashMap::new(),
+                    children: vec![Node::Text("inside".into())],
+                }],
+            }
+        );
         assert_eq!(
             parse_xml("text only").unwrap(),
             vec![Node::Text("text only".into())]

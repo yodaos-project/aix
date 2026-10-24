@@ -191,25 +191,13 @@ mod tests {
 
     #[test]
     fn key_and_signature_encodings_and_error_messages_are_stable() {
-        struct Rng;
-        impl RngCore for Rng {
-            fn next_u32(&mut self) -> u32 {
-                7
-            }
-            fn next_u64(&mut self) -> u64 {
-                7
-            }
-            fn fill_bytes(&mut self, dest: &mut [u8]) {
-                dest.fill(7);
-            }
-            fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
-                self.fill_bytes(dest);
-                Ok(())
-            }
-        }
-        impl CryptoRng for Rng {}
-        let key = PrivateKey::generate(&mut Rng);
-        assert_eq!(key.to_seed_bytes(), [7; 32]);
+        use rand_chacha::ChaCha20Rng;
+        use rand_core::SeedableRng;
+
+        let mut expected_seed = [0; 32];
+        ChaCha20Rng::from_seed([7; 32]).fill_bytes(&mut expected_seed);
+        let key = PrivateKey::generate(&mut ChaCha20Rng::from_seed([7; 32]));
+        assert_eq!(key.to_seed_bytes(), expected_seed);
         let public = key.public_key();
         assert_eq!(PublicKey::from_bytes(public.to_bytes()).unwrap(), public);
         let signature = key.sign(b"context", b"message");

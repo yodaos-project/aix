@@ -215,6 +215,10 @@ test('runtime registry handles rejected fetch values, HTTP errors, missing metad
   const f = fixture(t);
   t.mock.method(os, 'homedir', () => f.home);
   const registry = source('services/runtime-registry.ts');
+  t.mock.method(global, 'fetch', async () => new Response('{"dist-tags":{"latest":"1.0.0"}}'));
+  assert.equal(await registry.getCurrentRuntimeVersion(), '1.0.0');
+  f.write('home/.aix/runtime.json', { selectedVersion: '0.18.1' });
+  assert.equal(await registry.getCurrentRuntimeVersion(), '0.18.1');
   for (const error of ['offline', new Error(''), new Error('outer'), new Error('outer', { cause: 'not an Error' })]) {
     t.mock.method(global, 'fetch', async () => { throw error; });
     await assert.rejects(registry.listPublishedRuntimeVersions(), /failed to fetch runtime versions/);
@@ -294,5 +298,25 @@ test('preview servers reject unavailable listen addresses and close rejected upg
   let destroyed = false;
   server.emit('upgrade', { url: '/private' }, { destroy() { destroyed = true; } }, Buffer.alloc(0));
   assert(destroyed);
+  destroyed = false;
+  server.emit('upgrade', {}, { destroy() { destroyed = true; } }, Buffer.alloc(0));
+  assert(destroyed);
   preview.close();
+});
+
+test('preview validates direct command arguments and renders omitted file counts', async () => {
+  await assert.rejects(source('preview/index.ts').cmdPreview([]), /preview requires an input/);
+  const { renderPreviewHtml } = source('preview/html.ts');
+  const html = renderPreviewHtml({ mode: 'static', sourceLabel: 'agent', inkRuntimeVersion: '1.0.0', inkImportMap: { imports: {} } });
+  assert.match(html, /id="preview-files">0<\/span>/);
+});
+
+test('bootstrap handles the option terminator, missing format value, and unknown terminal width', (t) => {
+  const { succeeds, fails } = require('./helpers/cli.cjs');
+  const f = fixture(t);
+  const input = f.project({ pages: [] });
+  succeeds(f.run(['check', '--', input]));
+  fails(f.run(['check', input, '--format']), /argument missing|missing argument/);
+  f.configure({ tty: true, columns: 0 });
+  succeeds(f.run(['check', input]));
 });

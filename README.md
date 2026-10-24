@@ -92,6 +92,9 @@ The WASM check needs the `wasm32-unknown-unknown` target. See [RELEASING.md](REL
 Coverage commands enforce at least 98% line coverage. Rust combines native tests
 for all three crates with real WASM binding tests in Node.js; CLI coverage includes
 all TypeScript sources, command subprocesses, and the check Worker.
+The CLI also enforces 98% with every line containing an unexecuted branch
+counted as uncovered, so Codecov's handling of partial lines cannot hide a
+coverage regression behind a higher C8 line percentage.
 
 ```bash
 rustup toolchain install nightly-2026-01-15 --profile minimal --component llvm-tools-preview --target wasm32-unknown-unknown
