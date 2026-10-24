@@ -77,8 +77,13 @@ TypeScript checks include `.ts`, `.mts`, and Ink `<script lang="ts">` blocks,
 with original file locations, imports, project declarations, and `tsconfig.json`
 compiler options/`extends`. Source selection follows `.aixignore`. Without a
 config, strict ES2022 checks use Ink's `@yodaos-pkg/ink-env` types; the project's
-copy is preferred, with the CLI's copy as a fallback. No files are emitted.
+copy is preferred, with embedded declarations as a fallback. No files are emitted.
 JavaScript is syntax-checked and supplies inferred types when imported.
+
+The complete check engine is shared with the Web SDK. The CLI only reads the
+directory and formats diagnostics; type resolution uses that input snapshot,
+including configs and dependency declarations. Files outside the supplied tree
+are not read, and dependencies are not downloaded.
 
 Page schemas are checked against their `$schema` draft (2020-12 by default),
 including nested keywords, patterns, and local references. Missing or null

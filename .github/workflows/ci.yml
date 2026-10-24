@@ -89,7 +89,9 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: packages/cli/package-lock.json
+          cache-dependency-path: |
+            packages/cli/package-lock.json
+            crates/aix-web/package-lock.json
 
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
@@ -108,4 +110,20 @@ jobs:
 
       - name: Test source checks
         working-directory: packages/cli
+        run: npm test
+
+      - name: Install Web SDK dependencies
+        working-directory: crates/aix-web
+        run: npm ci
+
+      - name: Build Web SDK
+        working-directory: crates/aix-web
+        run: npm run build
+
+      - name: Install Chromium
+        working-directory: crates/aix-web
+        run: npx playwright install --with-deps chromium
+
+      - name: Test browser SDK and CLI parity
+        working-directory: crates/aix-web
         run: npm test

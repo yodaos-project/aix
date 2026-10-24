@@ -30,7 +30,51 @@ async function fromFile(file: File) {
 }
 ```
 
-## Using the Package Lab
+## Check Source Files
+
+The Web SDK and npm CLI use the same complete in-memory check engine:
+
+```typescript
+import { AIX, type CheckReport } from '@yodaos-pkg/aix';
+
+const encode = (source: string) => new TextEncoder().encode(source);
+const report: CheckReport = await AIX.checkFromSource([
+  { path: 'app.json', data: encode('{"pages":[]}') },
+  { path: 'main.ts', data: encode('const count: number = "wrong";') },
+]);
+console.log(report.diagnostics); // AIX048, TS2322 at main.ts:1
+
+// Files from an <input type="file" webkitdirectory> selection also work.
+const fileReport = await AIX.checkFromFiles(Array.from(input.files ?? []));
+```
+
+Checks cover JSON/config validity, Page/Widget structure, component references
+and cycles, JS/TS syntax, statically recognizable permissions, Page JSON Schemas,
+and TypeScript semantic errors. Each diagnostic has `code`, `severity`, `path`,
+`line`, `column`, and `message`. Source errors are returned in the report;
+invalid input paths or collection failures reject the promise.
+
+`checkFromSource` takes paths relative to the application root. `checkFromFiles`
+uses `webkitRelativePath`, removing the selected directory's outer folder.
+Both apply nested `.aixignore` rules. The compiler and standard/Ink declarations
+load only when checking is first requested; they are bundled, so no Node
+filesystem, Node polyfills, or external type downloads are required. The same
+API also works in a Web Worker.
+
+Include `tsconfig.json`, extended configs, installed package metadata, and
+dependency declarations in the input snapshot when needed. Project Ink types
+are preferred to the embedded fallback; ignored `node_modules` declarations
+remain usable for type resolution. Ordinary ignored sources are excluded from
+type checking and imports. Files outside the supplied snapshot are not read.
+Compiler options and `extends` are respected, while roots follow `.aixignore`
+rather than TypeScript `include`/`exclude`. Checks do not emit or run code.
+
+Page `schema.data` is validated against `$schema` (2020-12 by default), including
+nested keywords, patterns, and local references. Missing/null schemas remain
+accepted. External schema resources are not fetched. These checks validate
+schema declarations, not runtime data; packing and reader semantics are unchanged.
+
+## Using Play
 
 The official browser lab now lives in the docs site at `/play`.
 

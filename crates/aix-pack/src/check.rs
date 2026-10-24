@@ -55,8 +55,55 @@ pub struct CheckScriptSource {
     pub typescript: bool,
 }
 
+#[derive(Debug, Serialize)]
+pub struct CheckTextFile {
+    pub path: String,
+    pub source: String,
+}
+
+/// One normalized snapshot used by both browser and CLI semantic checkers.
+#[derive(Debug, Serialize)]
+pub struct PreparedCheck {
+    pub report: CheckReport,
+    pub scripts: Vec<CheckScriptSource>,
+    pub files: Vec<CheckTextFile>,
+}
+
+pub fn prepare_check_source(files: Vec<InputFile>) -> Result<PreparedCheck> {
+    let files: Vec<_> = collector::normalize_inputs(files)?
+        .into_iter()
+        .filter(|file| !file.path.split('/').any(|part| part == ".aix"))
+        .collect();
+    let collected =
+        collector::collect_inputs(files.clone(), &collector::CollectOptions::default())?;
+    let report = check_files(&collected);
+    let scripts = script_sources(&collected);
+    // Ignored source files never become roots or ordinary imports. Keep config
+    // and dependency text available for type resolution, just as tsc does.
+    let files = files
+        .into_iter()
+        .filter(|file| file.path.ends_with(".json") || is_source(&file.path))
+        .filter_map(|file| {
+            let (bytes, _) = normalize_text_to_utf8(&file.path, &file.data).ok()?;
+            Some(CheckTextFile {
+                path: file.path,
+                source: String::from_utf8(bytes).ok()?,
+            })
+        })
+        .collect();
+    Ok(PreparedCheck {
+        report,
+        scripts,
+        files,
+    })
+}
+
 pub fn collect_script_sources(files: Vec<InputFile>) -> Result<Vec<CheckScriptSource>> {
     let files = collector::collect_inputs(files, &collector::CollectOptions::default())?;
+    Ok(script_sources(&files))
+}
+
+fn script_sources(files: &[InputFile]) -> Vec<CheckScriptSource> {
     let mut scripts = Vec::new();
     for file in files {
         if !is_source(&file.path) {
@@ -95,13 +142,13 @@ pub fn collect_script_sources(files: Vec<InputFile>) -> Result<Vec<CheckScriptSo
             source.clone()
         };
         scripts.push(CheckScriptSource {
-            path: file.path,
+            path: file.path.clone(),
             source,
             script,
             typescript,
         });
     }
-    Ok(scripts)
+    scripts
 }
 
 fn mask_script_gap(gap: &str, output: &mut String) {
@@ -1981,5 +2028,37 @@ mod tests {
             source[..offset].encode_utf16().count(),
             script.script[..masked_offset].encode_utf16().count()
         );
+    }
+
+    #[test]
+    fn prepared_check_keeps_config_and_dependency_text_but_filters_roots() {
+        let prepared = prepare_check_source(vec![
+            InputFile::new("app.json", br#"{"pages":[]}"#),
+            InputFile::new(".aixignore", b"ignored.ts\nnode_modules/\ntsconfig.json"),
+            InputFile::new("main.ts", b"const value: number = 1;"),
+            InputFile::new("ignored.ts", b"const value: string = 1;"),
+            InputFile::new(
+                "tsconfig.json",
+                b"\xef\xbb\xbf{\"compilerOptions\":{\"strict\":false}}",
+            ),
+            InputFile::new(
+                "node_modules/types/index.d.ts",
+                b"export const value: number;",
+            ),
+        ])
+        .unwrap();
+        assert!(!prepared.report.has_errors());
+        assert_eq!(prepared.scripts.len(), 1);
+        assert_eq!(prepared.scripts[0].path, "main.ts");
+        assert!(prepared
+            .files
+            .iter()
+            .any(|file| file.path == "node_modules/types/index.d.ts"));
+        let config = prepared
+            .files
+            .iter()
+            .find(|file| file.path == "tsconfig.json")
+            .unwrap();
+        assert!(config.source.starts_with('{'));
     }
 }

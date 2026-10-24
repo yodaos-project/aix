@@ -4,6 +4,7 @@
 /crates/aix-web/node_modules/
 /crates/aix-web/dist/
 /crates/aix-web/pkg/
+/crates/aix-web/ts/check/environment.generated.ts
 /packages/cli/node_modules/
 /packages/cli/dist/
 /docs/node_modules/

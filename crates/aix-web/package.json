@@ -9,15 +9,18 @@
     "dist/"
   ],
   "devDependencies": {
-    "typescript": "^5.0.0"
+    "@yodaos-pkg/ink-env": "^0.16.0",
+    "esbuild": "^0.24.2",
+    "playwright": "^1.64.1",
+    "typescript": "^5.9.3"
   },
-  "dependencies": {},
   "repository": {
     "url": "https://github.com/jsar-project/ink"
   },
   "scripts": {
     "build:wasm": "wasm-pack build --target web --out-dir dist/pkg --out-name aix_web",
     "build:ts": "tsc",
-    "build": "node scripts/build.js"
+    "build": "node scripts/build.js",
+    "test": "node scripts/test-check.js"
   }
 }

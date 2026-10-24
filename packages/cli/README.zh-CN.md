@@ -63,7 +63,9 @@ aix check ./my-agent
 aix check ./my-agent --format json
 ```
 
-类型检查覆盖 `.ts`、`.mts` 和 Ink `<script lang="ts">` 块，保留原始文件行列，支持导入、项目类型声明及 `tsconfig.json` 的编译选项和 `extends`。源码选择遵循 `.aixignore`。没有配置时使用严格模式和 ES2022，优先使用项目中的 `@yodaos-pkg/ink-env` 类型，否则使用 CLI 自带的版本。检查不输出编译文件。JavaScript 仍检查语法，并在被导入时提供推断类型。
+类型检查覆盖 `.ts`、`.mts` 和 Ink `<script lang="ts">` 块，保留原始文件行列，支持导入、项目类型声明及 `tsconfig.json` 的编译选项和 `extends`。源码选择遵循 `.aixignore`。没有配置时使用严格模式和 ES2022，优先使用项目中的 `@yodaos-pkg/ink-env` 类型，否则使用共享检查器内置的声明。检查不输出编译文件。JavaScript 仍检查语法，并在被导入时提供推断类型。
+
+完整检查引擎与 Web SDK 共用，CLI 只负责读取目录和格式化诊断。类型解析使用输入快照中的配置和依赖声明，不读取输入目录以外的文件，也不下载依赖。
 
 Page Schema 按 `$schema` 指定的草案校验，默认使用 2020-12，覆盖嵌套关键字、正则表达式和本地引用。缺少或为 null 的 `schema.data` 仍被接受。不会下载外部引用，无法解析的引用会报错。这项检查针对声明，不校验运行时数据。诊断编号分别为 `AIX047`（Schema）、`AIX048`（TypeScript）和 `AIX049`（TypeScript 配置）。
 
