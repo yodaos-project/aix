@@ -149,26 +149,21 @@ impl PageAnalyzer {
     }
 
     pub fn analyze_sfc(sfc_content: &str) -> PageConstraint {
+        Self::analyze_sfc_blocks(&xml::parse_sfc_blocks(sfc_content))
+    }
+
+    /// Analyze a shared SFC parse result without rescanning or copying block text.
+    pub fn analyze_sfc_blocks(blocks: &[xml::SfcBlock<'_>]) -> PageConstraint {
         let mut wxml = None;
         let mut wcss = None;
-
-        if let Ok(nodes) = xml::parse_sfc(sfc_content) {
-            for node in nodes {
-                if let Node::Element { name, children, .. } = node {
-                    if name == "page" || name == "template" {
-                        if let Some(Node::Text(text)) = children.first() {
-                            wxml = Some(text.clone());
-                        }
-                    } else if name == "style" {
-                        if let Some(Node::Text(text)) = children.first() {
-                            wcss = Some(text.clone());
-                        }
-                    }
-                }
+        for block in blocks {
+            match block.name {
+                "page" | "template" => wxml = Some(block.body),
+                "style" => wcss = Some(block.body),
+                _ => {}
             }
         }
-
-        Self::analyze(wxml.as_deref(), wcss.as_deref())
+        Self::analyze(wxml, wcss)
     }
 }
 

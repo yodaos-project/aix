@@ -636,49 +636,30 @@ impl AixReader {
                     .read_file(&ink_path)
                     .and_then(|b| String::from_utf8(b).map_err(|e| anyhow::anyhow!(e)))
                 {
-                    // Extract config from <script def> and template/style for analyzer
-                    if let Ok(nodes) = xml::parse_sfc(&ink_content) {
-                        for node in &nodes {
-                            if let xml::Node::Element {
-                                name,
-                                attributes,
-                                children,
-                            } = node
+                    // Share the same block boundaries with layout and source checking.
+                    let blocks = xml::parse_sfc_blocks(&ink_content);
+                    for block in &blocks {
+                        if block.name == "script" && block.attributes.contains_key("def") {
+                            if let Ok(page_config) = serde_json::from_str::<PageConfig>(block.body)
                             {
-                                if name == "script" && attributes.contains_key("def") {
-                                    if let Some(xml::Node::Text(text)) = children.first() {
-                                        if let Ok(page_config) =
-                                            serde_json::from_str::<PageConfig>(text)
-                                        {
-                                            title = page_config.navigation_bar_title_text;
-                                            description = page_config.description;
-                                            match page_config.schema {
-                                                Some(schema) => match schema.data {
-                                                    Some(data) => {
-                                                        data_schema = data;
-                                                    }
-                                                    None => {
-                                                        aix_warn(&format!(
-                                                            "Missing 'data' in schema for page: {}",
-                                                            path
-                                                        ));
-                                                    }
-                                                },
-                                                None => {
-                                                    aix_warn(&format!(
-                                                        "Missing 'schema' for page: {}",
-                                                        path
-                                                    ));
-                                                }
-                                            }
-                                        }
+                                title = page_config.navigation_bar_title_text;
+                                description = page_config.description;
+                                match page_config.schema {
+                                    Some(schema) => match schema.data {
+                                        Some(data) => data_schema = data,
+                                        None => aix_warn(&format!(
+                                            "Missing 'data' in schema for page: {}",
+                                            path
+                                        )),
+                                    },
+                                    None => {
+                                        aix_warn(&format!("Missing 'schema' for page: {}", path))
                                     }
                                 }
                             }
                         }
                     }
-
-                    size = PageAnalyzer::analyze_sfc(&ink_content);
+                    size = PageAnalyzer::analyze_sfc_blocks(&blocks);
                 } else {
                     // Fallback to traditional files
                     let json_path = format!("{}.json", path);
