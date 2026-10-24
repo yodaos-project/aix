@@ -166,12 +166,48 @@ type PackProgressEvent =
 
 ~~~typescript
 interface AixEntry { name: string; size: number; compressed_size: number }
-interface PageInfo { name: string; title?: string; data_schema: unknown }
-interface WidgetInfo { path: string; family: string; placement: 'persistent' | 'overlay'; displayName?: string | null; description?: string | null }
-interface Tool { type: string; function: { name: string; description?: string; parameters: unknown } }
+type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;
+interface JsonObject { [key: string]: JsonValue }
+type JsonSchema = JsonValue;
+interface PageConstraint { width: number; height: number }
+type ToolTarget = '_current' | '_blank';
+type WidgetPlacement = 'persistent' | 'overlay';
+interface PageInfo {
+  name: string;
+  title: string | null;
+  description: string | null;
+  data_schema: JsonSchema;
+  size: PageConstraint;
+}
+interface WidgetInfo {
+  path: string;
+  family: string;
+  placement: WidgetPlacement;
+  displayName: string | null;
+  description: string | null;
+}
+interface Tool {
+  type: string;
+  target: ToolTarget;
+  layout: PageConstraint;
+  function: FunctionDefinition;
+}
+interface FunctionDefinition {
+  name: string;
+  description: string | null;
+  parameters: JsonSchema;
+}
 ~~~
 
-AixEntry 描述归档条目；PageInfo 描述页面和输入 Schema；WidgetInfo 描述 Widget；Tool 是从页面派生的 OpenAI 风格工具。字段语义见格式规范。
+Page 的 `size` 和 Tool 的 `layout` 均包含数值宽高约束。工具当前输出 `type: "function"`，
+目标值为 `_current` / `_blank`；无下划线的名称仅是反序列化输入别名。
+`JsonSchema` 保留任意 JSON，包括布尔 Schema 和未经校验的旧版数据；Schema 校验使用源码检查 API，
+访问对象属性前需要先收窄 `JsonValue` 类型。
+
+以上元数据字段均必需。缺失字符串和嵌套 JSON 空值在原始 WASM、SDK getter 和
+`resolveMetadata()` 中统一保留为 `null`，与 Rust 原生 JSON 一致。早期 WASM 构建会将这些值
+返回为 `undefined`，迁移时需将元数据的显式 `=== undefined` 判断改为 `=== null`。
+独立的 `getTitle()` 和 `getVersion()` 仍返回 `string | undefined`。
 
 ## 浏览器示例
 

@@ -6,11 +6,13 @@ const os = require('node:os');
 const { spawnSync } = require('node:child_process');
 const { chromium } = require('playwright');
 const cases = require('../tests/check-cases.cjs');
+const metadataContract = require('../tests/metadata-contract.cjs');
 
 const dist = process.env.AIX_WEB_DIST || path.resolve(__dirname, '../dist');
 const cli = process.env.AIX_CLI_PATH || path.resolve(__dirname, '../../../packages/cli/dist/cli.js');
 
 async function main() {
+  const metadataFixture = metadataContract.checkDeclarations(dist);
   const cliHome = fs.mkdtempSync(path.join(os.tmpdir(), 'aix-web-cli-home-'));
   const cliEnv = {...process.env, HOME: cliHome, USERPROFILE: cliHome};
   const requests = [];
@@ -51,6 +53,7 @@ async function main() {
     assert(!requests.includes('/check/index.js'), 'The check adapter must remain lazy before the first check');
     await require('../tests/reader-limits.cjs')(page);
     await require('../tests/metadata-resolution.cjs')(page);
+    await metadataContract.checkBrowser(page, metadataFixture);
     for (const { name, files, verify, verifyChecks } of cases) {
       const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aix-web-check-'));
       try {

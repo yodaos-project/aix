@@ -11,6 +11,40 @@ fn files() -> Vec<InputFile> {
 }
 
 #[wasm_bindgen_test]
+fn metadata_serializer_preserves_nullable_fields_and_json_nulls() {
+    let metadata = aix::PageInfo {
+        name: "home".into(),
+        title: None,
+        description: Some(String::new()),
+        data_schema: serde_json::json!({"default": null, "enum": [null, {"value": null}]}),
+        size: aix::PageConstraint::default(),
+    };
+    let value = to_metadata_value(&metadata).unwrap();
+    assert!(js_sys::Reflect::has(&value, &"title".into()).unwrap());
+    assert!(js_sys::Reflect::get(&value, &"title".into())
+        .unwrap()
+        .is_null());
+    assert_eq!(
+        js_sys::Reflect::get(&value, &"description".into())
+            .unwrap()
+            .as_string()
+            .as_deref(),
+        Some("")
+    );
+    let schema = js_sys::Reflect::get(&value, &"data_schema".into()).unwrap();
+    assert!(js_sys::Reflect::get(&schema, &"default".into())
+        .unwrap()
+        .is_null());
+    let values = js_sys::Array::from(&js_sys::Reflect::get(&schema, &"enum".into()).unwrap());
+    assert!(values.get(0).is_null());
+    assert!(js_sys::Reflect::get(&values.get(1), &"value".into())
+        .unwrap()
+        .is_null());
+    // Source-check/pack tooling retains its existing serializer policy.
+    assert!(to_value(&Option::<String>::None).unwrap().is_undefined());
+}
+
+#[wasm_bindgen_test]
 fn source_snapshots_normalize_files_and_propagate_errors() {
     let inputs = vec![
         InputFile::new(".aixignore", b"ignored/"),

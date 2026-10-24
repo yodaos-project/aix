@@ -112,10 +112,27 @@ export interface AixReadLimits {
   maxTotalBytes?: number;
 }
 
+/** JSON returned by the reader, including unvalidated legacy schema values. */
+export type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;
+
+export interface JsonObject {
+  [key: string]: JsonValue;
+}
+
+/** Schema payloads retain any JSON value; source checking validates the schema. */
+export type JsonSchema = JsonValue;
+
+export interface PageConstraint {
+  width: number;
+  height: number;
+}
+
 export interface PageInfo {
   name: string;
-  title?: string;
-  data_schema: any;
+  title: string | null;
+  description: string | null;
+  data_schema: JsonSchema;
+  size: PageConstraint;
 }
 
 export interface MetadataDiagnostic {
@@ -131,21 +148,31 @@ export interface MetadataResolution {
   diagnostics: MetadataDiagnostic[];
 }
 
+export type WidgetPlacement = 'persistent' | 'overlay';
+
 export interface WidgetInfo {
   path: string;
   family: string;
-  placement: 'persistent' | 'overlay';
-  displayName?: string | null;
-  description?: string | null;
+  placement: WidgetPlacement;
+  displayName: string | null;
+  description: string | null;
+}
+
+/** Serialized output uses the underscore-prefixed names, never input aliases. */
+export type ToolTarget = '_current' | '_blank';
+
+export interface FunctionDefinition {
+  name: string;
+  description: string | null;
+  parameters: JsonSchema;
 }
 
 export interface Tool {
+  /** The reader currently emits "function". */
   type: string;
-  function: {
-    name: string;
-    description?: string;
-    parameters: any;
-  };
+  target: ToolTarget;
+  layout: PageConstraint;
+  function: FunctionDefinition;
 }
 
 export class AIX {
@@ -285,14 +312,14 @@ export class AIX {
    * Get the title from app.json.
    */
   getTitle(): string | undefined {
-    return (this.reader as any).get_title();
+    return this.reader.get_title();
   }
 
   /**
    * Get all pages from app.json and pages/*.json.
    */
   getPages(): PageInfo[] {
-    return (this.reader as any).get_pages() as PageInfo[];
+    return this.reader.get_pages() as PageInfo[];
   }
 
   /**
@@ -309,14 +336,14 @@ export class AIX {
    * When locale is provided, merge displayName and description from app.<locale>.json.
    */
   getWidgets(locale?: string): WidgetInfo[] {
-    return (this.reader as any).get_widgets(locale) as WidgetInfo[];
+    return this.reader.get_widgets(locale) as WidgetInfo[];
   }
 
   /**
    * Get all tools from app.json and pages/*.json in OpenAI format.
    */
   getTools(): Tool[] {
-    return (this.reader as any).get_tools() as Tool[];
+    return this.reader.get_tools() as Tool[];
   }
 }
 

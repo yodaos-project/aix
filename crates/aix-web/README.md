@@ -242,7 +242,9 @@ const pages = aix.getPages();
 [{
   name: "pages/index/index",
   title: "Home",
-  data_schema: { ... }
+  description: null,
+  data_schema: { ... },
+  size: { width: 480, height: 168 }
 }]
 */
 ```
@@ -293,6 +295,8 @@ const tools = aix.getTools();
 /*
 [{
   type: "function",
+  target: "_blank",
+  layout: { width: 480, height: 168 },
   function: {
     name: "pages_index_index",
     description: "Home",
@@ -313,12 +317,28 @@ interface AixEntry {
 }
 ```
 
+### JSON and layout types
+```typescript
+type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;
+interface JsonObject { [key: string]: JsonValue }
+type JsonSchema = JsonValue;
+interface PageConstraint { width: number; height: number }
+type ToolTarget = '_current' | '_blank';
+type WidgetPlacement = 'persistent' | 'overlay';
+```
+
+`JsonSchema` retains arbitrary JSON, including boolean schemas and unvalidated
+legacy values. Use `AIX.checkFromSource()` for schema validation. Page `size`
+and tool `layout` both contain numeric width/height constraints.
+
 ### `PageInfo`
 ```typescript
 interface PageInfo {
   name: string;
-  title?: string;
-  data_schema: any;
+  title: string | null;
+  description: string | null;
+  data_schema: JsonSchema;
+  size: PageConstraint;
 }
 ```
 
@@ -327,9 +347,9 @@ interface PageInfo {
 interface WidgetInfo {
   path: string;
   family: string;
-  placement: "persistent" | "overlay";
-  displayName?: string | null;
-  description?: string | null;
+  placement: WidgetPlacement;
+  displayName: string | null;
+  description: string | null;
 }
 ```
 
@@ -338,13 +358,24 @@ OpenAI compatible tool format.
 ```typescript
 interface Tool {
   type: string;
-  function: {
-    name: string;
-    description?: string;
-    parameters: any;
-  };
+  target: ToolTarget;
+  layout: PageConstraint;
+  function: FunctionDefinition;
+}
+interface FunctionDefinition {
+  name: string;
+  description: string | null;
+  parameters: JsonSchema;
 }
 ```
+
+Metadata fields above are always present. Missing strings and nested JSON null
+values now remain `null` through raw WASM, SDK getters, and `resolveMetadata()`,
+matching native Rust JSON. Earlier WASM builds returned `undefined` for these
+values; update explicit `=== undefined` checks to `=== null` when migrating
+metadata consumers. Standalone `getTitle()` and `getVersion()` retain their
+`string | undefined` return type. Tools currently emit `type: "function"` and
+underscore-prefixed targets; `current`/`blank` are input aliases only.
 
 ## Build
 
