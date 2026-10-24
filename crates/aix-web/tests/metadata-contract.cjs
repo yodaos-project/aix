@@ -7,7 +7,7 @@ const ts = require('typescript');
 
 exports.checkDeclarations = function checkDeclarations(dist) {
   const native = spawnSync('cargo', ['test', '--quiet', '-p', 'aiui-aix-web', '--lib',
-    'tests::metadata_contract_fixture', '--', '--exact', '--nocapture'], {
+    'tooling::tests::metadata_contract_fixture', '--', '--exact', '--nocapture'], {
     cwd: path.resolve(__dirname, '../../..'), encoding: 'utf8',
   });
   if (native.error) throw native.error;

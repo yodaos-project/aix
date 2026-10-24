@@ -1,5 +1,10 @@
 # @yodaos-pkg/aix
 
+读取时只加载独立 reader WASM，打包、优化和源码检查首次调用时再加载完整工具模块。
+现有 API 和直接使用 WASM 的路径保持可用。自行部署时需包含生成分发目录中的
+`pkg-reader/` 和 `pkg/`。构建选项、兼容方案、取舍与测量结果见
+[WASM 加载与测量](/wasm)。
+
 @yodaos-pkg/aix 是面向浏览器的 WebAssembly 与 TypeScript 包，用于读取、创建、优化和检查 AIX 产物。
 
 ## 安装

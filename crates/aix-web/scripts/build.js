@@ -26,16 +26,14 @@ fs.mkdirSync(distDir, { recursive: true });
 // 3. Build WASM (outputs directly to dist/pkg)
 console.log('Building WASM to dist/pkg...');
 execSync('npm run build:wasm', { cwd: rootDir, stdio: 'inherit' });
+console.log('Building reader-only WASM to dist/pkg-reader...');
+execSync('npm run build:wasm:reader', { cwd: rootDir, stdio: 'inherit' });
 
 // Remove .gitignore in dist/pkg, otherwise npm publish will ignore this directory
-const pkgGitignore = path.join(distDir, 'pkg', '.gitignore');
-if (fs.existsSync(pkgGitignore)) {
-  fs.unlinkSync(pkgGitignore);
-  console.log('Removed dist/pkg/.gitignore');
-}
-
-const wasmPackagePath = path.join(distDir, 'pkg', 'package.json');
-if (fs.existsSync(wasmPackagePath)) {
+for (const directory of ['pkg', 'pkg-reader']) {
+  const pkgGitignore = path.join(distDir, directory, '.gitignore');
+  fs.rmSync(pkgGitignore, { force: true });
+  const wasmPackagePath = path.join(distDir, directory, 'package.json');
   const wasmPackage = JSON.parse(fs.readFileSync(wasmPackagePath, 'utf-8'));
   wasmPackage.type = 'module';
   fs.writeFileSync(wasmPackagePath, JSON.stringify(wasmPackage, null, 2));
@@ -62,6 +60,7 @@ const distIndexDts = path.join(distDir, 'index.d.ts');
   if (fs.existsSync(file)) {
     let content = fs.readFileSync(file, 'utf-8');
     content = content.replace(/\.\.\/dist\/pkg\//g, './pkg/');
+    content = content.replace(/\.\.\/dist\/pkg-reader\//g, './pkg-reader/');
     fs.writeFileSync(file, content);
   }
 });

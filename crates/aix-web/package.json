@@ -18,6 +18,7 @@
   },
   "scripts": {
     "build:wasm": "wasm-pack build --target web --out-dir dist/pkg --out-name aix_web",
+    "build:wasm:reader": "wasm-pack build --target web --out-dir dist/pkg-reader --out-name aix_web --no-default-features",
     "build:ts": "tsc",
     "build": "node scripts/build.js",
     "test": "node scripts/test-check.js"
