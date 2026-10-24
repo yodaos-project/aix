@@ -8,6 +8,47 @@ const cliRoot = path.resolve(__dirname, '..');
 const { checkSource } = require('../dist/pkg/check.cjs');
 const engine = require('../dist/pkg/aix_web.js');
 
+// Observe command-module loading rather than relying on machine-specific timing.
+// Even a cold/slow command bundle must be preceded by visible startup progress.
+const startupRoot = mkdtempSync(path.join(tmpdir(), 'aix-check-startup-'));
+try {
+  const input = path.join(startupRoot, 'agent');
+  mkdirSync(input);
+  writeFileSync(path.join(input, 'app.json'), '{"pages":[]}');
+  const probe = path.join(startupRoot, 'probe.cjs');
+  const marker = 'command bundle loading\n';
+  writeFileSync(probe, `const Module = require('node:module');
+    const load = Module._load;
+    Module._load = function(request, ...args) {
+      if (request === ${JSON.stringify(path.join(cliRoot, 'dist/cli-main.js'))}) {
+        process.stderr.write(${JSON.stringify(marker)});
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+      }
+      return load.call(this, request, ...args);
+    };`);
+  for (const options of [[], ['--format=text'], ['--format', 'json', '--format', 'text']]) {
+    const result = spawnSync(process.execPath, ['--require', probe, path.join(cliRoot, 'dist/cli.js'), 'check', input, ...options], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert(result.stderr.startsWith(`Starting source checks\n${marker}`), result.stderr);
+    assert.match(result.stdout, /0 diagnostic\(s\)/);
+  }
+  for (const options of [['--format', 'json'], ['--format=json'], ['--format=text', '--format=json']]) {
+    const result = spawnSync(process.execPath, ['--require', probe, path.join(cliRoot, 'dist/cli.js'), 'check', input, ...options], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stderr, marker, 'JSON checks must not print startup progress');
+    assert.deepEqual(JSON.parse(result.stdout), { diagnostics: [] });
+  }
+  for (const help of ['--help', '-h']) {
+    const result = spawnSync(process.execPath, ['--require', probe, path.join(cliRoot, 'dist/cli.js'), 'check', help], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stderr, marker, 'Help must not print startup progress');
+    assert.match(result.stdout, /Statically check an AIX source directory/);
+  }
+  console.log('ok - startup progress precedes command loading; JSON and help stay quiet');
+} finally {
+  rmSync(startupRoot, { recursive: true, force: true });
+}
+
 for (const { name, files, verify } of cases) {
   const root = mkdtempSync(path.join(tmpdir(), 'aix-check-'));
   try {

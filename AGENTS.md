@@ -26,7 +26,8 @@ The `aix` command is installed from the npm package: `npm install -g @yodaos-pkg
 cd packages/cli && npm install && npm run build
 ```
 
-- `npm run build` runs `wasm-pack build --target nodejs` (from `crates/aix-web`) then bundles `src/cli.ts` with esbuild into `dist/cli.js`, copying the WASM artifact to `dist/pkg/`.
+- `npm run build` runs `wasm-pack build --target nodejs` (from `crates/aix-web`), bundles `src/bin.ts` into `dist/cli.js`, `src/cli.ts` into `dist/cli-main.js`, and the check Worker into `dist/check-worker.js`, then copies the WASM artifact to `dist/pkg/`.
+- Keep the small bin entry separate from the command bundle: it displays check startup progress before command/UI dependencies load.
 - The WASM wrapper (`dist/pkg/aix_web.js`) resolves `aix_web_bg.wasm` relative to its own `__dirname`, so the two files must stay adjacent — do **not** bundle the wrapper into cli.js (the `require(path.join(__dirname, 'pkg', ...))` in `src/wasm.ts` is intentional).
 - `ignore` is the only runtime dependency (`.aixignore` support); it is external in the esbuild bundle.
 - The npm CLI build prefers `wasm-pack --no-opt` to skip binaryen/wasm-opt downloads, but falls back to the default `wasm-pack build` flow when the local `wasm-pack` version does not support that flag.

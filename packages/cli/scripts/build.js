@@ -34,7 +34,11 @@ async function main() {
   // dynamic require so its __dirname stays correct. Runtime-only node_modules
   // dependencies stay external as well.
   execSync(
-    'npx esbuild src/cli.ts --bundle --platform=node --format=cjs --target=node20 --outfile=dist/cli.js --banner:js="#!/usr/bin/env node" --external:ignore --external:ws',
+    'npx esbuild src/bin.ts --bundle --platform=node --format=cjs --target=node20 --outfile=dist/cli.js --banner:js="#!/usr/bin/env node"',
+    { cwd: rootDir, stdio: "inherit" },
+  );
+  execSync(
+    'npx esbuild src/cli.ts --bundle --platform=node --format=cjs --target=node20 --outfile=dist/cli-main.js --external:ignore --external:ws',
     { cwd: rootDir, stdio: "inherit" },
   );
   execSync(
