@@ -1,0 +1,10 @@
+{
+  "all": true,
+  "src": ["src"],
+  "include": ["src/**/*.ts", "../src/**/*.ts", "**/packages/cli/src/**/*.ts"],
+  "allow-external": true,
+  "exclude-after-remap": true,
+  "reporter": ["text", "html", "lcovonly", "json-summary"],
+  "reports-dir": "coverage",
+  "temp-directory": "coverage/tmp"
+}

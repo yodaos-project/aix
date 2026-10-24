@@ -1,5 +1,9 @@
 # AIX
 
+[![CI](https://github.com/yodaos-project/aix/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/yodaos-project/aix/actions/workflows/ci.yml?query=branch%3Amain)
+[![Rust coverage](https://img.shields.io/codecov/c/github/yodaos-project/aix/main?flag=rust&label=Rust%20coverage)](https://app.codecov.io/gh/yodaos-project/aix)
+[![CLI coverage](https://img.shields.io/codecov/c/github/yodaos-project/aix/main?flag=cli&label=CLI%20coverage)](https://app.codecov.io/gh/yodaos-project/aix)
+
 **构建、检查并交付带有交互界面的 AI Agent。**
 
 AIX（AI eXecutable）是一种面向 AI Agent 的可移植包格式。一个 `.aix` 文件汇集 Agent 资源、Ink 页面与 Widget、输入 Schema，以及宿主展示这些内容所需的元数据。AIX 还能从页面派生面向 Agent 的 Tool，让开发者和兼容的运行时读取同一个包。

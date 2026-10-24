@@ -1,4 +1,6 @@
 /target/
+/coverage/
+/packages/cli/coverage/
 
 # Node / web build artifacts
 /crates/aix-web/node_modules/
