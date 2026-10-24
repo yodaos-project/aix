@@ -118,6 +118,14 @@ part of the CLI denominator. Ordinary `npm run build` output is unchanged.
 The coverage command also verifies that every CLI source is present and that
 executed functions from the child process and Worker survived source mapping.
 
+Use `npm run build && npm test` in `packages/cli` to run the CLI tests without
+coverage. The suite runs the built CLI in isolated subprocesses, using the real
+WASM engine for package operations and local HTTP/WebSocket servers for preview
+tests. Fixtures substitute npm registry responses, ADB processes, and browser
+launches; no external registry, physical device, or browser session is needed.
+Each test has its own temporary project and home directory, and shuts down its
+preview processes before removing files.
+
 Rust and CLI percentages use different instrumentation and are reported
 separately; they must not be combined into one percentage. Browser/Worker SDK
 parity tests continue to run in CI, but do not contribute to these metrics.

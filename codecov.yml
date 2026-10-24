@@ -3,7 +3,14 @@ codecov:
     after_n_builds: 2
     wait_for_ci: true
 
-comment: false
+comment:
+  layout: "header, diff, flags, files, footer"
+  behavior: once
+  require_changes: true
+  require_base: true
+  require_head: true
+  hide_project_coverage: false
+  after_n_builds: 2
 
 coverage:
   status:
