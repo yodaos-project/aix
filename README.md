@@ -89,6 +89,23 @@ cargo check -p aiui-aix-web --target wasm32-unknown-unknown
 
 The WASM check needs the `wasm32-unknown-unknown` target. See [RELEASING.md](RELEASING.md) for versioning and publishing.
 
+Coverage commands enforce at least 98% line coverage. Rust combines native tests
+for all three crates with real WASM binding tests in Node.js; CLI coverage includes
+all TypeScript sources, command subprocesses, and the check Worker.
+
+```bash
+rustup toolchain install nightly-2026-01-15 --profile minimal --component llvm-tools-preview --target wasm32-unknown-unknown
+cargo install cargo-llvm-cov --version 0.8.7 --locked
+cargo install wasm-bindgen-cli --version 0.2.126 --locked
+bash scripts/coverage-rust.sh
+cd packages/cli && npm ci && npm run test:coverage
+```
+
+Rust coverage requires Node.js 20+ and a `clang` with a WebAssembly backend on
+`PATH` (on macOS, prepend Homebrew LLVM's `bin` directory). The coverage-only
+nightly and `minicov` versions are pinned to LLVM 21's profile format. HTML, LCOV,
+and JSON reports are written to `coverage/rust` and `packages/cli/coverage`.
+
 ## License
 
 MIT

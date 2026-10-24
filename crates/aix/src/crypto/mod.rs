@@ -190,6 +190,56 @@ mod tests {
     use super::*;
 
     #[test]
+    fn key_and_signature_encodings_and_error_messages_are_stable() {
+        struct Rng;
+        impl RngCore for Rng {
+            fn next_u32(&mut self) -> u32 {
+                7
+            }
+            fn next_u64(&mut self) -> u64 {
+                7
+            }
+            fn fill_bytes(&mut self, dest: &mut [u8]) {
+                dest.fill(7);
+            }
+            fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
+                self.fill_bytes(dest);
+                Ok(())
+            }
+        }
+        impl CryptoRng for Rng {}
+        let key = PrivateKey::generate(&mut Rng);
+        assert_eq!(key.to_seed_bytes(), [7; 32]);
+        let public = key.public_key();
+        assert_eq!(PublicKey::from_bytes(public.to_bytes()).unwrap(), public);
+        let signature = key.sign(b"context", b"message");
+        assert_eq!(Signature::from_bytes(signature.to_bytes()), signature);
+        assert!(public
+            .verify(b"other context", b"message", &signature)
+            .is_err());
+        assert!(PublicKey::from_bytes([2; 32]).is_err());
+        for (error, message) in [
+            (CryptoError::InvalidPublicKey, "invalid Ed25519 public key"),
+            (CryptoError::InvalidSignature, "invalid Ed25519 signature"),
+            (
+                CryptoError::InvalidEngineRange,
+                "invalid engine version range",
+            ),
+            (CryptoError::InvalidEngineVersion, "invalid engine version"),
+        ] {
+            assert_eq!(format!("{error}"), message);
+        }
+        assert_eq!(
+            engine_satisfies("invalid", "1.0.0"),
+            Err(CryptoError::InvalidEngineRange)
+        );
+        assert_eq!(
+            engine_satisfies("*", "invalid"),
+            Err(CryptoError::InvalidEngineVersion)
+        );
+    }
+
+    #[test]
     fn signs_and_verifies() {
         let key = PrivateKey::from_seed([7; 32]);
         let signature = key.sign(b"test", b"payload");

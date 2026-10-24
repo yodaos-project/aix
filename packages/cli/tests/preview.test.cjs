@@ -119,7 +119,6 @@ test('dev preview broadcasts changes and retains the last valid state after arch
   assert.equal(reload.type, 'reload');
   assert(reload.revision > error.revision);
   assert.deepEqual(await (await fetch(stateUrl)).json(), initial);
-  ws.terminate();
   const stopped = await command.stop();
   if (process.platform !== 'win32') assert.equal(stopped.status, 0);
 });

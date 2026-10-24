@@ -28,6 +28,16 @@ const calls = (f) => f.calls().filter((call) => call.kind === 'adb');
 const layouts = (f) => calls(f).filter((call) => call.method === 'push')
   .flatMap((call) => call.files).filter((file) => file.path.endsWith('widget-config.json')).map((file) => file.json);
 
+test('first Widget launch creates the default grid when the device has no configuration', (t) => {
+  const f = setup(t);
+  succeeds(f.run(['launch-widget', f.project, widgetPath]));
+  const config = layouts(f)[0];
+  assert.equal(config.totalGridCount, 4);
+  assert.equal(config.totalColumnCount, 2);
+  assert.deepEqual(config.permanentModules, []);
+  assert.equal(config.overlayModules[0].agentId, agentId);
+});
+
 test('install stages a real package and derived definition, validates status, and cleans temporary files', (t) => {
   const f = setup(t);
   const output = succeeds(f.run(['install', f.project, '--serial', 'test-device', '-O', '--opt-level', '1', '--engine', '^0.18.0']));

@@ -239,6 +239,39 @@ mod tests {
     use super::*;
 
     #[test]
+    fn xml_retains_text_and_tolerates_unmatched_and_implicit_end_tags() {
+        let nodes = parse_xml("<?xml version='1.0'?><!DOCTYPE view>before<view a=one b = 'two' flag ><text>inside</view></missing>after").unwrap();
+        assert_eq!(nodes.len(), 3);
+        assert_eq!(nodes[0], Node::Text("before".into()));
+        assert_eq!(nodes[2], Node::Text("after".into()));
+        let Node::Element {
+            attributes,
+            children,
+            ..
+        } = &nodes[1]
+        else {
+            unreachable!()
+        };
+        assert_eq!(attributes.get("a").unwrap(), "one");
+        assert_eq!(attributes.get("b").unwrap(), "two");
+        assert_eq!(attributes.get("flag").unwrap(), "");
+        assert!(matches!(&children[0], Node::Element { name, .. } if name == "text"));
+        assert_eq!(
+            parse_xml("text only").unwrap(),
+            vec![Node::Text("text only".into())]
+        );
+        assert_eq!(parse_xml("<view><text>tail").unwrap().len(), 1);
+        assert_eq!(
+            parse_xml("<view attr='unfinished").unwrap_err(),
+            "Unclosed tag at position 0"
+        );
+        assert_eq!(parse_xml("<>").unwrap_err(), "Empty tag name");
+        assert!(parse_start_tag("").is_err());
+        let (_, attrs) = parse_start_tag("view attr='unterminated").unwrap();
+        assert_eq!(attrs.get("attr").unwrap(), "unterminated");
+    }
+
+    #[test]
     fn sfc_ignores_comments_and_preserves_nested_markup_and_raw_text() {
         let source = r#"<!-- old example > <script def>{"title":"old"}</script> -->
 <script data-note="a > b" def>{"description":"literal </script> text"}</script>

@@ -66,6 +66,14 @@ test('validates JSON syntax', {
 test('checks Page entry structure', {
   'app.json': '{"pages":["missing"]}',
 }, hasCode('AIX016'));
+test('checks traditional Page markup in the shared engine', {
+  'app.json': '{"pages":["home"]}',
+  'home.json': '{}',
+  'home.wxml': '<view',
+}, hasCode('AIX036'), (checks) => {
+  assert.equal(checks.find((check) => check.id === 'structure').status, 'failed');
+  assert.match(checks.find((check) => check.id === 'json').label, /3 files/);
+});
 test('shares schema permission and syntax diagnostics', {
   'app.json': '{"pages":["pages/home"]}',
   'pages/home.ink': '<script def>{"schema":{"data":{"properties":{"count":{"type":"invalid"}}}}}</script><page><view /></page><script lang="ts">const count: number = "bad"; navigator.geolocation.getCurrentPosition(() => {});</script>',

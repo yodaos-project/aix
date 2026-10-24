@@ -64,9 +64,16 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: nightly-2026-01-15
           components: llvm-tools-preview
+          targets: wasm32-unknown-unknown
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
 
       - name: Cache Rust artifacts
         uses: Swatinem/rust-cache@v2
@@ -78,13 +85,11 @@ jobs:
         with:
           tool: cargo-llvm-cov@0.8.7
 
+      - name: Install matching WASM test runner
+        run: cargo install wasm-bindgen-cli --version 0.2.126 --locked
+
       - name: Collect Rust coverage
         run: bash scripts/coverage-rust.sh
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
 
       - name: Summarize Rust coverage
         run: node scripts/coverage-summary.cjs rust coverage/rust/coverage-summary.json

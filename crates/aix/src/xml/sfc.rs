@@ -223,6 +223,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn tolerates_invalid_tags_comments_and_unfinished_nested_blocks() {
+        for source in [
+            "<page>unfinished",
+            "<script unfinished",
+            "<!-- unfinished",
+            "<script>x < y < /script> </not-script>",
+        ] {
+            assert!(parse_sfc_blocks(source).is_empty(), "{source}");
+        }
+        assert_eq!(parse_sfc_blocks("<page><script>unfinished</page>").len(), 1);
+        let source = "</page><page/><unknown></unknown><!invalid><script>if (a < b) x();</script><template><template/><style>x{}</style></template>";
+        let blocks = parse_sfc_blocks(source);
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0].body, "if (a < b) x();");
+        assert_eq!(blocks[1].body, "<template/><style>x{}</style>");
+        assert!(next_tag("<script\"invalid\">", 0).is_none());
+    }
+
+    #[test]
     fn retains_utf8_spans_and_quoted_attributes() {
         let source = "😀\n<!-- old > <script>invalid</script> -->\n<script setup lang = 'ts' note=\"a > b\">\nconst message = '你好 </script>';\n</script>\n<widget><view /></widget>";
         let blocks = parse_sfc_blocks(source);

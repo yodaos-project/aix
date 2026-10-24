@@ -314,6 +314,83 @@ mod tests {
     use super::*;
 
     #[test]
+    fn native_directory_collection_pack_and_check_share_ignore_and_cache_rules() {
+        let root = std::env::temp_dir().join(format!("aix-collector-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(root.join("nested/.aix")).unwrap();
+        fs::write(root.join("app.json"), br#"{"pages":[]}"#).unwrap();
+        fs::write(root.join(".aixignore"), "ignored.js").unwrap();
+        fs::write(root.join("ignored.js"), "const invalid = ;").unwrap();
+        fs::write(root.join("nested/good.js"), "export const answer = 42;").unwrap();
+        fs::write(root.join("nested/.aix/cache.json"), "invalid").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(root.join("app.json"), root.join("link.json")).unwrap();
+        let raw = read_directory(&root).unwrap();
+        assert_eq!(raw.len(), 4);
+        assert!(raw
+            .iter()
+            .all(|file| !file.path.contains(".aix/") && file.path != "link.json"));
+        let output =
+            pack_directory(&root, &CollectOptions::default(), PackOptions::new("build")).unwrap();
+        let reader = aix::AixReader::new(output.data).unwrap();
+        assert!(reader.read_file("nested/good.js").is_ok());
+        assert!(reader.read_file("ignored.js").is_err());
+        assert!(!crate::check::check_directory(&root).unwrap().has_errors());
+        let mut events = Vec::new();
+        pack_source_files_with_progress(
+            raw,
+            &CollectOptions::default(),
+            PackOptions::new("build"),
+            |event| {
+                events.push(event);
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert!(matches!(
+            events[0],
+            PackProgressEvent::CollectingSourceInputs
+        ));
+        assert!(pack_source_files_with_progress(
+            vec![],
+            &CollectOptions::default(),
+            PackOptions::new("build"),
+            |_| Err(anyhow!("cancelled"))
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("cancelled"));
+        fs::remove_dir_all(&root).unwrap();
+        assert!(read_directory(&root).is_err());
+    }
+
+    #[test]
+    fn rejects_unsafe_source_segments_and_malformed_ignore_patterns() {
+        for path in ["", "a//b", "a/../b", "a/./b"] {
+            assert!(
+                collect_inputs(vec![InputFile::new(path, b"x")], &CollectOptions::default())
+                    .is_err()
+            );
+        }
+        let error = collect_inputs(
+            vec![InputFile::new(".aixignore", b"[z-a]")],
+            &CollectOptions::default(),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("Invalid .aixignore"));
+        let files = collect_inputs(
+            vec![
+                InputFile::new(".aixignore", b"ignored"),
+                InputFile::new("app.json", b"{}"),
+            ],
+            &CollectOptions {
+                exclude_rule_file: false,
+            },
+        )
+        .unwrap();
+        assert_eq!(files.len(), 2);
+    }
+
+    #[test]
     fn excludes_files_matched_by_root_aixignore() {
         let collected = collect_inputs(
             vec![
