@@ -58,12 +58,16 @@ aix check ./my-agent
 aix check ./my-agent --format json
 ```
 
-Type checking uses the TypeScript compiler for `.ts`, `.mts`, and Ink
+Type checking uses one TypeScript project for `.ts`, `.mts`, `.cts`, and Ink
 `<script lang="ts">` blocks, including imports and project `.d.ts` declarations.
 Inline errors point to their original `.ink` file and line. `tsconfig.json`
-compiler options and `extends` are respected; source roots come from the AIX
-collector rather than `include`/`exclude`, so `.aixignore` controls source
-exclusion. Ignored source files cannot be pulled back in by an import.
+compiler options, `extends`, `files`, `include`, and `exclude` are respected.
+Imports expand the project graph, including files excluded only from root
+selection. `.aixignore` controls source availability, so those ignored sources
+cannot be pulled back in by an import. Without `tsconfig.json`, all collected
+TypeScript scripts are project roots. NodeNext resolution preserves each file's
+ESM/CJS format and each import's resolution mode, including conditional exports
+and required ESM import extensions.
 Without a config, checks use strict mode, ES2022, ES modules, and bundler module
 resolution. Checks never emit files or run project code. JavaScript remains
 syntax-checked and can supply inferred types to imported TypeScript code.

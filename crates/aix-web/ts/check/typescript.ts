@@ -8,12 +8,14 @@ const INK = '/__aix__/node_modules/@yodaos-pkg/ink-env/index.d.ts';
 
 /** No ambient filesystem, process, network, or compiler output is used here. */
 export function checkTypeScript(prepared: PreparedCheck): CheckDiagnostic[] {
-  if (!prepared.scripts.some((script) => script.typescript && !script.path.endsWith('.d.ts'))) return [];
+  if (!prepared.scripts.some((script) => script.typescript && !script.path.endsWith('.d.ts'))
+    && !prepared.files.some((file) => file.path === 'tsconfig.json')) return [];
 
   const diagnostics: CheckDiagnostic[] = [];
   const originals = new Map<string, { path: string; source: string }>();
   const files = new Map<string, string>(Object.entries(environment));
-  const roots: string[] = [];
+  let roots: string[] = [];
+  const sourceNames = new Map<string, string>();
   for (const file of prepared.files) {
     const name = resolve(ROOT, file.path);
     // Configs and installed dependencies can be used even when not packaged.
@@ -24,7 +26,9 @@ export function checkTypeScript(prepared: PreparedCheck): CheckDiagnostic[] {
     const suffix = script.path.endsWith('.ink') ? (script.typescript ? '.ts' : '.js') : '';
     const name = resolve(ROOT, script.path + suffix);
     files.set(name, script.script);
+    if (script.path.endsWith('.ink')) files.set(resolve(ROOT, script.path), script.script);
     originals.set(name, script);
+    sourceNames.set(resolve(ROOT, script.path), name);
     if (script.typescript) roots.push(name);
   }
   const directories = new Set<string>(['/']);
@@ -35,13 +39,20 @@ export function checkTypeScript(prepared: PreparedCheck): CheckDiagnostic[] {
       directory = dirname(directory);
     }
   }
+  // Enumerate real input names, not the virtual .ink.ts names, when applying
+  // tsconfig globs. Imports still resolve to the corresponding virtual modules.
+  const entries = directoryEntries([...files.keys()].filter((file) => !originals.get(file)?.path.endsWith('.ink')
+    || sourceNames.has(file)));
+  const readDirectory: NonNullable<ts.CompilerHost['readDirectory']> = (directory, extensions, excludes, includes, depth) =>
+    compilerMatchFiles(directory, extensions, excludes, includes, true, ROOT, depth,
+      (directory) => entries.get(normalize(directory)) ?? { files: [], directories: [] }, normalize);
   const system: ts.ParseConfigHost & ts.ModuleResolutionHost = {
     useCaseSensitiveFileNames: true,
     fileExists: (file) => files.has(normalize(file)),
     readFile: (file) => files.get(normalize(file)),
     directoryExists: (directory) => directories.has(normalize(directory)),
     getDirectories: (directory) => [...directories].filter((entry) => dirname(entry) === normalize(directory)),
-    readDirectory: () => [], // Check roots always come from the AIX collector.
+    readDirectory,
     realpath: normalize,
     getCurrentDirectory: () => ROOT,
   };
@@ -55,19 +66,21 @@ export function checkTypeScript(prepared: PreparedCheck): CheckDiagnostic[] {
     strict: true,
     skipLibCheck: true,
   };
+  let projectReferences: readonly ts.ProjectReference[] | undefined;
   const configPath = resolve(ROOT, 'tsconfig.json');
   if (system.fileExists(configPath)) {
-    const config = ts.readConfigFile(configPath, system.readFile);
-    if (config.error) {
-      diagnostics.push(convert(config.error, 'AIX049'));
-    } else {
-      const parsed = ts.parseJsonConfigFileContent(
-        { ...config.config, files: undefined, include: [] }, system, ROOT, undefined, configPath,
-      );
-      options = { ...options, ...parsed.options };
-      if (parsed.options.module !== undefined && parsed.options.moduleResolution === undefined) delete options.moduleResolution;
-      diagnostics.push(...parsed.errors.filter((error) => error.code !== 18003).map((error) => convert(error, 'AIX049')));
-    }
+    const config = ts.readJsonConfigFile(configPath, system.readFile);
+    const parsed = ts.parseJsonSourceFileConfigFileContent(
+      config, system, ROOT, undefined, configPath, undefined,
+      // Deferred admits mixed-content extensions during root selection. The
+      // selected Ink file is then mapped to its extracted .ts/.js virtual file.
+      [{ extension: '.ink', scriptKind: ts.ScriptKind.Deferred, isMixedContent: true }],
+    );
+    options = { ...options, moduleDetection: ts.ModuleDetectionKind.Auto, ...parsed.options };
+    if (parsed.options.module !== undefined && parsed.options.moduleResolution === undefined) delete options.moduleResolution;
+    roots = parsed.fileNames.map((name) => sourceNames.get(normalize(name)) ?? name);
+    projectReferences = parsed.projectReferences;
+    diagnostics.push(...ts.getConfigFileParsingDiagnostics(parsed).map((error) => convert(error, 'AIX049')));
   }
   options = { ...options, noEmit: true, emitDeclarationOnly: false, allowJs: true, checkJs: false };
   const inkTypes = ts.resolveTypeReferenceDirective(
@@ -76,10 +89,13 @@ export function checkTypeScript(prepared: PreparedCheck): CheckDiagnostic[] {
 
   const host: ts.CompilerHost = {
     ...system,
-    readDirectory: () => [],
+    readDirectory,
     getSourceFile(file, languageVersion) {
       const source = system.readFile(file);
-      return source === undefined ? undefined : ts.createSourceFile(file, source, languageVersion, true);
+      if (source === undefined) return undefined;
+      // An SFC is an implicit module even when its script has no import/export.
+      const text = originals.get(normalize(file))?.path.endsWith('.ink') ? source + '\nexport {};' : source;
+      return ts.createSourceFile(file, text, languageVersion, true);
     },
     getDefaultLibFileName: (compilerOptions) => LIB + ts.getDefaultLibFileName(compilerOptions),
     getDefaultLibLocation: () => LIB,
@@ -88,23 +104,30 @@ export function checkTypeScript(prepared: PreparedCheck): CheckDiagnostic[] {
     getCanonicalFileName: normalize,
     getNewLine: () => '\n',
     useCaseSensitiveFileNames: () => true,
-    resolveModuleNames: (names, containingFile) => names.map((name) => {
+    resolveModuleNameLiterals: (literals, containingFile, redirectedReference, compilerOptions, containingSourceFile) => literals.map((literal) => {
+      const name = literal.text;
       if (name.endsWith('.ink') && name.startsWith('.')) {
         const base = resolve(dirname(containingFile), name);
         for (const extension of [ts.Extension.Ts, ts.Extension.Js]) {
           const resolvedFileName = base + extension;
-          if (system.fileExists(resolvedFileName)) return { resolvedFileName, extension };
+          if (system.fileExists(resolvedFileName)) return { resolvedModule: { resolvedFileName, extension } };
         }
       }
-      return ts.resolveModuleName(name, containingFile, options, system).resolvedModule;
+      return ts.resolveModuleName(name, containingFile, compilerOptions, system, undefined, redirectedReference,
+        ts.getModeForUsageLocation(containingSourceFile, literal, compilerOptions));
     }),
-    resolveTypeReferenceDirectives: (names, containingFile) => names.map((entry) => {
+    resolveTypeReferenceDirectiveReferences: (names, containingFile, redirectedReference, compilerOptions, containingSourceFile) => names.map((entry) => {
       const name = typeof entry === 'string' ? entry : entry.fileName;
-      return ts.resolveTypeReferenceDirective(name, containingFile, options, system).resolvedTypeReferenceDirective
-        ?? (name === '@yodaos-pkg/ink-env' ? { resolvedFileName: inkTypes, primary: false } : undefined);
+      const mode = (typeof entry === 'string' ? undefined : entry.resolutionMode) ?? containingSourceFile?.impliedNodeFormat;
+      const result = ts.resolveTypeReferenceDirective(name, containingFile, compilerOptions, system, redirectedReference, undefined, mode);
+      if (!result.resolvedTypeReferenceDirective && name === '@yodaos-pkg/ink-env') {
+        return { ...result, resolvedTypeReferenceDirective: { resolvedFileName: inkTypes, primary: false } };
+      }
+      return result;
     }),
   };
-  const program = ts.createProgram([...roots, inkTypes], options, host);
+  // One project Program owns the import graph and symbol table for all roots.
+  const program = ts.createProgram({ rootNames: [...roots, inkTypes], options, host, projectReferences });
   diagnostics.push(...program.getOptionsDiagnostics().map((error) => convert(error, 'AIX049')));
   diagnostics.push(...[
     ...program.getGlobalDiagnostics(),
@@ -135,6 +158,36 @@ export function checkTypeScript(prepared: PreparedCheck): CheckDiagnostic[] {
       message: `TS${diagnostic.code}: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n').split(ROOT).join('')}`,
     };
   }
+}
+
+type DirectoryEntries = { files: string[]; directories: string[] };
+
+// TypeScript uses this matcher for tsconfig itself. It is exposed by the pinned
+// compiler runtime but omitted from typescript.d.ts; keep its signature local.
+const compilerMatchFiles = (ts as typeof ts & {
+  matchFiles(path: string, extensions: readonly string[] | undefined, excludes: readonly string[] | undefined,
+    includes: readonly string[] | undefined, caseSensitive: boolean, currentDirectory: string, depth: number | undefined,
+    getEntries: (path: string) => DirectoryEntries, realpath: (path: string) => string): string[];
+}).matchFiles;
+
+function directoryEntries(names: string[]): Map<string, DirectoryEntries> {
+  const result = new Map<string, DirectoryEntries>();
+  const entry = (directory: string) => {
+    let value = result.get(directory);
+    if (!value) result.set(directory, value = { files: [], directories: [] });
+    return value;
+  };
+  for (const name of names) {
+    let directory = dirname(name);
+    entry(directory).files.push(name.slice(directory.length + (directory === '/' ? 0 : 1)));
+    while (directory !== '/') {
+      const parent = dirname(directory);
+      const child = directory.slice(parent.length + (parent === '/' ? 0 : 1));
+      if (!entry(parent).directories.includes(child)) entry(parent).directories.push(child);
+      directory = parent;
+    }
+  }
+  return result;
 }
 
 function displayPath(file: string): string {

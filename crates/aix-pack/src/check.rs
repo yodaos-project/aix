@@ -115,7 +115,7 @@ fn script_sources(files: &[InputFile]) -> Vec<CheckScriptSource> {
         let Ok(source) = String::from_utf8(bytes) else {
             continue;
         };
-        let mut typescript = file.path.ends_with(".ts") || file.path.ends_with(".mts");
+        let mut typescript = is_typescript_source(&file.path);
         let script = if file.path.ends_with(".ink") {
             let mut script = String::new();
             let mut cursor = 0;
@@ -550,13 +550,15 @@ pub fn check_files(files: &[InputFile]) -> CheckReport {
             || path.ends_with(".ts")
             || path.ends_with(".mjs")
             || path.ends_with(".mts")
+            || path.ends_with(".cjs")
+            || path.ends_with(".cts")
         {
             check_script(
                 path,
                 content,
                 0,
                 content,
-                path.ends_with(".ts") || path.ends_with(".mts"),
+                is_typescript_source(path),
                 &permissions,
                 &mut report,
             );
@@ -612,7 +614,13 @@ fn finish(mut report: CheckReport) -> CheckReport {
     report
 }
 fn is_source(path: &str) -> bool {
-    [".ink", ".js", ".ts", ".mjs", ".mts"]
+    [".ink", ".js", ".ts", ".mjs", ".mts", ".cjs", ".cts"]
+        .iter()
+        .any(|ext| path.ends_with(ext))
+}
+
+fn is_typescript_source(path: &str) -> bool {
+    [".ts", ".mts", ".cts"]
         .iter()
         .any(|ext| path.ends_with(ext))
 }
@@ -2060,5 +2068,31 @@ mod tests {
             .find(|file| file.path == "tsconfig.json")
             .unwrap();
         assert!(config.source.starts_with('{'));
+    }
+
+    #[test]
+    fn collects_commonjs_scripts_and_typescript_declarations() {
+        let prepared = prepare_check_source(vec![
+            InputFile::new("app.json", br#"{"pages":[]}"#),
+            InputFile::new("helper.cjs", b"module.exports = 1;"),
+            InputFile::new(
+                "main.cts",
+                b"import value = require('helper'); export = value;",
+            ),
+            InputFile::new(
+                "types.d.cts",
+                b"declare const value: number; export = value;",
+            ),
+        ])
+        .unwrap();
+        assert!(
+            !prepared.report.has_errors(),
+            "{:?}",
+            prepared.report.diagnostics
+        );
+        assert_eq!(prepared.scripts.len(), 3);
+        for script in &prepared.scripts {
+            assert_eq!(script.typescript, script.path.ends_with(".cts"));
+        }
     }
 }

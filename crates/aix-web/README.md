@@ -66,8 +66,14 @@ dependency declarations in the input snapshot when needed. Project Ink types
 are preferred to the embedded fallback; ignored `node_modules` declarations
 remain usable for type resolution. Ordinary ignored sources are excluded from
 type checking and imports. Files outside the supplied snapshot are not read.
-Compiler options and `extends` are respected, while roots follow `.aixignore`
-rather than TypeScript `include`/`exclude`. Checks do not emit or run code.
+The checker creates one TypeScript `Program` for the project. `tsconfig.json`
+compiler options, `extends`, `files`, `include`, and `exclude` select its roots;
+imports then expand the graph. Files excluded only from root selection remain
+importable, while `.aixignore` excludes source availability. Without a config,
+all collected TypeScript scripts are roots. Ink scripts can be selected with
+`*.ink` globs and remain isolated modules. NodeNext checks preserve ESM/CJS
+format, conditional import/require exports, and required ESM extensions.
+Checks do not emit or run code.
 
 Page `schema.data` is validated against `$schema` (2020-12 by default), including
 nested keywords, patterns, and local references. Missing/null schemas remain

@@ -7,7 +7,10 @@ function test(name, files, verify) {
   cases.push({ name, files: { 'app.json': '{"pages":[]}', ...files }, verify });
 }
 
-const clean = (diagnostics) => assert.deepEqual(diagnostics, []);
+const clean = (diagnostics, _, report) => {
+  assert.deepEqual(diagnostics, []);
+  assert(!report.diagnostics.some((diagnostic) => diagnostic.severity === 'error'), JSON.stringify(report.diagnostics));
+};
 test("catches semantic errors across imports", {
   "value.ts": "export const value: number = 1;",
   "main.ts": "import { value } from './value';\nconst text: string = value;",
@@ -114,5 +117,93 @@ test('excludes local .aix cache directories in every host', {
   '.aix/broken.json': '{invalid',
   'main.ts': 'const count: number = 1;',
 }, (diagnostics, _, report) => assert.deepEqual(report.diagnostics, []));
+
+test('checks named exports across the project module graph', {
+  'value.ts': 'export const value = 1;',
+  'barrel.ts': 'export { value } from "./value";',
+  'main.ts': 'import { missing } from "./barrel"; void missing;',
+}, (diagnostics) => {
+  assert.equal(diagnostics.length, 1);
+  assert.match(diagnostics[0].message, /TS2305/);
+});
+test('honors tsconfig files instead of treating every file as a root', {
+  'tsconfig.json': '{"files":["main.ts"]}',
+  'main.ts': 'export const value = 1;',
+  'other.ts': 'const wrong: string = 1;',
+}, clean);
+test('honors include and exclude but still follows imports into excluded files', {
+  'tsconfig.json': '{"include":["src/**/*.ts"],"exclude":["src/dependency.ts","src/unreferenced.ts"]}',
+  'src/main.ts': 'import {value} from "./dependency"; void value;',
+  'src/dependency.ts': 'export const value: string = 1;',
+  'src/unreferenced.ts': 'const other: string = 2;',
+  'outside.ts': 'const outside: string = 3;',
+}, (diagnostics) => {
+  assert.equal(diagnostics.length, 1);
+  assert.equal(diagnostics[0].path, 'src/dependency.ts');
+  assert.match(diagnostics[0].message, /TS2322/);
+});
+test('includes Ink globs as isolated modules in the configured project', {
+  'tsconfig.json': '{"include":["pages/**/*.ink"]}',
+  'pages/one.ink': '<script lang="ts">const count: number = "bad";</script>',
+  'pages/two.ink': '<script lang="ts">const count: number = 1;</script>',
+  'other.ts': 'const wrong: string = 2;',
+}, (diagnostics) => {
+  assert.equal(diagnostics.length, 1);
+  assert.equal(diagnostics[0].path, 'pages/one.ink');
+  assert.match(diagnostics[0].message, /TS2322/);
+});
+test('reports missing root files from the project config', {
+  'tsconfig.json': '{"files":["missing.ts"]}',
+  'other.js': 'const value = 1;',
+}, (diagnostics) => assert(diagnostics.some((d) => d.message.includes('TS6053'))));
+test('enforces NodeNext ESM import extensions', {
+  'package.json': '{"type":"module"}',
+  'tsconfig.json': '{"compilerOptions":{"module":"NodeNext"}}',
+  'value.ts': 'export const value = 1;',
+  'main.ts': 'import { value } from "./value"; void value;',
+}, (diagnostics) => {
+  assert.equal(diagnostics.length, 1);
+  assert.match(diagnostics[0].message, /TS2835/);
+});
+test('allows NodeNext ESM imports using the emitted js extension', {
+  'package.json': '{"type":"module"}',
+  'tsconfig.json': '{"compilerOptions":{"module":"NodeNext"}}',
+  'value.ts': 'export const value = 1;',
+  'main.ts': 'import { value } from "./value.js"; void value;',
+}, clean);
+test('resolves import and require exports per usage in the same project', {
+  '.aixignore': 'node_modules/',
+  'tsconfig.json': '{"compilerOptions":{"module":"NodeNext"}}',
+  'node_modules/conditional/package.json': '{"exports":{".":{"import":{"types":"./import.d.mts"},"require":{"types":"./require.d.cts"}}}}',
+  'node_modules/conditional/import.d.mts': 'export const value: string;',
+  'node_modules/conditional/require.d.cts': 'export const value: number;',
+  'esm.mts': 'import {value} from "conditional"; import cjs = require("conditional"); import type {value as required} from "conditional" with {"resolution-mode":"require"}; const text: string = value; const count: number = cjs.value; const typed: typeof required = 1;',
+  'common.cts': 'import {value} from "conditional"; const count: number = value;',
+}, clean);
+test('uses each files nearest package type to choose ESM or CJS', {
+  '.aixignore': 'node_modules/',
+  'package.json': '{"type":"module"}',
+  'tsconfig.json': '{"compilerOptions":{"module":"NodeNext"}}',
+  'node_modules/conditional/package.json': '{"exports":{".":{"import":{"types":"./import.d.mts"},"require":{"types":"./require.d.cts"}}}}',
+  'node_modules/conditional/import.d.mts': 'export const value: string;',
+  'node_modules/conditional/require.d.cts': 'export const value: number;',
+  'esm.ts': 'import {value} from "conditional"; const text: string = value;',
+  'cjs/package.json': '{"type":"commonjs"}',
+  'cjs/main.ts': 'import {value} from "conditional"; const count: number = value;',
+}, clean);
+test('preserves explicit resolution mode on type reference directives', {
+  '.aixignore': 'node_modules/',
+  'tsconfig.json': '{"compilerOptions":{"module":"NodeNext"}}',
+  'node_modules/conditional/package.json': '{"exports":{".":{"import":{"types":"./import.d.mts"},"require":{"types":"./require.d.cts"}}}}',
+  'node_modules/conditional/import.d.mts': 'declare global { const condition: "import"; } export {};',
+  'node_modules/conditional/require.d.cts': 'declare global { const condition: "require"; } export {};',
+  'main.cts': '/// <reference types="conditional" resolution-mode="import" />\nconst mode: "import" = condition;',
+}, clean);
+test('reports syntax errors in ignored project configs with source locations', {
+  '.aixignore': 'tsconfig.json',
+  'tsconfig.json': '{\n"compilerOptions": {"strict":true,,}\n}',
+  'main.ts': 'export {};',
+}, (diagnostics) => assert(diagnostics.some((d) => d.code === 'AIX049'
+  && d.path === 'tsconfig.json' && d.line === 2 && d.message.includes('TS1136'))));
 
 module.exports = cases;

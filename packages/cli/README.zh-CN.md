@@ -63,7 +63,7 @@ aix check ./my-agent
 aix check ./my-agent --format json
 ```
 
-类型检查覆盖 `.ts`、`.mts` 和 Ink `<script lang="ts">` 块，保留原始文件行列，支持导入、项目类型声明及 `tsconfig.json` 的编译选项和 `extends`。源码选择遵循 `.aixignore`。没有配置时使用严格模式和 ES2022，优先使用项目中的 `@yodaos-pkg/ink-env` 类型，否则使用共享检查器内置的声明。检查不输出编译文件。JavaScript 仍检查语法，并在被导入时提供推断类型。
+类型检查覆盖 `.ts`、`.mts`、`.cts` 和 Ink `<script lang="ts">` 块，保留原始文件行列，支持导入、项目类型声明及 `tsconfig.json` 的编译选项和 `extends`。整个项目共用一个 `Program`，按 `files`/`include`/`exclude` 选择入口，再沿导入展开依赖，保留 NodeNext 的 ESM/CJS 解析模式及条件导出语义。`.aixignore` 排除的源码不可被导入。没有配置时使用严格模式和 ES2022，优先使用项目中的 `@yodaos-pkg/ink-env` 类型，否则使用共享检查器内置的声明。检查不输出编译文件。JavaScript 仍检查语法，并在被导入时提供推断类型。
 
 完整检查引擎与 Web SDK 共用，CLI 只负责读取目录和格式化诊断。类型解析使用输入快照中的配置和依赖声明，不读取输入目录以外的文件，也不下载依赖。
 

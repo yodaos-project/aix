@@ -73,9 +73,11 @@ aix check ./my-agent
 aix check ./my-agent --format json
 ```
 
-TypeScript checks include `.ts`, `.mts`, and Ink `<script lang="ts">` blocks,
+TypeScript checks include `.ts`, `.mts`, `.cts`, and Ink `<script lang="ts">` blocks,
 with original file locations, imports, project declarations, and `tsconfig.json`
-compiler options/`extends`. Source selection follows `.aixignore`. Without a
+compiler options/`extends`. One project `Program` uses `files`/`include`/`exclude`
+to select roots and follows their imports, preserving NodeNext ESM/CJS resolution
+and conditional exports. `.aixignore` excludes source availability. Without a
 config, strict ES2022 checks use Ink's `@yodaos-pkg/ink-env` types; the project's
 copy is preferred, with embedded declarations as a fallback. No files are emitted.
 JavaScript is syntax-checked and supplies inferred types when imported.
