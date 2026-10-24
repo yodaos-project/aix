@@ -52,7 +52,7 @@ console.log('Building TS to dist/...');
 execSync('npm run build:ts', { cwd: rootDir, stdio: 'inherit' });
 execSync('node -e "require(\'./scripts/build-check\').buildCheck(\'dist/check/index.js\')"', { cwd: rootDir, stdio: 'inherit' });
 // These implementation modules are now inside the standalone checker bundle.
-for (const name of ['typescript', 'environment.generated']) {
+for (const name of ['typescript', 'results', 'environment.generated']) {
   for (const extension of ['js', 'd.ts']) {
     fs.rmSync(path.join(distDir, 'check', `${name}.${extension}`), { force: true });
   }

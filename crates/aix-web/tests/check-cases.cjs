@@ -3,8 +3,8 @@ const { spawnSync } = require('node:child_process');
 const path = require('node:path');
 const cliRoot = path.resolve(__dirname, '../../../packages/cli');
 const cases = [];
-function test(name, files, verify) {
-  cases.push({ name, files: { 'app.json': '{"pages":[]}', ...files }, verify });
+function test(name, files, verify, verifyChecks) {
+  cases.push({ name, files: { 'app.json': '{"pages":[]}', ...files }, verify, verifyChecks });
 }
 
 const clean = (diagnostics, _, report) => {
@@ -37,7 +37,10 @@ test("honors tsconfig extends and path aliases", {
 test("reports invalid tsconfig", {
   "tsconfig.json": '{"compilerOptions":{"strict":"yes"}}',
   "main.ts": "export const value = 1;",
-}, (diagnostics) => assert(diagnostics.some((d) => d.code === "AIX049" && d.path === "tsconfig.json")));
+}, (diagnostics) => assert(diagnostics.some((d) => d.code === "AIX049" && d.path === "tsconfig.json")), (checks) => {
+  assert.equal(checks.find((check) => check.id === 'typescript_config').status, 'failed');
+  assert.equal(checks.find((check) => check.id === 'typescript').status, 'skipped');
+});
 test("maps inline offsets after Unicode and ignores markup/comments/def", {
   "main.ink": '<!-- 😀 <script lang="ts">fake</script> --><script def>{"title":"text"}</script>\n<page><text /></page>\n<script setup lang = "ts">const emoji = "😀"; const count: number = "bad";</script>',
 }, (diagnostics) => {
@@ -205,5 +208,54 @@ test('reports syntax errors in ignored project configs with source locations', {
   'main.ts': 'export {};',
 }, (diagnostics) => assert(diagnostics.some((d) => d.code === 'AIX049'
   && d.path === 'tsconfig.json' && d.line === 2 && d.message.includes('TS1136'))));
+
+test('lists each completed check with its actual work count', {
+  'app.json': '{"pages":["home"]}',
+  'home.ink': '<script def>{"schema":{"data":{"type":"object"}}}</script><page><view /></page><script lang="ts">const count: number = 1;</script>',
+}, clean, (checks) => {
+  assert.equal(checks.length, 7);
+  assert(checks.every((check) => check.status === 'passed'), JSON.stringify(checks));
+  assert.match(checks.find((check) => check.id === 'syntax').label, /1 script/);
+  assert.match(checks.find((check) => check.id === 'schemas').label, /1 schema/);
+  assert.match(checks.find((check) => check.id === 'typescript').label, /1 root/);
+});
+
+test('skips checks without scripts schemas or a TypeScript project', {}, clean, (checks) => {
+  for (const id of ['syntax', 'schemas', 'typescript_config', 'typescript']) {
+    assert.equal(checks.find((check) => check.id === id).status, 'skipped', id);
+  }
+  for (const id of ['json', 'structure', 'permissions']) {
+    assert.equal(checks.find((check) => check.id === id).status, 'passed', id);
+  }
+});
+
+test('does not pass source checks blocked by invalid app metadata', {
+  'app.json': 'null',
+  'main.ts': 'export const count: number = 1;',
+}, (_, __, report) => assert(report.diagnostics.some((diagnostic) => diagnostic.code === 'AIX004')), (checks) => {
+  assert.equal(checks.find((check) => check.id === 'structure').status, 'failed');
+  for (const id of ['syntax', 'permissions', 'schemas']) assert.equal(checks.find((check) => check.id === id).status, 'skipped', id);
+  assert.equal(checks.find((check) => check.id === 'typescript').status, 'passed');
+});
+
+test('keeps successful checks alongside schema type and permission issues', {
+  'app.json': '{"pages":["home"]}',
+  'home.ink': '<script def>{"schema":{"data":{"type":"invalid"}}}</script><page><view /></page><script lang="ts">const count: number = "bad"; fetch("https://example.com");</script>',
+}, (diagnostics, _, report) => {
+  assert(diagnostics.some((diagnostic) => diagnostic.code === 'AIX048'));
+  assert(report.diagnostics.some((diagnostic) => diagnostic.code === 'AIX047'));
+}, (checks) => {
+  for (const id of ['json', 'structure', 'syntax', 'typescript_config']) assert.equal(checks.find((check) => check.id === id).status, 'passed', id);
+  assert.equal(checks.find((check) => check.id === 'schemas').status, 'failed');
+  assert.equal(checks.find((check) => check.id === 'typescript').status, 'failed');
+  assert.equal(checks.find((check) => check.id === 'permissions').status, 'warning');
+});
+
+test('does not pass permission analysis blocked by script syntax errors', {
+  'broken.js': 'const count = ;',
+}, (_, __, report) => assert(report.diagnostics.some((diagnostic) => diagnostic.code === 'AIX029')), (checks) => {
+  assert.equal(checks.find((check) => check.id === 'syntax').status, 'failed');
+  assert.equal(checks.find((check) => check.id === 'permissions').status, 'skipped');
+});
 
 module.exports = cases;

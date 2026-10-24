@@ -4,7 +4,7 @@
 import path from 'node:path';
 import type { CheckEngine, CheckOptions, CheckReport } from '../../../crates/aix-web/ts/check/types';
 
-export type { CheckDiagnostic, CheckProgressEvent, CheckReport } from '../../../crates/aix-web/ts/check/types';
+export type { CheckDiagnostic, CheckProgressEvent, CheckReport, CheckResult } from '../../../crates/aix-web/ts/check/types';
 
 type WasmEngine = CheckEngine & {
   AixReaderWasm: new (data: Uint8Array) => AixReaderInstance;

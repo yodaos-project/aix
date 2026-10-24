@@ -31,7 +31,8 @@ try {
     const result = spawnSync(process.execPath, ['--require', probe, path.join(cliRoot, 'dist/cli.js'), 'check', input, ...options], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
     assert(result.stderr.startsWith(`Starting source checks\n${marker}`), result.stderr);
-    assert.match(result.stderr, /Checks passed\n$/);
+    assert.match(result.stderr, /\[passed\] JSON syntax and text encoding \(1 file\)/);
+    assert.match(result.stderr, /\[skipped\] TypeScript project types and imports/);
     assert.match(result.stdout, /0 diagnostic\(s\)/);
   }
   for (const options of [['--format', 'json'], ['--format=json'], ['--format=text', '--format=json']]) {
@@ -58,8 +59,9 @@ try {
   const terminal = spawnSync(process.execPath, ['--require', terminalProbe, path.join(cliRoot, 'dist/cli.js'), 'check', input], { encoding: 'utf8', env: terminalEnv });
   assert.equal(terminal.status, 0, terminal.stderr);
   assert(terminal.stderr.startsWith('Starting source checks\r'), JSON.stringify(terminal.stderr));
-  assert.equal(terminal.stderr.split('\n').length, 2, 'Only the final check result should persist on the terminal');
-  assert.match(stripVTControlCharacters(terminal.stderr), /Checks passed\n$/);
+  assert.equal(terminal.stderr.split('\n').length, 8, 'Each of the seven final check items should persist on the terminal');
+  assert.match(stripVTControlCharacters(terminal.stderr), /✔ JSON syntax and text encoding \(1 file\)/);
+  assert.match(stripVTControlCharacters(terminal.stderr), /- TypeScript project types and imports .*skipped: no TypeScript project/);
   assert.match(terminal.stderr, /Scanning source files/);
   assert.match(terminal.stdout, /0 diagnostic\(s\)/);
   for (const options of [['--format', 'json'], ['--help']]) {
@@ -70,12 +72,14 @@ try {
   writeFileSync(path.join(input, 'main.ts'), 'const count: number = "bad";');
   const failed = spawnSync(process.execPath, ['--require', terminalProbe, path.join(cliRoot, 'dist/cli.js'), 'check', input], { encoding: 'utf8', env: terminalEnv });
   assert.equal(failed.status, 1, failed.stderr);
-  assert.match(stripVTControlCharacters(failed.stderr), /Checks failed \(1 error\)\n$/);
+  assert.match(stripVTControlCharacters(failed.stderr), /✖ TypeScript project types and imports \(1 root\): 1 error\n$/);
+  assert.match(stripVTControlCharacters(failed.stderr), /✔ JS\/TS syntax \(1 script\)/);
   assert(!failed.stderr.includes('Checks passed'), failed.stderr);
   writeFileSync(path.join(input, 'main.ts'), 'fetch("https://example.com");');
   const warned = spawnSync(process.execPath, ['--require', terminalProbe, path.join(cliRoot, 'dist/cli.js'), 'check', input], { encoding: 'utf8', env: terminalEnv });
   assert.equal(warned.status, 0, warned.stderr);
-  assert.match(stripVTControlCharacters(warned.stderr), /Checks passed \(1 warning\)\n$/);
+  assert.match(stripVTControlCharacters(warned.stderr), /⚠ Permission declarations and direct API use: 1 warning/);
+  assert.match(stripVTControlCharacters(warned.stderr), /✔ TypeScript project types and imports \(1 root\)/);
   const broken = spawnSync(process.execPath, ['--require', terminalProbe, path.join(cliRoot, 'dist/cli.js'), 'check', path.join(input, 'app.json')], { encoding: 'utf8', env: terminalEnv });
   assert.equal(broken.status, 1);
   assert.match(broken.stderr, /Checks failed/);
@@ -83,12 +87,12 @@ try {
   assert(!broken.stderr.includes('Checks passed'), broken.stderr);
   console.log('ok - startup progress precedes command loading; JSON and help stay quiet');
   console.log('ok - terminal progress replaces the startup status on the same line');
-  console.log('ok - final pass/warning/failure status persists with the correct exit code');
+  console.log('ok - specific passed/warning/failed/skipped check items persist with the correct exit code');
 } finally {
   rmSync(startupRoot, { recursive: true, force: true });
 }
 
-for (const { name, files, verify } of cases) {
+for (const { name, files, verify, verifyChecks } of cases) {
   const root = mkdtempSync(path.join(tmpdir(), 'aix-check-'));
   try {
     for (const [file, content] of Object.entries(files)) {
@@ -101,8 +105,12 @@ for (const { name, files, verify } of cases) {
     const report = checkSource(inputs, engine, { onProgress: (event) => progress.push(event) });
     assert.deepEqual(progress[0], { type: 'checking_sources', fileCount: inputs.length });
     assert.deepEqual(progress.at(-1), { type: 'collecting_diagnostics' });
+    const checks = progress.filter((event) => event.type === 'check_finished').map((event) => event.check);
+    assert.equal(checks.length, 7, name);
+    assert.equal(checks.reduce((count, check) => count + check.errors + check.warnings, 0), report.diagnostics.length, name);
+    verifyChecks?.(checks);
     if (name === 'catches semantic errors across imports') {
-      assert.deepEqual(progress.map((event) => event.type), ['checking_sources', 'configuring_typescript',
+      assert.deepEqual(progress.filter((event) => event.type !== 'check_finished').map((event) => event.type), ['checking_sources', 'configuring_typescript',
         'resolving_typescript_project', 'checking_typescript', 'collecting_diagnostics']);
       assert.equal(progress.find((event) => event.type === 'checking_typescript').rootCount, 2);
     }

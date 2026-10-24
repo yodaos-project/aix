@@ -64,7 +64,12 @@ spinner; checking runs in a Worker to keep it responsive. `--format json`
 disables progress and preserves the structured report on stdout.
 Startup status appears before loading the CLI command modules and is replaced
 by later stages on the same progress line.
-The final pass/fail status remains visible, with error and warning counts when present.
+The final checklist preserves each check result: JSON/text validation,
+App/Page/Widget/component structure, JS/TS syntax, permission declarations and
+direct API use, Page JSON Schemas, TypeScript configuration, and project
+types/imports. Items show passed, warning, failed, or skipped status, work counts,
+and diagnostic counts. Checks with no applicable input or blocked by invalid
+input show a skip reason instead of a success marker.
 
 Type checking uses one TypeScript project for `.ts`, `.mts`, `.cts`, and Ink
 `<script lang="ts">` blocks, including imports and project `.d.ts` declarations.
@@ -91,6 +96,7 @@ and dependency declarations resolve from that input snapshot, including ignored
 checker never reads files outside the supplied tree or downloads dependencies.
 Web callers use `AIX.checkFromSource(files)` or `AIX.checkFromFiles(files)`.
 Both accept an optional `{ onProgress(event) {} }` argument for check stages.
+`check_finished` events include a `CheckResult` for each item in the final checklist.
 
 Page `schema.data` is validated as a JSON Schema, including nested keyword
 types, regex patterns, and local `$ref` targets. Drafts 4, 6, 7, 2019-09, and

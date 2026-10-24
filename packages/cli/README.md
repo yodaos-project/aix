@@ -78,7 +78,22 @@ terminal. Startup status appears before loading command modules and is replaced
 by later stages on the same progress line. Checks run
 in a Worker so progress remains responsive during TypeScript analysis. JSON
 mode omits progress and keeps stdout machine-readable.
-The final pass/fail status remains visible, with error and warning counts when present.
+The final checklist lists JSON/text validation, App/Page/Widget/component structure,
+JS/TS syntax, permissions, Page JSON Schemas, TypeScript configuration, and project
+types/imports. Each item retains its passed, warning, failed, or skipped status,
+with work counts and diagnostic counts. Checks blocked by invalid inputs or with
+no applicable work are marked skipped with a reason.
+
+```text
+✔ JSON syntax and text encoding (2 files)
+✔ App, Page, Widget, and component structure
+✔ JS/TS syntax (1 script)
+✔ Permission declarations and direct API use
+✔ Page JSON Schemas (1 schema)
+✔ TypeScript project configuration
+✔ TypeScript project types and imports (1 root)
+0 diagnostic(s)
+```
 
 TypeScript checks include `.ts`, `.mts`, `.cts`, and Ink `<script lang="ts">` blocks,
 with original file locations, imports, project declarations, and `tsconfig.json`

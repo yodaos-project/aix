@@ -63,7 +63,7 @@ aix check ./my-agent
 aix check ./my-agent --format json
 ```
 
-文本模式在 stderr 展示检查阶段，终端中显示动态进度。加载命令模块之前即显示启动状态，后续阶段在同一进度行覆盖它。最终保留通过或失败状态，并在有 error 或 warning 时显示数量。检查在 Worker 中运行，因此 TypeScript 分析期间进度仍会刷新。JSON 模式不输出进度，stdout 保持为结构化诊断。
+文本模式在 stderr 展示检查阶段，终端中显示动态进度。加载命令模块之前即显示启动状态，后续阶段在同一进度行覆盖它。最终清单逐项保留 JSON/文本、App/Page/Widget/组件结构、JS/TS 语法、权限、Page JSON Schema、TypeScript 配置及项目类型/导入检查的结果，并显示实际检查数量和诊断数量。每项分别标明通过、警告、失败或跳过；无适用输入或被无效输入阻断的检查会注明跳过原因。检查在 Worker 中运行，因此 TypeScript 分析期间进度仍会刷新。JSON 模式不输出进度，stdout 保持为结构化诊断。
 
 类型检查覆盖 `.ts`、`.mts`、`.cts` 和 Ink `<script lang="ts">` 块，保留原始文件行列，支持导入、项目类型声明及 `tsconfig.json` 的编译选项和 `extends`。整个项目共用一个 `Program`，按 `files`/`include`/`exclude` 选择入口，再沿导入展开依赖，保留 NodeNext 的 ESM/CJS 解析模式及条件导出语义。`.aixignore` 排除的源码不可被导入。没有配置时使用严格模式和 ES2022，优先使用项目中的 `@yodaos-pkg/ink-env` 类型，否则使用共享检查器内置的声明。检查不输出编译文件。JavaScript 仍检查语法，并在被导入时提供推断类型。
 

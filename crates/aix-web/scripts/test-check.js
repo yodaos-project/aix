@@ -22,7 +22,10 @@ async function main() {
       response.setHeader('Content-Type', 'text/javascript');
       response.end(`import { AIX } from './index.js';
         onmessage = async ({data}) => {
-          try { postMessage({report: await AIX.checkFromSource(data)}); }
+          const checks = [];
+          try { postMessage({report: await AIX.checkFromSource(data, {
+            onProgress(event) { if (event.type === 'check_finished') checks.push(event.check); }
+          }), checks}); }
           catch (error) { postMessage({error: String(error)}); }
         };`);
     } else {
@@ -44,7 +47,7 @@ async function main() {
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
     await page.evaluate(async () => { window.AIX = (await import('./index.js')).AIX; });
     assert(!requests.includes('/check/index.js'), 'The compiler must remain lazy before the first check');
-    for (const { name, files, verify } of cases) {
+    for (const { name, files, verify, verifyChecks } of cases) {
       const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aix-web-check-'));
       try {
         for (const [file, content] of Object.entries(files)) {
@@ -55,7 +58,7 @@ async function main() {
         const result = spawnSync(process.execPath, [cli, 'check', root, '--format', 'json'], { encoding: 'utf8' });
         assert([0, 1].includes(result.status), result.stderr);
         const expected = JSON.parse(result.stdout);
-        const { reports, progress, fileProgress } = await page.evaluate(async (files) => {
+        const { reports, progress, fileProgress, workerChecks } = await page.evaluate(async (files) => {
           const sources = Object.entries(files).map(([path, source]) => ({path, data: new TextEncoder().encode(source)}));
           const browserFiles = Object.entries(files).map(([path, source]) => {
             const file = new File([source], path.split('/').pop());
@@ -69,7 +72,7 @@ async function main() {
           });
           const worker = window.checkWorker ??= new Worker('/worker.js', {type: 'module'});
           const workerReport = await new Promise((resolve, reject) => {
-            worker.onmessage = ({data}) => data.error ? reject(new Error(data.error)) : resolve(data.report);
+            worker.onmessage = ({data}) => data.error ? reject(new Error(data.error)) : resolve(data);
             worker.onerror = (event) => reject(new Error(event.message));
             worker.postMessage(sources);
           });
@@ -77,13 +80,16 @@ async function main() {
           const fileProgress = [];
           const reports = [await window.AIX.checkFromSource(sources, {onProgress: (event) => progress.push(event)}),
             await window.AIX.checkFromFiles(browserFiles),
-            await window.AIX.checkFromFiles(selectedDirectory, {onProgress: (event) => fileProgress.push(event)}), workerReport];
-          return { reports, progress, fileProgress };
+            await window.AIX.checkFromFiles(selectedDirectory, {onProgress: (event) => fileProgress.push(event)}), workerReport.report];
+          return { reports, progress, fileProgress, workerChecks: workerReport.checks };
         }, files);
         for (const events of [progress, fileProgress]) {
           assert.deepEqual(events[0], {type: 'loading_checker'});
           assert.deepEqual(events[1], {type: 'checking_sources', fileCount: Object.keys(files).length});
           assert.deepEqual(events.at(-1), {type: 'collecting_diagnostics'});
+          const checks = events.filter((event) => event.type === 'check_finished').map((event) => event.check);
+          assert.deepEqual(checks, workerChecks, name);
+          verifyChecks?.(checks);
           if (name === 'catches semantic errors across imports') {
             assert(events.some((event) => event.type === 'checking_typescript' && event.rootCount === 2));
           }

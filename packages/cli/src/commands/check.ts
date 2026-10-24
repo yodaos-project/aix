@@ -1,7 +1,7 @@
 import path from "node:path";
 import { Worker } from "node:worker_threads";
 import ora from "ora";
-import type { CheckProgressEvent, CheckReport } from "../wasm";
+import type { CheckProgressEvent, CheckReport, CheckResult } from "../wasm";
 import type { CheckWorkerMessage } from "./check-worker";
 
 export async function cmdCheck(input: string, format: "text" | "json"): Promise<void> {
@@ -19,6 +19,7 @@ export async function cmdCheck(input: string, format: "text" | "json"): Promise<
     else process.stderr.write(`${text}\n`);
   };
   if (!spinner) status("Scanning source files");
+  const checks: CheckResult[] = [];
   let report: CheckReport;
   try {
     report = await new Promise<CheckReport>((resolve, reject) => {
@@ -26,6 +27,7 @@ export async function cmdCheck(input: string, format: "text" | "json"): Promise<
       let result: CheckReport | undefined;
       worker.on("message", (message: CheckWorkerMessage) => {
         if (message.type === "report") result = message.report;
+        else if (message.event.type === "check_finished") checks.push(message.event.check);
         else status(formatProgress(message.event));
       });
       worker.once("error", reject);
@@ -40,17 +42,20 @@ export async function cmdCheck(input: string, format: "text" | "json"): Promise<
     throw error;
   }
   const errors = report.diagnostics.filter((diagnostic) => diagnostic.severity === "error").length;
-  const warnings = report.diagnostics.length - errors;
   if (format === "text") {
-    const counts = [
-      errors ? `${errors} error${errors === 1 ? "" : "s"}` : "",
-      warnings ? `${warnings} warning${warnings === 1 ? "" : "s"}` : "",
-    ].filter(Boolean).join(", ");
-    const summary = `${errors ? "Checks failed" : "Checks passed"}${counts ? ` (${counts})` : ""}`;
-    if (!spinner) status(summary);
-    else if (errors) spinner.fail(summary);
-    else if (warnings) spinner.warn(summary);
-    else spinner.succeed(summary);
+    for (const check of checks) {
+      const counts = [
+        check.errors ? `${check.errors} error${check.errors === 1 ? "" : "s"}` : "",
+        check.warnings ? `${check.warnings} warning${check.warnings === 1 ? "" : "s"}` : "",
+      ].filter(Boolean).join(", ");
+      const detail = check.detail ? ` (${check.status === "skipped" ? "skipped: " : ""}${check.detail})` : "";
+      const text = `${check.label}${counts ? `: ${counts}` : ""}${detail}`;
+      if (!spinner) status(`[${check.status}] ${text}`);
+      else if (check.status === "failed") spinner.fail(text);
+      else if (check.status === "warning") spinner.warn(text);
+      else if (check.status === "skipped") spinner.stopAndPersist({ symbol: "-", text });
+      else spinner.succeed(text);
+    }
   }
   if (format === "json") {
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
@@ -65,7 +70,7 @@ export async function cmdCheck(input: string, format: "text" | "json"): Promise<
   }
 }
 
-function formatProgress(event: CheckProgressEvent): string {
+function formatProgress(event: Exclude<CheckProgressEvent, { type: "check_finished" }>): string {
   switch (event.type) {
     case "loading_checker": return "Loading WASM engine and TypeScript checker";
     case "checking_sources": return `Checking source structure, permissions, and JSON Schemas (${event.fileCount} files)`;

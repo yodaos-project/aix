@@ -6,7 +6,7 @@ import init, {
 import * as wasmExports from '../dist/pkg/aix_web.js';
 import type { CheckEngine, CheckOptions, CheckReport } from './check/types.js';
 
-export type { CheckDiagnostic, CheckOptions, CheckProgressEvent, CheckReport } from './check/types.js';
+export type { CheckDiagnostic, CheckOptions, CheckProgressEvent, CheckReport, CheckResult } from './check/types.js';
 
 export interface AixInputFile {
   path: string;

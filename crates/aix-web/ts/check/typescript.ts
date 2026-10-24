@@ -7,9 +7,12 @@ const LIB = '/__aix__/typescript/';
 const INK = '/__aix__/node_modules/@yodaos-pkg/ink-env/index.d.ts';
 
 /** No ambient filesystem, process, network, or compiler output is used here. */
-export function checkTypeScript(prepared: PreparedCheck, onProgress?: CheckOptions['onProgress']): CheckDiagnostic[] {
+export function checkTypeScript(prepared: PreparedCheck, onProgress?: CheckOptions['onProgress']): {
+  diagnostics: CheckDiagnostic[];
+  rootCount?: number;
+} {
   if (!prepared.scripts.some((script) => script.typescript && !script.path.endsWith('.d.ts'))
-    && !prepared.files.some((file) => file.path === 'tsconfig.json')) return [];
+    && !prepared.files.some((file) => file.path === 'tsconfig.json')) return { diagnostics: [] };
 
   onProgress?.({ type: 'configuring_typescript' });
   const diagnostics: CheckDiagnostic[] = [];
@@ -137,7 +140,7 @@ export function checkTypeScript(prepared: PreparedCheck, onProgress?: CheckOptio
     ...program.getSyntacticDiagnostics(),
     ...program.getSemanticDiagnostics(),
   ].map((error) => convert(error, 'AIX048')));
-  return diagnostics;
+  return { diagnostics, rootCount: roots.length };
 
   function convert(diagnostic: ts.Diagnostic, code: string): CheckDiagnostic {
     let file = 'tsconfig.json';

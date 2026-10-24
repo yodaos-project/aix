@@ -67,6 +67,16 @@ pub struct PreparedCheck {
     pub report: CheckReport,
     pub scripts: Vec<CheckScriptSource>,
     pub files: Vec<CheckTextFile>,
+    pub coverage: CheckCoverage,
+}
+
+/// Work actually reached by the native checker, after source collection.
+#[derive(Debug, Default, Serialize)]
+pub struct CheckCoverage {
+    pub text_files: usize,
+    pub structure: bool,
+    pub scripts: usize,
+    pub schemas: usize,
 }
 
 pub fn prepare_check_source(files: Vec<InputFile>) -> Result<PreparedCheck> {
@@ -76,7 +86,7 @@ pub fn prepare_check_source(files: Vec<InputFile>) -> Result<PreparedCheck> {
         .collect();
     let collected =
         collector::collect_inputs(files.clone(), &collector::CollectOptions::default())?;
-    let report = check_files(&collected);
+    let (report, coverage) = check_files_with_coverage(&collected);
     let scripts = script_sources(&collected);
     // Ignored source files never become roots or ordinary imports. Keep config
     // and dependency text available for type resolution, just as tsc does.
@@ -95,6 +105,7 @@ pub fn prepare_check_source(files: Vec<InputFile>) -> Result<PreparedCheck> {
         report,
         scripts,
         files,
+        coverage,
     })
 }
 
@@ -233,17 +244,23 @@ pub fn check_directory(path: &Path) -> Result<CheckReport> {
 
 /// Check already collected package inputs without writing an artifact.
 pub fn check_files(files: &[InputFile]) -> CheckReport {
+    check_files_with_coverage(files).0
+}
+
+fn check_files_with_coverage(files: &[InputFile]) -> (CheckReport, CheckCoverage) {
     let entries: BTreeMap<&str, &[u8]> = files
         .iter()
         .map(|f| (f.path.as_str(), f.data.as_slice()))
         .collect();
     let mut report = CheckReport::default();
+    let mut coverage = CheckCoverage::default();
     let mut texts = BTreeMap::<&str, String>::new();
     let mut jsons = BTreeMap::<&str, Value>::new();
     for file in files {
         if !file.path.ends_with(".json") && !is_source(&file.path) {
             continue;
         }
+        coverage.text_files += 1;
         match normalize_text_to_utf8(&file.path, &file.data)
             .and_then(|(bytes, _)| String::from_utf8(bytes).map_err(Into::into))
         {
@@ -271,7 +288,7 @@ pub fn check_files(files: &[InputFile]) -> CheckReport {
         if !entries.contains_key("app.json") {
             report.error("AIX003", "app.json", "", 0, "app.json is required");
         }
-        return finish(report);
+        return (finish(report), coverage);
     };
     let app_text = texts.get("app.json").map(String::as_str).unwrap_or("");
     let Some(app) = app.as_object() else {
@@ -282,8 +299,9 @@ pub fn check_files(files: &[InputFile]) -> CheckReport {
             0,
             "app.json must be an object",
         );
-        return finish(report);
+        return (finish(report), coverage);
     };
+    coverage.structure = true;
     if let Some(engine) = app.get("engine") {
         match engine.as_str() {
             Some(range) => {
@@ -405,7 +423,14 @@ pub fn check_files(files: &[InputFile]) -> CheckReport {
                             );
                             continue;
                         }
-                        check_page(path, &entries, &jsons, &texts, &mut report);
+                        check_page(
+                            path,
+                            &entries,
+                            &jsons,
+                            &texts,
+                            &mut report,
+                            &mut coverage.schemas,
+                        );
                     }
                     Some(path) => report.error(
                         "AIX039",
@@ -553,6 +578,7 @@ pub fn check_files(files: &[InputFile]) -> CheckReport {
             || path.ends_with(".cjs")
             || path.ends_with(".cts")
         {
+            coverage.scripts += 1;
             check_script(
                 path,
                 content,
@@ -569,6 +595,7 @@ pub fn check_files(files: &[InputFile]) -> CheckReport {
                     .split_whitespace()
                     .any(|part| part == "def")
                 {
+                    coverage.scripts += 1;
                     check_script(
                         path,
                         block.body,
@@ -597,7 +624,7 @@ pub fn check_files(files: &[InputFile]) -> CheckReport {
         }
     }
     check_component_cycles(&texts, &jsons, &mut report);
-    finish(report)
+    (finish(report), coverage)
 }
 
 fn finish(mut report: CheckReport) -> CheckReport {
@@ -1052,6 +1079,7 @@ fn check_page(
     jsons: &BTreeMap<&str, Value>,
     texts: &BTreeMap<&str, String>,
     report: &mut CheckReport,
+    schemas: &mut usize,
 ) {
     let ink = format!("{path}.ink");
     if entries.contains_key(ink.as_str()) {
@@ -1090,7 +1118,7 @@ fn check_page(
                     "Page <script def> must be an object",
                 );
             }
-            check_page_schema(&def, &ink, content, report);
+            check_page_schema(&def, &ink, content, report, schemas);
             check_components(
                 def.get("usingComponents"),
                 &ink,
@@ -1129,7 +1157,7 @@ fn check_page(
                     "Page config must be an object",
                 );
             }
-            check_page_schema(def, &config, content, report);
+            check_page_schema(def, &config, content, report, schemas);
             check_components(
                 def.get("usingComponents"),
                 &config,
@@ -1142,7 +1170,13 @@ fn check_page(
         }
     }
 }
-fn check_page_schema(def: &Value, path: &str, content: &str, report: &mut CheckReport) {
+fn check_page_schema(
+    def: &Value,
+    path: &str,
+    content: &str,
+    report: &mut CheckReport,
+    schemas: &mut usize,
+) {
     if let Some(schema) = def.get("schema") {
         if !schema.is_null() && !schema.is_object() {
             report.error(
@@ -1157,6 +1191,7 @@ fn check_page_schema(def: &Value, path: &str, content: &str, report: &mut CheckR
     let Some(data) = def.pointer("/schema/data").filter(|data| !data.is_null()) else {
         return;
     };
+    *schemas += 1;
     let base = if path.ends_with(".ink") {
         blocks(content, "script")
             .into_iter()
@@ -2094,5 +2129,36 @@ mod tests {
         for script in &prepared.scripts {
             assert_eq!(script.typescript, script.path.ends_with(".cts"));
         }
+    }
+
+    #[test]
+    fn coverage_tracks_collected_and_executed_checks() {
+        let prepared = prepare_check_source(vec![
+            InputFile::new("app.json", br#"{"pages":["home"]}"#),
+            InputFile::new(".aixignore", b"ignored.ts"),
+            InputFile::new("ignored.ts", b"const broken = ;"),
+            InputFile::new("helper.js", b"export const count = 1;"),
+            InputFile::new("home.ink", br#"<script def>{"schema":{"data":{"type":"object"}}}</script><page><view /></page><script lang="ts">const count: number = 1;</script>"#),
+        ])
+        .unwrap();
+        assert!(!prepared.report.has_errors());
+        assert_eq!(prepared.coverage.text_files, 3);
+        assert!(prepared.coverage.structure);
+        assert_eq!(prepared.coverage.scripts, 2);
+        assert_eq!(prepared.coverage.schemas, 1);
+    }
+
+    #[test]
+    fn coverage_does_not_mark_early_return_checks_as_executed() {
+        let prepared = prepare_check_source(vec![
+            InputFile::new("app.json", b"null"),
+            InputFile::new("main.ts", b"const broken = ;"),
+        ])
+        .unwrap();
+        assert!(prepared.report.has_errors());
+        assert_eq!(prepared.coverage.text_files, 2);
+        assert!(!prepared.coverage.structure);
+        assert_eq!(prepared.coverage.scripts, 0);
+        assert_eq!(prepared.coverage.schemas, 0);
     }
 }

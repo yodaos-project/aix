@@ -68,6 +68,12 @@ file count), TypeScript configuration, project resolution and type checking
 not a percentage estimate. Browser checks are synchronous after loading; run
 the API in a Web Worker to keep a browser progress display responsive.
 
+`check_finished` events carry an exported `CheckResult` with `id`, `label`,
+`status` (`passed`, `warning`, `failed`, or `skipped`), `errors`, `warnings`, and
+an optional `detail` explaining incomplete/skipped checks. The CLI uses the same
+results for its final checklist. The returned `CheckReport` remains a diagnostic
+report, so JSON callers do not need to parse terminal output.
+
 Include `tsconfig.json`, extended configs, installed package metadata, and
 dependency declarations in the input snapshot when needed. Project Ink types
 are preferred to the embedded fallback; ignored `node_modules` declarations
