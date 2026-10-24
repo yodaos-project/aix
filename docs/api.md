@@ -223,25 +223,54 @@ type PackProgressEvent =
 ~~~typescript
 interface AixEntry { name: string; size: number; compressed_size: number }
 
+type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;
+interface JsonObject { [key: string]: JsonValue }
+type JsonSchema = JsonValue;
+interface PageConstraint { width: number; height: number }
+type ToolTarget = '_current' | '_blank';
+type WidgetPlacement = 'persistent' | 'overlay';
+
 interface PageInfo {
   name: string;
-  title?: string;
-  data_schema: unknown;
+  title: string | null;
+  description: string | null;
+  data_schema: JsonSchema;
+  size: PageConstraint;
 }
 
 interface WidgetInfo {
   path: string;
   family: string;
-  placement: 'persistent' | 'overlay';
-  displayName?: string | null;
-  description?: string | null;
+  placement: WidgetPlacement;
+  displayName: string | null;
+  description: string | null;
 }
 
 interface Tool {
   type: string;
-  function: { name: string; description?: string; parameters: unknown };
+  target: ToolTarget;
+  layout: PageConstraint;
+  function: FunctionDefinition;
+}
+
+interface FunctionDefinition {
+  name: string;
+  description: string | null;
+  parameters: JsonSchema;
 }
 ~~~
+
+Page `size` and tool `layout` contain numeric width/height constraints. Tools
+currently emit `type: "function"` and `_current`/`_blank` targets; unprefixed
+names are deserialization aliases only. `JsonSchema` retains arbitrary JSON,
+including boolean schemas and unvalidated legacy values; use source checking
+for schema validation and narrow `JsonValue` before reading object properties.
+
+All metadata fields above are required. Missing strings and nested JSON nulls
+are serialized as `null` in raw WASM, SDK getters, and `resolveMetadata()`, as in
+native Rust JSON. Earlier WASM builds used `undefined` for these values; change
+explicit metadata `=== undefined` checks to `=== null` when migrating. Standalone
+`getTitle()` and `getVersion()` continue to return `string | undefined`.
 
 ## Browser Example
 

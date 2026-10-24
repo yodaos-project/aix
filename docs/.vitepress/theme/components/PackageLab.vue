@@ -1,28 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
-import type { AIX as AixClass, AixEntry, AixInputFile, OptimizeReport } from "@yodaos-pkg/aix";
-
-interface LabPageInfo {
-  name: string;
-  title?: string;
-  description?: string;
-  data_schema?: Record<string, unknown>;
-  size: {
-    width: number;
-    height: number;
-  };
-}
-
-interface LabTool {
-  type: string;
-  target: string;
-  layout?: string;
-  function: {
-    name: string;
-    description?: string;
-    parameters: Record<string, unknown>;
-  };
-}
+import { computed, ref, shallowRef } from "vue";
+import type { AIX as AixClass, AixEntry, AixInputFile, OptimizeReport, PageInfo, Tool } from "@yodaos-pkg/aix";
 
 type SecondaryTab = "meta" | "pages" | "tools";
 type LabMode = "inspect" | "build";
@@ -42,13 +20,13 @@ function formatBytes(value: number): string {
 const entries = ref<AixEntry[]>([]);
 const version = ref<string | null>(null);
 const title = ref<string | null>(null);
-const pages = ref<LabPageInfo[]>([]);
-const tools = ref<LabTool[]>([]);
+const pages = shallowRef<PageInfo[]>([]);
+const tools = shallowRef<Tool[]>([]);
 const loading = ref(false);
 const error = ref<string | null>(null);
 const selectedFile = ref<string | null>(null);
 const fileContent = ref<string | null>(null);
-const aixInstance = ref<AixClass | null>(null);
+const aixInstance = shallowRef<AixClass | null>(null);
 const currentTab = ref<SecondaryTab>("meta");
 const mode = ref<LabMode>("inspect");
 const directoryFiles = ref<File[]>([]);
@@ -244,8 +222,8 @@ async function handleFileUpload(event: Event) {
     entries.value = nextEntries;
     version.value = aix.getVersion() ?? "Unknown";
     title.value = aix.getTitle() ?? null;
-    pages.value = aix.getPages() as unknown as LabPageInfo[];
-    tools.value = aix.getTools() as unknown as LabTool[];
+    pages.value = aix.getPages();
+    tools.value = aix.getTools();
     currentTab.value = "meta";
     selectInitialFile(aix, nextEntries);
   } catch (err) {
@@ -343,7 +321,7 @@ function viewFile(fileName: string) {
   }
 }
 
-function formatTool(tool: LabTool): string {
+function formatTool(tool: Tool): string {
   return JSON.stringify(
     {
       type: tool.type,

@@ -10,6 +10,14 @@ fn to_value<T: serde::Serialize + ?Sized>(value: &T) -> Result<JsValue, JsValue>
         .map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
+// Metadata mirrors the native JSON models, including Option::None and nested
+// serde_json::Value::Null. Other tooling exports keep their existing serializer.
+fn to_metadata_value<T: serde::Serialize + ?Sized>(value: &T) -> Result<JsValue, JsValue> {
+    value
+        .serialize(&serde_wasm_bindgen::Serializer::json_compatible())
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+
 #[wasm_bindgen]
 pub struct AixReaderWasm {
     inner: AixReader,
@@ -331,12 +339,12 @@ impl AixReaderWasm {
     }
 
     pub fn get_pages(&self) -> Result<JsValue, JsValue> {
-        to_value(&self.inner.get_pages())
+        to_metadata_value(&self.inner.get_pages())
     }
 
     /// Resolve readable pages/tools and expose per-resource failures as diagnostics.
     pub fn resolve_metadata(&self) -> Result<JsValue, JsValue> {
-        to_value(&self.inner.resolve_metadata())
+        to_metadata_value(&self.inner.resolve_metadata())
     }
 
     pub fn get_widgets(&self, locale: Option<String>) -> Result<JsValue, JsValue> {
@@ -345,11 +353,11 @@ impl AixReaderWasm {
             None => self.inner.get_widgets(),
         }
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
-        to_value(&widgets)
+        to_metadata_value(&widgets)
     }
 
     pub fn get_tools(&self) -> Result<JsValue, JsValue> {
-        to_value(&self.inner.get_tools())
+        to_metadata_value(&self.inner.get_tools())
     }
 }
 
@@ -359,6 +367,40 @@ mod wasm_tests;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
+
+    // The SDK tests compile and compare this native output instead of copying models.
+    #[test]
+    fn metadata_contract_fixture() -> Result<()> {
+        use aix::{ToolTarget, WidgetPlacement};
+
+        let files = vec![
+            InputFile::new("app.json", br#"{"pages":["empty","rich","boolean","array","missing"],"widgets":[{"path":"plain","family":"1x1"},{"path":"named","family":"1x2","placement":"overlay","displayName":"Clock","description":"Widget description"},{"path":"empty-labels","family":"1x1","displayName":"","description":""}]}"#),
+            InputFile::new("empty.ink", b"<page><view /></page>"),
+            InputFile::new("rich.ink", br#"<script def>{"navigationBarTitleText":"Page title","description":"Page description","schema":{"data":{"type":"object","properties":{"value":{"type":["string","null"],"default":null,"enum":[null,"text",true,42,1.5,[false],{"nested":null}]}},"required":["value"]}}}</script><page><view style="width:320px;height:96px" /></page>"#),
+            InputFile::new("boolean.ink", br#"<script def>{"navigationBarTitleText":"","description":"","schema":{"data":false}}</script><page><view /></page>"#),
+            InputFile::new("array.ink", br#"<script def>{"schema":{"data":[null,true,7,"text",{"nested":null}]}}</script><page><view /></page>"#),
+            InputFile::new("plain.ink", b"<widget><view /></widget>"),
+            InputFile::new("named.ink", b"<widget><view /></widget>"),
+            InputFile::new("empty-labels.ink", b"<widget><view /></widget>"),
+        ];
+        let packed = aix_pack::pack(files.clone(), PackOptions::new("metadata-contract"))?;
+        let reader = AixReader::new(packed.data)?;
+        println!(
+            "AIX_METADATA_CONTRACT={}",
+            serde_json::json!({
+                "files": files,
+                "expected": {
+                    "pages": reader.get_pages(),
+                    "tools": reader.get_tools(),
+                    "widgets": reader.get_widgets()?,
+                    "metadata": reader.resolve_metadata(),
+                },
+                "targets": [ToolTarget::Current, ToolTarget::Blank],
+                "placements": [WidgetPlacement::Persistent, WidgetPlacement::Overlay],
+            })
+        );
+        Ok(())
+    }
 
     #[test]
     fn direct_wasm_pack_defaults_to_script_minification() {
