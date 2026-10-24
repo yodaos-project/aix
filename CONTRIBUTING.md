@@ -71,8 +71,20 @@ This matches the baseline validation performed in CI.
 
 CI publishes separate **Rust Coverage** and **npm CLI Build** job summaries on
 pushes and pull requests. Download the `rust-coverage` and `cli-coverage` artifacts
-from the workflow run for HTML, LCOV, and JSON reports. Reporting does not require
-an external coverage service or secret, and no minimum coverage is enforced yet.
+from the workflow run for HTML, LCOV, and JSON reports. No minimum coverage is
+enforced yet.
+
+Pull requests and pushes to `main` also upload the two LCOV reports to
+[Codecov](https://app.codecov.io/gh/yodaos-project/aix), tagged `rust` and `cli`.
+Feature-branch pushes keep the local CI reports without duplicate Codecov
+uploads. GitHub OIDC authenticates uploads, so no `CODECOV_TOKEN` secret is
+needed. Only the two reporting jobs have `id-token: write` permission.
+
+The repository's `codecov.yml` keeps the Rust and CLI project/patch checks
+separate and informational, waits for both uploads, and disables PR comments.
+Codecov upload failures do not fail the test jobs; the GitHub coverage artifacts
+remain available. To enable the dashboard and GitHub Checks, activate the
+repository in Codecov and install its GitHub App for `yodaos-project/aix`.
 
 Run Rust coverage from the repository root:
 

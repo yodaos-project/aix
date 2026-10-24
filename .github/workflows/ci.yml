@@ -55,6 +55,9 @@ jobs:
   rust-coverage:
     name: Rust Coverage
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
       - name: Checkout
@@ -95,6 +98,19 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Upload Rust coverage to Codecov
+        if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+        continue-on-error: true
+        uses: codecov/codecov-action@f9fe539f5290016afa014f8ef31597d3a61c2dea # v7
+        with:
+          use_oidc: true
+          files: coverage/rust/lcov.info
+          flags: rust
+          name: rust
+          disable_search: true
+          disable_file_fixes: true
+          fail_ci_if_error: false
+
   wasm-check:
     name: WASM Check
     runs-on: ubuntu-latest
@@ -117,6 +133,9 @@ jobs:
   npm-cli:
     name: npm CLI Build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
       - name: Checkout
@@ -160,6 +179,19 @@ jobs:
             !packages/cli/coverage/tmp/
           if-no-files-found: error
           retention-days: 14
+
+      - name: Upload CLI coverage to Codecov
+        if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+        continue-on-error: true
+        uses: codecov/codecov-action@f9fe539f5290016afa014f8ef31597d3a61c2dea # v7
+        with:
+          use_oidc: true
+          files: packages/cli/coverage/lcov.info
+          flags: cli
+          name: cli
+          disable_search: true
+          disable_file_fixes: true
+          fail_ci_if_error: false
 
       - name: Smoke test
         working-directory: packages/cli

@@ -1,0 +1,37 @@
+codecov:
+  notify:
+    after_n_builds: 2
+    wait_for_ci: true
+
+comment: false
+
+coverage:
+  status:
+    project:
+      default: false
+      rust:
+        flags: [rust]
+        informational: true
+      cli:
+        flags: [cli]
+        informational: true
+    patch:
+      default: false
+      rust:
+        flags: [rust]
+        informational: true
+      cli:
+        flags: [cli]
+        informational: true
+
+flags:
+  rust:
+    paths:
+      - crates/aix/src/
+      - crates/aix-pack/src/
+      - crates/aix-web/src/
+    carryforward: false
+  cli:
+    paths:
+      - packages/cli/src/
+    carryforward: false
