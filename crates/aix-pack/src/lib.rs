@@ -17,7 +17,7 @@ use zip::write::FileOptions;
 pub mod check;
 pub mod collector;
 
-const UTF8_TEXT_EXTENSIONS: &[&str] = &["ink"];
+const UTF8_TEXT_EXTENSIONS: &[&str] = &["json", "js", "ts", "ink"];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InputFile {

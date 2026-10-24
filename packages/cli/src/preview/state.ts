@@ -32,7 +32,7 @@ function buildPreviewStateFromAixFile(filePath: string): PreviewState {
 }
 
 function buildPreviewStateFromDirectory(dirPath: string): PreviewState {
-  const files = walkDirectory(dirPath);
+  const files = loadEngine().collect_aix_source(walkDirectory(dirPath));
   const appJsonFile = files.find((file) => file.path === "app.json");
   const versionFile = files.find((file) => file.path === "VERSION");
   let title: string | undefined;
