@@ -7,6 +7,7 @@ import type { CheckEngine, CheckOptions, CheckReport } from '../../../crates/aix
 export type { CheckDiagnostic, CheckOptions, CheckProgressEvent, CheckReport, CheckResult } from '../../../crates/aix-web/ts/check/types';
 
 type WasmEngine = CheckEngine & {
+  collect_aix_source: (files: AixInputFile[]) => { path: string; data: number[] }[];
   AixReaderWasm: new (data: Uint8Array) => AixReaderInstance;
   AixSourcePackBuilderWasm?: new () => AixSourcePackBuilderInstance;
   pack_aix: (

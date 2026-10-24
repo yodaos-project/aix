@@ -10,6 +10,36 @@ fn files() -> Vec<InputFile> {
     ]
 }
 
+#[wasm_bindgen_test]
+fn source_snapshots_normalize_files_and_propagate_errors() {
+    let inputs = vec![
+        InputFile::new(".aixignore", b"ignored/"),
+        InputFile::new("ignored/bad.json", b"{broken"),
+        InputFile::new("nested/.aix/cache", b"local cache"),
+        InputFile::new("pages\\home.ink", b"\xef\xbb\xbf<view />"),
+    ];
+    let snapshot: Vec<InputFile> =
+        serde_wasm_bindgen::from_value(collect_aix_source(to_value(&inputs).unwrap()).unwrap())
+            .unwrap();
+    assert_eq!(snapshot.len(), 1);
+    assert_eq!(snapshot[0].path, "pages/home.ink");
+    assert_eq!(snapshot[0].data, b"<view />");
+    assert!(collect_aix_source(JsValue::NULL).is_err());
+    for (inputs, message) in [
+        (
+            vec![InputFile::new(".aixignore", b"[z-a]")],
+            "Invalid .aixignore",
+        ),
+        (
+            vec![InputFile::new("bad.ink", b"\xff\xfe\x00")],
+            "Failed to convert bad.ink",
+        ),
+    ] {
+        let error = collect_aix_source(to_value(&inputs).unwrap()).unwrap_err();
+        assert!(error.as_string().unwrap().contains(message));
+    }
+}
+
 fn assert_package(output: AixPackResultWasm) {
     let data = output.data().to_vec();
     assert_eq!(data, output.data);

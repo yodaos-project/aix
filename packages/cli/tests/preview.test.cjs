@@ -55,6 +55,59 @@ test('preview falls back from an unpublished selection and supports archives', (
   assert.equal(f.calls().filter((call) => call.kind === 'fetch').length, 2);
 });
 
+test('directory preview shares pack ignore rules and UTF-8 normalization', (t) => {
+  const f = fixture(t);
+  const title = '编码标题';
+  const project = f.project();
+  const utf16 = (text) => Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text, 'utf16le')]);
+  f.write('agent/app.json', utf16(JSON.stringify({ pages: ['pages/home'], title })));
+  f.write('agent/.aixignore', 'ignored/\n*.tmp\n');
+  f.write('agent/ignored/broken.json', '{broken');
+  f.write('agent/nested/.aixignore', '/secret.txt\n!keep.tmp\n');
+  f.write('agent/nested/secret.txt', 'excluded');
+  f.write('agent/nested/drop.tmp', 'excluded');
+  f.write('agent/nested/keep.tmp', 'included');
+  f.write('agent/secret.txt', 'root rule scope');
+  f.write('agent/sibling/secret.txt', 'sibling rule scope');
+  f.write('agent/.aix/agent-id', 'local identity');
+  f.write('agent/nested/.aix/.aixignore', '[z-a]');
+  f.write('agent/nested/.aix/cache.json', '{broken');
+  f.write('agent/pages/home.ink', utf16('<page><view>你好</view></page>'));
+  f.write('agent/legacy.INK', Buffer.from('<view>中文</view>'.replace('中文', '\xd6\xd0\xce\xc4'), 'latin1'));
+  f.write('agent/main.js', utf16('const title = "你好";'));
+  f.write('agent/main.ts', utf16('const title: string = "你好";'));
+  const binary = Buffer.from([0xff, 0xfe, 0, 128]);
+  f.write('agent/assets/icon.bin', binary);
+
+  const archive = path.join(f.root, 'snapshot.aix');
+  succeeds(f.run(['pack', project, '-o', archive]));
+  const output = path.join(f.root, 'source.html');
+  succeeds(f.run(['preview', project, '--html-out', output]));
+  const state = embeddedConfig(fs.readFileSync(output, 'utf8')).initialState;
+  const engine = require('../dist/pkg/aix_web.js');
+  const reader = new engine.AixReaderWasm(fs.readFileSync(archive));
+  try {
+    const expectedPaths = ['AGENTS.md', 'app.json', 'assets/icon.bin', 'legacy.INK', 'main.js', 'main.ts',
+      'nested/keep.tmp', 'pages/home.ink', 'secret.txt', 'sibling/secret.txt'];
+    assert.deepEqual(state.files.map((file) => file.path), expectedPaths);
+    assert.deepEqual(reader.list().map((entry) => entry.name)
+      .filter((name) => name !== 'VERSION' && !name.startsWith('META-INF/aix/')).sort(), expectedPaths);
+    assert.equal(state.title, title);
+    const bytes = (name) => Buffer.from(state.files.find((file) => file.path === name).base64, 'base64');
+    for (const name of expectedPaths.filter((name) => !['main.js', 'main.ts'].includes(name))) {
+      assert.deepEqual(bytes(name), Buffer.from(reader.read_file(name)), name);
+    }
+    assert.deepEqual(bytes('assets/icon.bin'), binary);
+    assert.equal(bytes('legacy.INK').toString(), '<view>中文</view>');
+    assert.equal(bytes('main.js').toString(), 'const title = "你好";');
+    assert.equal(bytes('main.ts').toString(), 'const title: string = "你好";');
+  } finally {
+    reader.free();
+  }
+  f.write('agent/.aixignore', '[z-a]');
+  fails(f.run(['preview', project, '--html-out', path.join(f.root, 'invalid.html')]), /Invalid .aixignore/);
+});
+
 test('preview validates conflicting flags and output paths', async (t) => {
   const f = fixture(t);
   const project = f.project();
@@ -138,4 +191,31 @@ test('dev preview observes new nested source files', { timeout: 15000 }, async (
   const state = await (await fetch(url + '__aix_preview_state')).json();
   const extra = state.files.find((file) => file.path === 'new/subfolder/extra.js');
   assert.equal(Buffer.from(extra.base64, 'base64').toString(), 'export const answer = 42;');
+});
+
+test('dev directory preview reloads ignore rules and retains its snapshot after collection errors', { timeout: 20000 }, async (t) => {
+  const f = fixture(t);
+  const project = f.project();
+  f.write('agent/.aixignore', 'private/');
+  f.write('agent/private/data.json', Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('{"title":"你好"}', 'utf16le')]));
+  const command = f.start(['preview', project, '--dev']);
+  const [, url] = await command.output(/Preview dev server running at (http:\/\/127\.0\.0\.1:\d+\/)/);
+  const stateUrl = url + '__aix_preview_state';
+  const initial = await (await fetch(stateUrl)).json();
+  assert(!initial.files.some((file) => file.path === '.aixignore' || file.path.startsWith('private/')));
+  const ws = new WebSocket(url.replace('http:', 'ws:') + '__aix_preview_ws');
+  t.after(() => ws.terminate());
+  await once(ws, 'open', { signal: AbortSignal.timeout(5000) });
+  let message = once(ws, 'message', { signal: AbortSignal.timeout(5000) });
+  f.write('agent/.aixignore', '');
+  assert.equal(JSON.parse((await message)[0].toString()).type, 'reload');
+  const updated = await (await fetch(stateUrl)).json();
+  const data = updated.files.find((file) => file.path === 'private/data.json');
+  assert.equal(Buffer.from(data.base64, 'base64').toString(), '{"title":"你好"}');
+  message = once(ws, 'message', { signal: AbortSignal.timeout(5000) });
+  f.write('agent/.aixignore', '[z-a]');
+  const error = JSON.parse((await message)[0].toString());
+  assert.equal(error.type, 'error');
+  assert.match(error.message, /Invalid .aixignore/);
+  assert.deepEqual(await (await fetch(stateUrl)).json(), updated);
 });

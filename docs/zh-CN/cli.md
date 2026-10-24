@@ -180,6 +180,15 @@ aix preview bundle.aix --launch --launch-target current
 
 默认启动本地服务器并打印 URL。 `blank` viewport 为 `480x352`，`current` 使用 `448x150`。
 
+所有目录预览模式都使用与 `pack` 相同的源码收集规则：路径统一为 `/`，根目录和嵌套目录的
+`.aixignore` 规则按所在目录生效，规则文件和各层级的 `.aix/` 本地缓存均被排除。
+JSON、JS、TS 和 Ink 文本使用与打包相同的编码解码器转换为 UTF-8，其他资源保留原始字节。
+忽略规则无效或支持的文本无法解码时，快照生成失败；热重载会保留上一次有效快照。
+
+快照保留优化前的源码：预览不压缩脚本、不转译 TypeScript、不校验 JSON，也不优化图片。
+`VERSION` 和 `META-INF/aix/*` 是打包阶段另外生成的条目。显式存在于源码中的 `VERSION`
+仍会显示在预览中，但 `pack` 会拒绝该文件。
+
 不启动服务器时导出静态 HTML：
 
 ```bash

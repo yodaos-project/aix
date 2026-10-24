@@ -132,6 +132,16 @@ pub fn pack_aix_from_source(
     })
 }
 
+/// Collect a pre-optimization source snapshot using the packer's shared rules.
+#[wasm_bindgen]
+pub fn collect_aix_source(files: JsValue) -> Result<JsValue, JsValue> {
+    let files: Vec<InputFile> = serde_wasm_bindgen::from_value(files)
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    let snapshot = aix_pack::collector::collect_source_snapshot(files, &CollectOptions::default())
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    to_value(&snapshot)
+}
+
 /// Check source files using the same collection rules as the pack command.
 #[wasm_bindgen]
 pub fn check_aix_from_source(files: JsValue) -> Result<JsValue, JsValue> {

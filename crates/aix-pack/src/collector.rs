@@ -10,6 +10,8 @@
 //! - source path normalization
 //! - `.aixignore` parsing and matching
 //! - exclusion of `.aixignore` from package output
+//! - exclusion of local `.aix/` caches at any depth
+//! - pre-optimization source snapshots with supported text normalized to UTF-8
 //! - duplicate path detection after normalization
 //! - directory reading for native filesystem entry points
 //!
@@ -72,6 +74,9 @@ impl Default for CollectOptions {
 /// 4. Exclude ignored files.
 /// 5. Optionally exclude `.aixignore` itself from the returned file list.
 ///
+/// Local `.aix/` cache directories are always excluded, including their rule
+/// files, at every depth. Files are returned in byte order by normalized path.
+///
 /// Rule files may appear at the root or in nested directories. Nested
 /// `.aixignore` files apply to their subtree using `.gitignore`-style
 /// semantics via the `ignore` crate.
@@ -79,6 +84,7 @@ impl Default for CollectOptions {
 /// The returned files are safe to pass directly to [`crate::pack`].
 pub fn collect_inputs(files: Vec<InputFile>, options: &CollectOptions) -> Result<Vec<InputFile>> {
     let mut normalized = normalize_inputs(files)?;
+    normalized.retain(|file| !is_cache_file(&file.path));
     normalized.sort_by(|a, b| a.path.as_bytes().cmp(b.path.as_bytes()));
     reject_duplicate_paths(&normalized)?;
 
@@ -94,6 +100,40 @@ pub fn collect_inputs(files: Vec<InputFile>, options: &CollectOptions) -> Result
         collected.push(file);
     }
     Ok(collected)
+}
+
+/// Builds a source snapshot for directory previews without creating an archive.
+///
+/// Selection and byte-order sorting use the same [`collect_inputs`] contract as
+/// source packing: normalized `/` paths, duplicate rejection, scoped root/nested
+/// `.aixignore` rules, optional rule-file exclusion, and no `.aix/` cache files.
+/// JSON, JS, TS, and Ink text uses the packer's UTF-8/BOM/legacy-encoding decoder;
+/// other resources retain their original bytes. Ignored files are not decoded.
+///
+/// This is a pre-optimization snapshot, not package validation: scripts retain
+/// their source (including TypeScript syntax), JSON is not parsed, and images
+/// are not optimized. Generated `VERSION` and `META-INF/aix/*` entries are not
+/// added. Explicit source entries such as `VERSION` remain visible, although
+/// the packer may reject them when creating an archive.
+pub fn collect_source_snapshot(
+    files: Vec<InputFile>,
+    options: &CollectOptions,
+) -> Result<Vec<InputFile>> {
+    collect_inputs(files, options)?
+        .into_iter()
+        .map(|mut file| {
+            let extension = file
+                .path
+                .rsplit_once('.')
+                .map(|(_, extension)| extension)
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            if crate::UTF8_TEXT_EXTENSIONS.contains(&extension.as_str()) {
+                file.data = normalize_text_to_utf8(&file.path, &file.data)?.0;
+            }
+            Ok(file)
+        })
+        .collect()
 }
 
 /// Collects source files and then forwards them to the existing pack engine.
@@ -301,6 +341,11 @@ fn is_rule_file(path: &str) -> bool {
     path == RULE_FILE_NAME || path.ends_with(&format!("/{RULE_FILE_NAME}"))
 }
 
+fn is_cache_file(path: &str) -> bool {
+    path.rsplit_once('/')
+        .is_some_and(|(parent, _)| parent.split('/').any(|part| part == ".aix"))
+}
+
 fn to_virtual_path(path: &str) -> PathBuf {
     let mut output = PathBuf::from(VIRTUAL_ROOT);
     for part in path.split('/') {
@@ -312,6 +357,111 @@ fn to_virtual_path(path: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn source_snapshot_shares_packing_selection_and_text_decoding() {
+        let text = "<page><view>你好</view></page>";
+        let mut ink = vec![0xff, 0xfe];
+        ink.extend(text.encode_utf16().flat_map(u16::to_le_bytes));
+        let (legacy, _, _) = encoding_rs::GB18030.encode("中文");
+        let inputs = vec![
+            InputFile::new("./app.json", br#"{"pages":[]}"#),
+            InputFile::new(".aixignore", b"ignored/\n*.tmp\n"),
+            InputFile::new("ignored/broken.json", b"\xff\xfe\x00"),
+            InputFile::new("nested/.aixignore", b"/secret.txt\n!keep.tmp\n"),
+            InputFile::new("nested/secret.txt", b"excluded"),
+            InputFile::new("nested/keep.tmp", b"included"),
+            InputFile::new("nested/drop.tmp", b"excluded"),
+            InputFile::new("secret.txt", b"root"),
+            InputFile::new("sibling/secret.txt", b"sibling"),
+            InputFile::new(".aix/agent-id", b"identity"),
+            InputFile::new("nested/.aix/.aixignore", b"[z-a]"),
+            InputFile::new("nested/.aix/cache.json", b"{broken"),
+            InputFile::new("pages\\home.INK", ink),
+            InputFile::new("legacy.ink", legacy.as_ref()),
+            InputFile::new("data.json", b"\xef\xbb\xbf{}"),
+            InputFile::new("main.js", b"\xef\xbb\xbfconst count = 1;"),
+            InputFile::new("main.ts", b"\xef\xbb\xbfconst count: number = 1;"),
+            InputFile::new("icon.bin", b"\xff\xfe\x00"),
+        ];
+        let options = CollectOptions::default();
+        let snapshot = collect_source_snapshot(inputs.clone(), &options).unwrap();
+        let output = pack_source_files(inputs, &options, PackOptions::new("snapshot")).unwrap();
+        let reader = aix::AixReader::new(output.data).unwrap();
+        let paths: Vec<_> = snapshot.iter().map(|file| file.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            [
+                "app.json",
+                "data.json",
+                "icon.bin",
+                "legacy.ink",
+                "main.js",
+                "main.ts",
+                "nested/keep.tmp",
+                "pages/home.INK",
+                "secret.txt",
+                "sibling/secret.txt",
+            ]
+        );
+        let packed_paths: Vec<_> = reader
+            .list()
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .filter(|path| *path != "VERSION" && !path.starts_with("META-INF/aix/"))
+            .collect();
+        assert_eq!(paths, packed_paths);
+        for file in &snapshot {
+            if !matches!(file.path.as_str(), "main.js" | "main.ts") {
+                assert_eq!(
+                    file.data,
+                    reader.read_file(&file.path).unwrap(),
+                    "{}",
+                    file.path
+                );
+            }
+        }
+        assert_eq!(snapshot[3].data, "中文".as_bytes());
+        assert_eq!(snapshot[4].data, b"const count = 1;");
+        assert_eq!(snapshot[5].data, b"const count: number = 1;");
+        assert_eq!(snapshot[7].data, text.as_bytes());
+        assert!(
+            output
+                .report
+                .files
+                .iter()
+                .find(|file| file.path == "pages/home.INK")
+                .unwrap()
+                .converted_to_utf8,
+            "packing must retain conversion reporting"
+        );
+    }
+
+    #[test]
+    fn source_snapshot_preserves_unvalidated_source_and_reports_collection_errors() {
+        let options = CollectOptions::default();
+        let snapshot = collect_source_snapshot(
+            vec![
+                InputFile::new("app.json", b"{broken"),
+                InputFile::new("main.ts", b"const count: number = ;"),
+                InputFile::new("VERSION", b"source version"),
+            ],
+            &options,
+        )
+        .unwrap();
+        assert_eq!(snapshot.len(), 3);
+        assert_eq!(snapshot[0].data, b"source version");
+        assert_eq!(snapshot[1].data, b"{broken");
+        assert_eq!(snapshot[2].data, b"const count: number = ;");
+        for inputs in [
+            vec![InputFile::new("bad.ink", b"\xff\xfe\x00")],
+            vec![InputFile::new("a/../bad", b"x")],
+            vec![InputFile::new("a\\b", b"x"), InputFile::new("a/b", b"y")],
+            vec![InputFile::new(".aixignore", b"[z-a]")],
+        ] {
+            assert!(collect_source_snapshot(inputs, &options).is_err());
+        }
+    }
 
     #[test]
     fn native_directory_collection_pack_and_check_share_ignore_and_cache_rules() {

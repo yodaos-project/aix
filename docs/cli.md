@@ -242,6 +242,18 @@ aix preview bundle.aix --launch --launch-target current
 By default, a local server starts and prints its URL. The `blank` viewport is
 `480x352`; `current` uses `448x150`.
 
+Directory previews use the packer's source collection rules in every preview
+mode: paths use `/`, root and nested `.aixignore` rules apply within their
+directory, and rule files and local `.aix/` caches are excluded. JSON, JS, TS,
+and Ink text is normalized to UTF-8 with the same encoding decoder as `pack`;
+other resource bytes are preserved. Invalid ignore rules or undecodable supported
+text fail snapshot creation; live reload retains the last valid snapshot.
+
+The snapshot contains source files before optimization: preview does not minify
+scripts, transpile TypeScript, validate JSON, or optimize images. Packing adds
+generated `VERSION` and `META-INF/aix/*` entries separately. An explicit source
+`VERSION` remains visible in preview, although `pack` rejects it.
+
 Export static HTML without starting a server:
 
 ```bash
