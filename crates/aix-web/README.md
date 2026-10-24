@@ -30,6 +30,26 @@ async function fromFile(file: File) {
 }
 ```
 
+## WASM Loading
+
+`AIX.From()` and all instance methods initialize a separate reader-only WASM.
+They do not load image codecs, script minification, or source/schema checking.
+The first pack, optimize, or source-check call lazily loads the full module;
+concurrent tooling calls share initialization. Existing reader instances remain
+valid after tooling loads, and tooling-only calls do not fetch reader WASM.
+
+The generated distribution includes `pkg-reader/` and `pkg/`; self-host both
+with their adjacent JS/WASM files. The existing raw `pkg/aix_web.js` exports
+remain complete and the npm CLI keeps its synchronous full Node.js bundle.
+Rust builds default to the `tooling` feature; `--no-default-features` produces
+reader exports without the packer dependency. `npm run build` builds both web
+artifacts; `npm run build:wasm:reader` builds only the reader artifact.
+
+Local measurements reduced reader WASM from 5,514,021 to 355,365 bytes. Mixed
+reader/tooling workflows load both binaries and retain two module memories.
+See the repository's `docs/wasm.md` for baseline samples, timing limits, the
+compatibility plan, and reproduction commands.
+
 ## Archive Resource Limits
 
 Pass caller-selected budgets when reading untrusted packages:

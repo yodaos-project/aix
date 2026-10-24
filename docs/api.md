@@ -21,6 +21,12 @@ console.log(aix.getTitle(), aix.getPages(), aix.getTools());
 `AIX.From` initializes the WASM runtime and accepts complete archive bytes or a
 browser File object.
 
+Reading loads an independent reader WASM. Packing, optimization, and source
+checks lazily load the full tooling module; existing methods and direct WASM
+paths remain available. Self-host the complete generated distribution, including
+both `pkg-reader/` and `pkg/`. See [WASM loading and measurements](/wasm) for
+the build features, compatibility plan, tradeoffs, and measured costs.
+
 ## API Reference
 
 ### AIX.From(data, limits?)

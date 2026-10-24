@@ -8,13 +8,18 @@ crate-type = ["cdylib"]
 
 [dependencies]
 aix = { package = "aiui-aix", path = "../aix", features = ["wasm"] }
-aix-pack = { package = "aiui-aix-pack", path = "../aix-pack" }
+aix-pack = { package = "aiui-aix-pack", path = "../aix-pack", optional = true }
 wasm-bindgen = "0.2"
 js-sys = "0.3"
 serde-wasm-bindgen = "0.6"
 anyhow = { workspace = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { workspace = true }
+
+[features]
+# Preserve existing Cargo/CLI/raw-WASM exports. Web SDK reader builds opt out.
+default = ["tooling"]
+tooling = ["dep:aix-pack"]
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "=0.3.76"

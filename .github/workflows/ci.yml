@@ -133,7 +133,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Check WASM target
-        run: cargo check -p aiui-aix-web --target wasm32-unknown-unknown
+        run: |
+          cargo check -p aiui-aix-web --target wasm32-unknown-unknown
+          cargo check -p aiui-aix-web --no-default-features --target wasm32-unknown-unknown
 
   npm-cli:
     name: npm CLI Build

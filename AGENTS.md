@@ -38,6 +38,7 @@ cd packages/cli && npm install && npm run build
 # Baseline validation (matches CI)
 cargo test -p aiui-aix -p aiui-aix-pack
 cargo check -p aiui-aix-web --target wasm32-unknown-unknown
+cargo check -p aiui-aix-web --no-default-features --target wasm32-unknown-unknown
 cargo clippy --workspace --all-targets -- -D warnings   # CI enforces -D warnings
 
 # no_std check for the core crate (must stay no_std-compatible)
@@ -63,6 +64,8 @@ cd docs && npm install && npm run dev
 
 - `crates/aix-web/scripts/build.js` reads the **version from `Cargo.toml`, not `package.json`**. Clean `dist/`, runs `wasm-pack`, patches import paths, and writes `dist/package.json` + `dist/jsr.json`, then copies the README.
 - **Publish from `crates/aix-web/dist/`, never from the package root.** Do not hand-edit generated `dist/` outputs — rebuild.
+- `aiui-aix-web` defaults to the `tooling` feature; disabling default features removes `aiui-aix-pack` and exports only the reader. Keep reader code in `src/lib.rs` and pack/check/optimize bindings in feature-gated `src/tooling.rs`.
+- The Web SDK build emits both `dist/pkg-reader` (reader only) and the compatible full `dist/pkg`. SDK reads initialize the former; pack/check/optimize lazily initialize the latter. Publish/deploy both directories with JS/WASM pairs adjacent. The npm CLI continues to build only the full Node.js artifact.
 - `docs` and web builds produce gitignored artifacts (`/crates/aix-web/dist`, `/crates/aix-web/pkg`, `/crates/aix-web/node_modules`).
 
 ## Core crate constraints (`crates/aix`)

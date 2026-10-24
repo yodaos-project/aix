@@ -1,10 +1,28 @@
-import init, {
-  AixReaderWasm,
-  optimize_aix,
-  pack_aix,
-} from '../dist/pkg/aix_web.js';
-import * as wasmExports from '../dist/pkg/aix_web.js';
-import type { CheckEngine, CheckOptions, CheckReport } from './check/types.js';
+import initReader, { AixReaderWasm } from '../dist/pkg-reader/aix_web.js';
+import type { CheckOptions, CheckReport } from './check/types.js';
+
+type Tooling = typeof import('../dist/pkg/aix_web.js');
+let toolingPromise: Promise<Tooling> | undefined;
+let readerPromise: ReturnType<typeof initReader> | undefined;
+
+function initializeReader(): ReturnType<typeof initReader> {
+  return readerPromise ??= initReader().catch((error) => {
+    readerPromise = undefined;
+    throw error;
+  });
+}
+
+// A shared promise prevents concurrent pack/check calls from instantiating
+// separate memories. A failed fetch may be retried by a later SDK call.
+function loadTooling(): Promise<Tooling> {
+  return toolingPromise ??= import('../dist/pkg/aix_web.js').then(async (module) => {
+    await module.default();
+    return module;
+  }).catch((error) => {
+    toolingPromise = undefined;
+    throw error;
+  });
+}
 
 export type { CheckDiagnostic, CheckOptions, CheckProgressEvent, CheckReport, CheckResult } from './check/types.js';
 
@@ -185,8 +203,8 @@ export class AIX {
   /** Run source structure, JS/TS syntax, schema, and permission checks in memory. */
   static async checkFromSource(files: AixInputFile[], options?: CheckOptions): Promise<CheckReport> {
     options?.onProgress?.({ type: 'loading_checker' });
-    const [, { checkSource }] = await Promise.all([init(), import('./check/index.js')]);
-    return checkSource(files, wasmExports as unknown as CheckEngine, options);
+    const [tooling, { checkSource }] = await Promise.all([loadTooling(), import('./check/index.js')]);
+    return checkSource(files, tooling, options);
   }
 
   /** Check a browser directory selection, retaining webkitRelativePath. */
@@ -211,7 +229,7 @@ export class AIX {
    * outside these budgets.
    */
   static async From(data: Uint8Array | File, limits?: AixReadLimits): Promise<AIX> {
-    await init();
+    await initializeReader();
     let buffer: Uint8Array;
     if (data instanceof Uint8Array) {
       buffer = data;
@@ -229,10 +247,10 @@ export class AIX {
     files: AixInputFile[],
     options?: PackOptions,
   ): Promise<PackResult> {
-    await init();
+    const tooling = await loadTooling();
     const buildId = options?.buildId ?? generateBuildId();
     const optimize = options?.optimize === false ? undefined : options?.optimize;
-    const result = pack_aix(files, buildId, options?.engine, optimize);
+    const result = tooling.pack_aix(files, buildId, options?.engine, optimize);
     return { data: result.data, report: result.report as OptimizeReport, warnings: result.warnings ?? [] };
   }
 
@@ -247,18 +265,18 @@ export class AIX {
     files: AixInputFile[],
     options?: PackFromSourceOptions,
   ): Promise<PackResult> {
-    await init();
+    const tooling = await loadTooling();
     const buildId = options?.buildId ?? generateBuildId();
     const optimize = options?.optimize === false ? undefined : options?.optimize;
     const result = options?.onProgress
-      ? getPackFromSourceWithProgress()(
+      ? getPackFromSourceWithProgress(tooling)(
           files,
           buildId,
           options.engine,
           optimize,
           options.onProgress,
         )
-      : getPackFromSource()(files, buildId, options?.engine, optimize);
+      : getPackFromSource(tooling)(files, buildId, options?.engine, optimize);
     return { data: result.data, report: result.report as OptimizeReport, warnings: result.warnings ?? [] };
   }
 
@@ -274,11 +292,11 @@ export class AIX {
     data: Uint8Array | File,
     options?: OptimizeOptions,
   ): Promise<PackResult> {
-    await init();
+    const tooling = await loadTooling();
     const buffer = data instanceof Uint8Array
       ? data
       : new Uint8Array(await data.arrayBuffer());
-    const result = optimize_aix(buffer, options);
+    const result = tooling.optimize_aix(buffer, options);
     return { data: result.data, report: result.report as OptimizeReport, warnings: result.warnings ?? [] };
   }
 
@@ -352,20 +370,16 @@ function resolveWebFilePath(file: File): string {
   return candidate && candidate.length > 0 ? candidate : file.name;
 }
 
-function getPackFromSource(): PackFromSourceFn {
-  const packFromSource = (wasmExports as typeof wasmExports & {
-    pack_aix_from_source?: PackFromSourceFn;
-  }).pack_aix_from_source;
+function getPackFromSource(tooling: Tooling): PackFromSourceFn {
+  const packFromSource = tooling.pack_aix_from_source;
   if (!packFromSource) {
     throw new Error('pack_aix_from_source is not available in the current WASM bundle');
   }
   return packFromSource;
 }
 
-function getPackFromSourceWithProgress(): PackFromSourceWithProgressFn {
-  const packFromSourceWithProgress = (wasmExports as typeof wasmExports & {
-    pack_aix_from_source_with_progress?: PackFromSourceWithProgressFn;
-  }).pack_aix_from_source_with_progress;
+function getPackFromSourceWithProgress(tooling: Tooling): PackFromSourceWithProgressFn {
+  const packFromSourceWithProgress = tooling.pack_aix_from_source_with_progress;
   if (!packFromSourceWithProgress) {
     throw new Error('pack_aix_from_source_with_progress is not available in the current WASM bundle');
   }
