@@ -45,6 +45,52 @@ fn assert_package(output: AixPackResultWasm) {
 }
 
 #[wasm_bindgen_test]
+fn metadata_diagnostics_cross_the_wasm_boundary_without_hiding_valid_pages() {
+    let inputs = vec![
+        InputFile::new("app.json", br#"{"pages":["missing","good","bad"],"widgets":[{"path":"card","family":"1x1","placement":"invalid"}]}"#),
+        InputFile::new("good.ink", br#"<script def>{"navigationBarTitleText":"Good"}</script><page><view /></page>"#),
+        InputFile::new("bad.ink", br#"<script def>{"schema":false}</script><page><view /></page>"#),
+    ];
+    let output = pack_output(inputs, "metadata".into(), None, None).unwrap();
+    let reader = AixReaderWasm::new(output.data).unwrap();
+    let report: aix::MetadataResolution =
+        serde_wasm_bindgen::from_value(reader.resolve_metadata().unwrap()).unwrap();
+    assert_eq!(report.pages.len(), 1);
+    assert_eq!(report.pages[0].name, "good");
+    assert_eq!(report.tools[0].function.name, "good");
+    assert_eq!(
+        report
+            .diagnostics
+            .iter()
+            .map(|d| d.path.as_str())
+            .collect::<Vec<_>>(),
+        ["missing.json", "bad.ink"]
+    );
+    let legacy: Vec<serde_json::Value> =
+        serde_wasm_bindgen::from_value(reader.get_pages().unwrap()).unwrap();
+    assert_eq!(legacy.len(), 3);
+    assert!(reader.get_widgets(None).is_err());
+    for (app, diagnostic_count) in [
+        (br#"{"pages":[]}"#.as_slice(), 0),
+        (br#"{"pages":false}"#, 1),
+    ] {
+        let output = pack_output(
+            vec![InputFile::new("app.json", app)],
+            "metadata".into(),
+            None,
+            None,
+        )
+        .unwrap();
+        let reader = AixReaderWasm::new(output.data).unwrap();
+        let report: aix::MetadataResolution =
+            serde_wasm_bindgen::from_value(reader.resolve_metadata().unwrap()).unwrap();
+        assert!(report.pages.is_empty());
+        assert!(report.tools.is_empty());
+        assert_eq!(report.diagnostics.len(), diagnostic_count);
+    }
+}
+
+#[wasm_bindgen_test]
 fn reader_limits_reject_metadata_budgets_and_invalid_javascript_values() {
     let output = pack_output(
         vec![

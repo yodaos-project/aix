@@ -98,6 +98,36 @@ uncompressed bytes across the archive; repeated reads do not consume it. The
 example values are host policy, not format requirements. Input archive bytes,
 parsed objects, and copies retained by the caller need separate memory budgets.
 
+### Metadata resolution diagnostics
+
+`get_pages()` and `get_tools()` keep their tolerant defaults, including metadata
+for missing page resources. Use the additive diagnostic API when exposing tools
+or distinguishing a valid empty page list from failed resolution:
+
+```rust
+let resolution = reader.resolve_metadata();
+for diagnostic in &resolution.diagnostics {
+    eprintln!("{}: {}", diagnostic.path, diagnostic.message);
+}
+let tools = resolution.tools;
+```
+
+`MetadataResolution` contains `pages`, `tools`, and `diagnostics`. Failed pages are
+omitted from both lists; other pages retain declaration order. To require every
+page to resolve, reject reports with nonempty diagnostics. A valid empty page
+list has no diagnostics; invalid/unreadable `app.json.pages` reports `app.json`.
+
+Resolution requires readable `.ink` or both `.json` and `.wxml` resources. CRC,
+size, UTF-8, and page metadata deserialization failures are reported, one per
+failed page. Present styles are checked too, with `.wcss` preferred to `.wxss`.
+Missing optional definitions, schemas, and styles retain defaults. A broken Ink
+entry does not fall back to traditional files. This is resource/metadata
+resolution, not full syntax, JSON Schema, component, or runtime validation.
+
+Page, Widget, and title configuration are parsed independently. Invalid Widget
+fields cannot hide valid pages; `get_widgets()` still reports Widget errors.
+Packing validation and the archive/signature format are unchanged.
+
 ## CLI Tool
 
 Install the `aix` command from npm:
