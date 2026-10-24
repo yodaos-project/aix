@@ -1,5 +1,9 @@
 # AIX
 
+[![CI](https://github.com/yodaos-project/aix/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/yodaos-project/aix/actions/workflows/ci.yml?query=branch%3Amain)
+[![Rust coverage](https://img.shields.io/codecov/c/github/yodaos-project/aix/main?flag=rust&label=Rust%20coverage)](https://app.codecov.io/gh/yodaos-project/aix)
+[![CLI coverage](https://img.shields.io/codecov/c/github/yodaos-project/aix/main?flag=cli&label=CLI%20coverage)](https://app.codecov.io/gh/yodaos-project/aix)
+
 **Build, inspect, and deliver AI agents with interactive interfaces.**
 
 AIX (AI eXecutable) is a portable package format for AI agents. One `.aix` file brings together an agent's resources, Ink pages and widgets, input schemas, and the metadata a host needs to present them. AIX derives an agent-facing tool surface from those pages, so the same package can be inspected by developers and used by a compatible runtime.
