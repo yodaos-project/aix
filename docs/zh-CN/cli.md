@@ -41,28 +41,18 @@ aix pack ./my-agent -O --opt-level 3
 
 ### `aix check <INPUT_DIR>`
 
-仅检查源目录，不生成归档。校验 `app.json`、Page 和 Widget 入口、本地组件引用、JS/TS 语法，以及可静态识别的权限使用；与 `pack` 一样遵循 `.aixignore`。存在 error 时退出码为 1，warning 不影响退出码。`--format json` 输出包含文件、行列、级别和规则编号的诊断列表。
+仅检查源目录，不生成归档。校验 `app.json`、Page 和 Widget 入口、本地组件引用、JS/TS 语法、Page JSON Schema，以及可静态识别的权限使用；与 `pack` 一样遵循 `.aixignore`。存在 error 时退出码为 1，warning 不影响退出码。`--format json` 输出包含文件、行列、级别和规则编号的诊断列表。
 
 ```bash
 aix check ./my-agent
 aix check ./my-agent --format json
 ```
 
-文本模式在 stderr 展示扫描文件、加载检查器、源码与 Schema 校验、项目解析和类型检查等阶段，终端中显示动态进度。加载 CLI 命令模块之前即显示启动状态，后续阶段在同一进度行覆盖它。最终清单逐项保留 JSON/文本、App/Page/Widget/组件结构、JS/TS 语法、权限、Page JSON Schema、TypeScript 配置及项目类型/导入检查的结果，并显示实际检查数量和诊断数量。每项分别标明通过、警告、失败或跳过；无适用输入或被无效输入阻断的检查会注明跳过原因。检查在 Worker 中运行，TypeScript 分析期间进度仍会刷新。`--format json` 不输出进度，stdout 保持为结构化诊断。
+文本模式在 stderr 展示扫描文件、加载检查器、源码与 Schema 校验及诊断收集等阶段，终端中显示动态进度。加载 CLI 命令模块之前即显示启动状态，后续阶段在同一进度行覆盖它。最终清单逐项保留 JSON/文本、App/Page/Widget/组件结构、JS/TS 语法、权限及 Page JSON Schema 五项检查的结果，并显示实际检查数量和诊断数量。每项分别标明通过、警告、失败或跳过；无适用输入或被无效输入阻断的检查会注明跳过原因。检查在 Worker 中运行，源码分析期间进度仍会刷新。`--format json` 不输出进度，stdout 保持为结构化诊断。
 
-TypeScript 按项目检查，遵循 `tsconfig.json` 的配置、根文件选择和 ESM/CJS 解析规则。Ink 类型声明不打包进 AIX，开发者独立选择其版本。可在项目中安装并锁定 `@yodaos-pkg/ink-env`，也可像 preview runtime 一样设置独立的全局默认值：
+JS/TS 语法检查覆盖 `.ts`、`.mts`、`.cts` 和 Ink `<script lang="ts">` 块，并保留原始文件行列。暂不进行 TypeScript 语义检查、导入解析或编译选项校验，不加载类型环境，也不执行或编译项目代码。
 
-```bash
-aix types versions
-aix types select <version>  # 不传版本时交互选择
-aix types current
-aix check ./my-agent --types-version <version>
-aix types reset
-```
-
-优先级为单次 `--types-version`、项目安装的 `ink-env`、全局选择。全局选择保存在 `~/.aix/types.json`，不会修改 preview runtime；dist-tag 会在选择时解析为固定版本。CLI 校验下载包的完整性，将声明缓存到 `~/.aix/types/ink-env` 供离线复用，不执行包脚本。有依赖的类型包应通过项目的 npm 安装。registry 遵循 `AIX_NPM_REGISTRY=npm|npmmirror`。未选择时不自动下载或回退到内置版本；Ink 全局名称会产生正常的缺失类型诊断。显式配置的 `compilerOptions.types`（含 `[]`）会被遵循。
-
-Web SDK 同样支持选择类型环境：`CheckOptions.typeFiles` 接收选定版本的声明和包元数据，`types` 可覆盖 ambient 类型包列表。这些文件只参与 TypeScript 解析，不参与源码检查或打包；SDK 本身不访问网络。
+Web SDK 的 `AIX.checkFromSource` 和 `AIX.checkFromFiles` 共用相同检查引擎，支持 `onProgress` 回调及逐项 `check_finished` 结果。SDK 本身不访问文件系统或网络。
 
 权限检查识别 `navigator.geolocation`、`navigator.mediaDevices.getUserMedia()` 和媒体库读取等直接调用。动态参数与宿主组件无法在本地确认时会给出 warning。检查通过不代表运行时和平台权限一定可用。
 

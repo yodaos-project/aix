@@ -25,7 +25,7 @@ async function main() {
       response.end(`import { AIX } from './index.js';
         onmessage = async ({data}) => {
           const checks = [];
-          try { postMessage({report: await AIX.checkFromSource(data.files, { ...data.options,
+          try { postMessage({report: await AIX.checkFromSource(data, {
             onProgress(event) { if (event.type === 'check_finished') checks.push(event.check); }
           }), checks}); }
           catch (error) { postMessage({error: String(error)}); }
@@ -48,7 +48,7 @@ async function main() {
     page.on('pageerror', (error) => pageErrors.push(String(error)));
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
     await page.evaluate(async () => { window.AIX = (await import('./index.js')).AIX; });
-    assert(!requests.includes('/check/index.js'), 'The compiler must remain lazy before the first check');
+    assert(!requests.includes('/check/index.js'), 'The check adapter must remain lazy before the first check');
     for (const { name, files, verify, verifyChecks } of cases) {
       const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aix-web-check-'));
       try {
@@ -76,7 +76,7 @@ async function main() {
           const workerReport = await new Promise((resolve, reject) => {
             worker.onmessage = ({data}) => data.error ? reject(new Error(data.error)) : resolve(data);
             worker.onerror = (event) => reject(new Error(event.message));
-            worker.postMessage({files: sources});
+            worker.postMessage(sources);
           });
           const progress = [];
           const fileProgress = [];
@@ -92,42 +92,19 @@ async function main() {
           const checks = events.filter((event) => event.type === 'check_finished').map((event) => event.check);
           assert.deepEqual(checks, workerChecks, name);
           verifyChecks?.(checks);
-          if (name === 'catches semantic errors across imports') {
-            assert(events.some((event) => event.type === 'checking_typescript' && event.rootCount === 2));
-          }
         }
         for (const report of reports) {
           assert.deepEqual(report, expected, name);
-          verify(report.diagnostics.filter((d) => ['AIX048', 'AIX049'].includes(d.code)), root, report);
+          verify(report);
         }
         console.log(`ok - browser/CLI parity: ${name}`);
       } finally {
         fs.rmSync(root, { recursive: true, force: true });
       }
     }
-    for (const {name, files, options, verify} of require('../tests/type-options-cases.cjs')) {
-      const reports = await page.evaluate(async ({files, options}) => {
-        const sources = Object.entries(files).map(([path, source]) => ({path, data: new TextEncoder().encode(source)}));
-        const browserFiles = Object.entries(files).map(([path, source]) => {
-          const file = new File([source], path.split('/').pop());
-          Object.defineProperty(file, 'webkitRelativePath', {value: path});
-          return file;
-        });
-        const worker = window.checkWorker;
-        const workerReport = await new Promise((resolve, reject) => {
-          worker.onmessage = ({data}) => data.error ? reject(new Error(data.error)) : resolve(data.report);
-          worker.postMessage({files: sources, options});
-        });
-        return [await window.AIX.checkFromSource(sources, options), await window.AIX.checkFromFiles(browserFiles, options), workerReport];
-      }, {files, options});
-      for (const report of reports) verify(report);
-      assert.deepEqual(reports[0], reports[1]);
-      assert.deepEqual(reports[0], reports[2]);
-      console.log(`ok - browser/Worker: ${name}`);
-    }
     await page.evaluate(() => window.checkWorker?.terminate());
     assert.deepEqual(pageErrors, []);
-    assert(requests.every((request) => !request.includes('node_modules')), 'The checker must not download type packages');
+    assert(requests.every((request) => !request.includes('node_modules')), 'Checks must not download dependencies');
     console.log(`${cases.length} browser SDK / Web Worker / CLI parity tests passed`);
   } finally {
     await browser?.close();

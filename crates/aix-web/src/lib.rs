@@ -142,17 +142,7 @@ pub fn check_aix_from_source(files: JsValue) -> Result<JsValue, JsValue> {
     to_value(&report)
 }
 
-/// Collect normalized standalone and inline scripts for host-side type checking.
-#[wasm_bindgen]
-pub fn collect_check_scripts(files: JsValue) -> Result<JsValue, JsValue> {
-    let files: Vec<InputFile> = serde_wasm_bindgen::from_value(files)
-        .map_err(|error| JsValue::from_str(&error.to_string()))?;
-    let scripts = aix_pack::check::collect_script_sources(files)
-        .map_err(|error| JsValue::from_str(&error.to_string()))?;
-    to_value(&scripts)
-}
-
-/// Prepare the shared in-memory check engine's source, config, and diagnostics.
+/// Check source files and return diagnostics with executed check coverage.
 #[wasm_bindgen]
 pub fn prepare_aix_check(files: JsValue) -> Result<JsValue, JsValue> {
     let files: Vec<InputFile> = serde_wasm_bindgen::from_value(files)

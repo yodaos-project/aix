@@ -4,7 +4,7 @@ import ora from "ora";
 import type { CheckProgressEvent, CheckReport, CheckResult } from "../wasm";
 import type { CheckWorkerMessage } from "./check-worker";
 
-export async function cmdCheck(input: string, format: "text" | "json", typesVersion?: string): Promise<void> {
+export async function cmdCheck(input: string, format: "text" | "json"): Promise<void> {
   if (format === "text" && process.stderr.isTTY) {
     // Replace the bootstrap status on the same line before Ora takes over.
     process.stderr.cursorTo(0);
@@ -23,11 +23,10 @@ export async function cmdCheck(input: string, format: "text" | "json", typesVers
   let report: CheckReport;
   try {
     report = await new Promise<CheckReport>((resolve, reject) => {
-      const worker = new Worker(path.join(__dirname, "check-worker.js"), { workerData: { input, typesVersion } });
+      const worker = new Worker(path.join(__dirname, "check-worker.js"), { workerData: { input } });
       let result: CheckReport | undefined;
       worker.on("message", (message: CheckWorkerMessage) => {
         if (message.type === "report") result = message.report;
-        else if (message.type === "type_environment") status(`Loading Ink type declarations (${message.version})`);
         else if (message.event.type === "check_finished") checks.push(message.event.check);
         else status(formatProgress(message.event));
       });
@@ -73,11 +72,8 @@ export async function cmdCheck(input: string, format: "text" | "json", typesVers
 
 function formatProgress(event: Exclude<CheckProgressEvent, { type: "check_finished" }>): string {
   switch (event.type) {
-    case "loading_checker": return "Loading WASM engine and TypeScript checker";
+    case "loading_checker": return "Loading WASM check engine";
     case "checking_sources": return `Checking source structure, permissions, and JSON Schemas (${event.fileCount} files)`;
-    case "configuring_typescript": return "Reading TypeScript project configuration";
-    case "resolving_typescript_project": return `Resolving TypeScript project (${event.rootCount} roots)`;
-    case "checking_typescript": return `Checking TypeScript types (${event.rootCount} project roots)`;
     case "collecting_diagnostics": return "Collecting diagnostics";
   }
 }

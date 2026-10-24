@@ -47,7 +47,7 @@ Without `--engine`, the range comes from `app.json.engine`, then `*`.
 ### `aix check <INPUT_DIR>`
 
 Checks source files without creating an artifact. It validates `app.json`, Page
-and Widget entries, local component references, JS/TS syntax, TypeScript types,
+and Widget entries, local component references, JS/TS syntax,
 Page JSON Schemas, and statically recognizable permission use. It applies `.aixignore` like `pack`. Errors make
 the command exit with status 1; warnings do not. `--format json` emits a
 machine-readable diagnostic list with file, line, column, severity, and rule
@@ -58,68 +58,29 @@ aix check ./my-agent
 aix check ./my-agent --format json
 ```
 
-Text mode reports scanning, checker loading, source/schema validation, project
-resolution, and type-checking stages on stderr. A terminal displays an animated
+Text mode reports scanning, checker loading, source/schema validation, and
+diagnostic collection on stderr. A terminal displays an animated
 spinner; checking runs in a Worker to keep it responsive. `--format json`
 disables progress and preserves the structured report on stdout.
 Startup status appears before loading the CLI command modules and is replaced
 by later stages on the same progress line.
 The final checklist preserves each check result: JSON/text validation,
 App/Page/Widget/component structure, JS/TS syntax, permission declarations and
-direct API use, Page JSON Schemas, TypeScript configuration, and project
-types/imports. Items show passed, warning, failed, or skipped status, work counts,
+direct API use, and Page JSON Schemas. Items show passed, warning, failed, or skipped status, work counts,
 and diagnostic counts. Checks with no applicable input or blocked by invalid
 input show a skip reason instead of a success marker.
 
-Type checking uses one TypeScript project for `.ts`, `.mts`, `.cts`, and Ink
-`<script lang="ts">` blocks, including imports and project `.d.ts` declarations.
-Inline errors point to their original `.ink` file and line. `tsconfig.json`
-compiler options, `extends`, `files`, `include`, and `exclude` are respected.
-Imports expand the project graph, including files excluded only from root
-selection. `.aixignore` controls source availability, so those ignored sources
-cannot be pulled back in by an import. Without `tsconfig.json`, all collected
-TypeScript scripts are project roots. NodeNext resolution preserves each file's
-ESM/CJS format and each import's resolution mode, including conditional exports
-and required ESM import extensions.
-Without a config, checks use strict mode, ES2022, ES modules, and bundler module
-resolution. Checks never emit files or run project code. JavaScript remains
-syntax-checked and can supply inferred types to imported TypeScript code.
-Ink declarations are developer-selected, independently of AIX and the preview
-runtime. No Ink types are bundled. DOM and Node types are not loaded by default.
-Type errors use `AIX048` with the original `TS` code; config errors use `AIX049`.
-The CLI and Web SDK use the same complete in-memory check engine. Rust/WASM
-validates syntax, structure, permissions, and schemas; the shared TypeScript
-layer performs semantic checks with embedded TypeScript standard libraries and
-developer-supplied Ink types.
-The CLI supplies directory contents and formats the resulting report. Configs
-and dependency declarations resolve from that input snapshot, including ignored
-`node_modules` declarations; ordinary ignored sources remain excluded. The
-shared checker never accesses the filesystem or downloads dependencies.
-Web callers use `AIX.checkFromSource(files)` or `AIX.checkFromFiles(files)`.
-Both accept an optional `{ onProgress(event) {} }` argument for check stages.
-`check_finished` events include a `CheckResult` for each item in the final checklist.
-SDK callers supply selected declaration files through `CheckOptions.typeFiles`
-and may override ambient type packages through `CheckOptions.types`.
+JS/TS syntax checks include `.ts`, `.mts`, `.cts`, and Ink `<script lang="ts">`
+blocks, preserving original file locations. TypeScript semantic checks, import
+resolution, and compiler-option validation are currently excluded. No type
+environment is loaded. Checks never emit files or run project code.
 
-Choose types by installing an exact `@yodaos-pkg/ink-env` version in the project,
-or use a separate global selection:
-
-```bash
-aix types versions
-aix types select <version>  # omit version to choose interactively
-aix types current
-aix check ./my-agent --types-version <version>
-aix types reset
-```
-
-`--types-version` overrides the project's installed package, which overrides
-the global selection in `~/.aix/types.json`. Exact versions and npm dist-tags are
-accepted; `select` saves the resolved exact version. The CLI verifies downloaded
-package integrity and caches declarations under `~/.aix/types/ink-env` for offline
-use, without executing package scripts. Packages with dependencies should be
-installed in the project. The registry follows `AIX_NPM_REGISTRY=npm|npmmirror`.
-No selection means no download and no Ink globals. Explicit
-`tsconfig.compilerOptions.types`, including `[]`, is respected.
+The CLI and Web SDK use the same in-memory Rust/WASM check engine. The CLI reads
+source files and formats diagnostics; the shared checker has no filesystem or
+network access. Web callers use `AIX.checkFromSource(files)` or
+`AIX.checkFromFiles(files)`. Both accept an optional `{ onProgress(event) {} }`
+argument. `check_finished` events include a `CheckResult` for each of the five
+items in the final checklist.
 
 Page `schema.data` is validated as a JSON Schema, including nested keyword
 types, regex patterns, and local `$ref` targets. Drafts 4, 6, 7, 2019-09, and

@@ -45,28 +45,10 @@ pub struct CheckReport {
     pub diagnostics: Vec<Diagnostic>,
 }
 
-/// Normalized scripts for hosts that can run the TypeScript compiler. Inline
-/// script text retains its UTF-16 positions in the original Ink file.
-#[derive(Debug, Serialize)]
-pub struct CheckScriptSource {
-    pub path: String,
-    pub source: String,
-    pub script: String,
-    pub typescript: bool,
-}
-
-#[derive(Debug, Serialize)]
-pub struct CheckTextFile {
-    pub path: String,
-    pub source: String,
-}
-
-/// One normalized snapshot used by both browser and CLI semantic checkers.
+/// Diagnostics and executed check coverage shared by browser and CLI hosts.
 #[derive(Debug, Serialize)]
 pub struct PreparedCheck {
     pub report: CheckReport,
-    pub scripts: Vec<CheckScriptSource>,
-    pub files: Vec<CheckTextFile>,
     pub coverage: CheckCoverage,
 }
 
@@ -84,94 +66,9 @@ pub fn prepare_check_source(files: Vec<InputFile>) -> Result<PreparedCheck> {
         .into_iter()
         .filter(|file| !file.path.split('/').any(|part| part == ".aix"))
         .collect();
-    let collected =
-        collector::collect_inputs(files.clone(), &collector::CollectOptions::default())?;
+    let collected = collector::collect_inputs(files, &collector::CollectOptions::default())?;
     let (report, coverage) = check_files_with_coverage(&collected);
-    let scripts = script_sources(&collected);
-    // Ignored source files never become roots or ordinary imports. Keep config
-    // and dependency text available for type resolution, just as tsc does.
-    let files = files
-        .into_iter()
-        .filter(|file| file.path.ends_with(".json") || is_source(&file.path))
-        .filter_map(|file| {
-            let (bytes, _) = normalize_text_to_utf8(&file.path, &file.data).ok()?;
-            Some(CheckTextFile {
-                path: file.path,
-                source: String::from_utf8(bytes).ok()?,
-            })
-        })
-        .collect();
-    Ok(PreparedCheck {
-        report,
-        scripts,
-        files,
-        coverage,
-    })
-}
-
-pub fn collect_script_sources(files: Vec<InputFile>) -> Result<Vec<CheckScriptSource>> {
-    let files = collector::collect_inputs(files, &collector::CollectOptions::default())?;
-    Ok(script_sources(&files))
-}
-
-fn script_sources(files: &[InputFile]) -> Vec<CheckScriptSource> {
-    let mut scripts = Vec::new();
-    for file in files {
-        if !is_source(&file.path) {
-            continue;
-        }
-        let Ok((bytes, _)) = normalize_text_to_utf8(&file.path, &file.data) else {
-            continue; // Encoding failures are reported by check_source.
-        };
-        let Ok(source) = String::from_utf8(bytes) else {
-            continue;
-        };
-        let mut typescript = is_typescript_source(&file.path);
-        let script = if file.path.ends_with(".ink") {
-            let mut script = String::new();
-            let mut cursor = 0;
-            for block in blocks(&source, "script") {
-                if block.attributes.split_whitespace().any(|p| p == "def") {
-                    continue;
-                }
-                typescript |= is_typescript_block(block.attributes);
-                if cursor > 0 {
-                    // Each block is parsed separately by Ink. Separate adjacent
-                    // blocks even after a line comment or a missing semicolon,
-                    // replacing two tag characters to retain source offsets.
-                    script.push_str("\n;");
-                    mask_script_gap(&source[cursor + 2..block.offset], &mut script);
-                } else {
-                    mask_script_gap(&source[cursor..block.offset], &mut script);
-                }
-                script.push_str(block.body);
-                cursor = block.offset + block.body.len();
-            }
-            mask_script_gap(&source[cursor..], &mut script);
-            script
-        } else {
-            source.clone()
-        };
-        scripts.push(CheckScriptSource {
-            path: file.path.clone(),
-            source,
-            script,
-            typescript,
-        });
-    }
-    scripts
-}
-
-fn mask_script_gap(gap: &str, output: &mut String) {
-    for ch in gap.chars() {
-        if matches!(ch, '\n' | '\r') {
-            output.push(ch);
-        } else {
-            for _ in 0..ch.len_utf16() {
-                output.push(' ');
-            }
-        }
-    }
+    Ok(PreparedCheck { report, coverage })
 }
 
 fn is_typescript_block(attributes: &str) -> bool {
@@ -2051,62 +1948,7 @@ mod tests {
     }
 
     #[test]
-    fn script_collection_preserves_inline_utf16_offsets_and_ignore_rules() {
-        let source = "<!-- 😀 <script lang=\"ts\">fake</script> -->\n<script def>{\"schema\":{}}</script><page><view /></page>\n<script setup lang = 'ts'>const text = '😀';\nconst count: number = 'bad';</script>";
-        let scripts = collect_script_sources(vec![
-            InputFile::new("app.json", br#"{"pages":[]}"#),
-            InputFile::new(".aixignore", b"ignored.ts"),
-            InputFile::new("ignored.ts", b"const broken: string = 1;"),
-            InputFile::new("page.ink", source.as_bytes()),
-        ])
-        .unwrap();
-        assert_eq!(scripts.len(), 1);
-        let script = &scripts[0];
-        assert!(script.typescript);
-        assert!(!script.script.contains("fake"));
-        assert!(!script.script.contains("schema"));
-        let offset = source.find("const count").unwrap();
-        let masked_offset = script.script.find("const count").unwrap();
-        assert_eq!(
-            source[..offset].encode_utf16().count(),
-            script.script[..masked_offset].encode_utf16().count()
-        );
-    }
-
-    #[test]
-    fn prepared_check_keeps_config_and_dependency_text_but_filters_roots() {
-        let prepared = prepare_check_source(vec![
-            InputFile::new("app.json", br#"{"pages":[]}"#),
-            InputFile::new(".aixignore", b"ignored.ts\nnode_modules/\ntsconfig.json"),
-            InputFile::new("main.ts", b"const value: number = 1;"),
-            InputFile::new("ignored.ts", b"const value: string = 1;"),
-            InputFile::new(
-                "tsconfig.json",
-                b"\xef\xbb\xbf{\"compilerOptions\":{\"strict\":false}}",
-            ),
-            InputFile::new(
-                "node_modules/types/index.d.ts",
-                b"export const value: number;",
-            ),
-        ])
-        .unwrap();
-        assert!(!prepared.report.has_errors());
-        assert_eq!(prepared.scripts.len(), 1);
-        assert_eq!(prepared.scripts[0].path, "main.ts");
-        assert!(prepared
-            .files
-            .iter()
-            .any(|file| file.path == "node_modules/types/index.d.ts"));
-        let config = prepared
-            .files
-            .iter()
-            .find(|file| file.path == "tsconfig.json")
-            .unwrap();
-        assert!(config.source.starts_with('{'));
-    }
-
-    #[test]
-    fn collects_commonjs_scripts_and_typescript_declarations() {
+    fn checks_commonjs_and_typescript_declaration_syntax() {
         let prepared = prepare_check_source(vec![
             InputFile::new("app.json", br#"{"pages":[]}"#),
             InputFile::new("helper.cjs", b"module.exports = 1;"),
@@ -2125,10 +1967,7 @@ mod tests {
             "{:?}",
             prepared.report.diagnostics
         );
-        assert_eq!(prepared.scripts.len(), 3);
-        for script in &prepared.scripts {
-            assert_eq!(script.typescript, script.path.ends_with(".cts"));
-        }
+        assert_eq!(prepared.coverage.scripts, 3);
     }
 
     #[test]

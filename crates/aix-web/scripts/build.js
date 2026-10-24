@@ -1,7 +1,6 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
-const { writeEnvironment } = require('./build-check');
 
 const rootDir = path.resolve(__dirname, '..');
 const distDir = path.join(rootDir, 'dist');
@@ -42,17 +41,13 @@ if (fs.existsSync(wasmPackagePath)) {
   fs.writeFileSync(wasmPackagePath, JSON.stringify(wasmPackage, null, 2));
 }
 
-// 4. Generate the checker environment before type-checking the SDK, then
-// bundle the optional compiler so consumers do not need a Node filesystem.
-console.log('Building shared checker...');
-writeEnvironment();
-
+// 4. Build the SDK and shared check adapter.
 // Build TS (outputs to dist/)
 console.log('Building TS to dist/...');
 execSync('npm run build:ts', { cwd: rootDir, stdio: 'inherit' });
 execSync('node -e "require(\'./scripts/build-check\').buildCheck(\'dist/check/index.js\')"', { cwd: rootDir, stdio: 'inherit' });
 // These implementation modules are now inside the standalone checker bundle.
-for (const name of ['typescript', 'results', 'environment.generated']) {
+for (const name of ['results']) {
   for (const extension of ['js', 'd.ts']) {
     fs.rmSync(path.join(distDir, 'check', `${name}.${extension}`), { force: true });
   }

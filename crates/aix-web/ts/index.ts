@@ -132,7 +132,7 @@ export class AIX {
     this.reader = reader;
   }
 
-  /** Run all source, schema, permission, and TypeScript checks in memory. */
+  /** Run source structure, JS/TS syntax, schema, and permission checks in memory. */
   static async checkFromSource(files: AixInputFile[], options?: CheckOptions): Promise<CheckReport> {
     options?.onProgress?.({ type: 'loading_checker' });
     const [, { checkSource }] = await Promise.all([init(), import('./check/index.js')]);

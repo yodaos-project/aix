@@ -26,18 +26,6 @@ export function sourceResults(prepared: PreparedCheck): CheckResult[] {
   ];
 }
 
-export function typeScriptResults(diagnostics: CheckDiagnostic[], rootCount?: number): CheckResult[] {
-  const config = diagnostics.filter((diagnostic) => diagnostic.code === 'AIX049');
-  const skipped = rootCount === undefined ? 'no TypeScript project' : undefined;
-  const blocked = skipped ?? (config.some((diagnostic) => diagnostic.severity === 'error')
-    ? 'invalid TypeScript configuration' : rootCount === 0 ? 'no TypeScript project roots' : undefined);
-  return [
-    result('typescript_config', 'TypeScript project configuration', config, skipped),
-    result('typescript', `TypeScript project types and imports (${count(rootCount ?? 0, 'root')})`,
-      diagnostics.filter((diagnostic) => diagnostic.code === 'AIX048'), blocked),
-  ];
-}
-
 function result(id: CheckResult['id'], label: string, diagnostics: CheckDiagnostic[] = [], detail?: string): CheckResult {
   const errors = diagnostics.filter((diagnostic) => diagnostic.severity === 'error').length;
   const warnings = diagnostics.length - errors;
