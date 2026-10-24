@@ -3,6 +3,7 @@ const { tmpdir } = require('node:os');
 const path = require('node:path');
 const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
+const { stripVTControlCharacters } = require('node:util');
 const cases = require('../../../crates/aix-web/tests/check-cases.cjs');
 const cliRoot = path.resolve(__dirname, '..');
 const { checkSource } = require('../dist/pkg/check.cjs');
@@ -30,6 +31,7 @@ try {
     const result = spawnSync(process.execPath, ['--require', probe, path.join(cliRoot, 'dist/cli.js'), 'check', input, ...options], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
     assert(result.stderr.startsWith(`Starting source checks\n${marker}`), result.stderr);
+    assert.match(result.stderr, /Checks passed\n$/);
     assert.match(result.stdout, /0 diagnostic\(s\)/);
   }
   for (const options of [['--format', 'json'], ['--format=json'], ['--format=text', '--format=json']]) {
@@ -56,7 +58,8 @@ try {
   const terminal = spawnSync(process.execPath, ['--require', terminalProbe, path.join(cliRoot, 'dist/cli.js'), 'check', input], { encoding: 'utf8', env: terminalEnv });
   assert.equal(terminal.status, 0, terminal.stderr);
   assert(terminal.stderr.startsWith('Starting source checks\r'), JSON.stringify(terminal.stderr));
-  assert(!terminal.stderr.includes('\n'), 'Terminal progress must reuse one line without persisting the startup status');
+  assert.equal(terminal.stderr.split('\n').length, 2, 'Only the final check result should persist on the terminal');
+  assert.match(stripVTControlCharacters(terminal.stderr), /Checks passed\n$/);
   assert.match(terminal.stderr, /Scanning source files/);
   assert.match(terminal.stdout, /0 diagnostic\(s\)/);
   for (const options of [['--format', 'json'], ['--help']]) {
@@ -64,8 +67,23 @@ try {
     assert.equal(quiet.status, 0, quiet.stderr);
     assert.equal(quiet.stderr, '', 'Terminal JSON/help output must not include progress');
   }
+  writeFileSync(path.join(input, 'main.ts'), 'const count: number = "bad";');
+  const failed = spawnSync(process.execPath, ['--require', terminalProbe, path.join(cliRoot, 'dist/cli.js'), 'check', input], { encoding: 'utf8', env: terminalEnv });
+  assert.equal(failed.status, 1, failed.stderr);
+  assert.match(stripVTControlCharacters(failed.stderr), /Checks failed \(1 error\)\n$/);
+  assert(!failed.stderr.includes('Checks passed'), failed.stderr);
+  writeFileSync(path.join(input, 'main.ts'), 'fetch("https://example.com");');
+  const warned = spawnSync(process.execPath, ['--require', terminalProbe, path.join(cliRoot, 'dist/cli.js'), 'check', input], { encoding: 'utf8', env: terminalEnv });
+  assert.equal(warned.status, 0, warned.stderr);
+  assert.match(stripVTControlCharacters(warned.stderr), /Checks passed \(1 warning\)\n$/);
+  const broken = spawnSync(process.execPath, ['--require', terminalProbe, path.join(cliRoot, 'dist/cli.js'), 'check', path.join(input, 'app.json')], { encoding: 'utf8', env: terminalEnv });
+  assert.equal(broken.status, 1);
+  assert.match(broken.stderr, /Checks failed/);
+  assert.match(broken.stderr, /Input path is not a directory/);
+  assert(!broken.stderr.includes('Checks passed'), broken.stderr);
   console.log('ok - startup progress precedes command loading; JSON and help stay quiet');
   console.log('ok - terminal progress replaces the startup status on the same line');
+  console.log('ok - final pass/warning/failure status persists with the correct exit code');
 } finally {
   rmSync(startupRoot, { recursive: true, force: true });
 }

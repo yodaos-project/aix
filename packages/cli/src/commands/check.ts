@@ -34,8 +34,23 @@ export async function cmdCheck(input: string, format: "text" | "json"): Promise<
         else reject(new Error(`Check worker exited before returning a report (status ${code})`));
       });
     });
-  } finally {
-    spinner?.stop();
+  } catch (error) {
+    if (spinner) spinner.fail("Checks failed");
+    else status("Checks failed");
+    throw error;
+  }
+  const errors = report.diagnostics.filter((diagnostic) => diagnostic.severity === "error").length;
+  const warnings = report.diagnostics.length - errors;
+  if (format === "text") {
+    const counts = [
+      errors ? `${errors} error${errors === 1 ? "" : "s"}` : "",
+      warnings ? `${warnings} warning${warnings === 1 ? "" : "s"}` : "",
+    ].filter(Boolean).join(", ");
+    const summary = `${errors ? "Checks failed" : "Checks passed"}${counts ? ` (${counts})` : ""}`;
+    if (!spinner) status(summary);
+    else if (errors) spinner.fail(summary);
+    else if (warnings) spinner.warn(summary);
+    else spinner.succeed(summary);
   }
   if (format === "json") {
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
@@ -45,7 +60,7 @@ export async function cmdCheck(input: string, format: "text" | "json"): Promise<
     }
     process.stdout.write(`${report.diagnostics.length} diagnostic(s)\n`);
   }
-  if (report.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+  if (errors) {
     process.exitCode = 1;
   }
 }

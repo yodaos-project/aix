@@ -64,6 +64,7 @@ spinner; checking runs in a Worker to keep it responsive. `--format json`
 disables progress and preserves the structured report on stdout.
 Startup status appears before loading the CLI command modules and is replaced
 by later stages on the same progress line.
+The final pass/fail status remains visible, with error and warning counts when present.
 
 Type checking uses one TypeScript project for `.ts`, `.mts`, `.cts`, and Ink
 `<script lang="ts">` blocks, including imports and project `.d.ts` declarations.

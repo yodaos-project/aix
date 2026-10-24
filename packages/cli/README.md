@@ -78,6 +78,7 @@ terminal. Startup status appears before loading command modules and is replaced
 by later stages on the same progress line. Checks run
 in a Worker so progress remains responsive during TypeScript analysis. JSON
 mode omits progress and keeps stdout machine-readable.
+The final pass/fail status remains visible, with error and warning counts when present.
 
 TypeScript checks include `.ts`, `.mts`, `.cts`, and Ink `<script lang="ts">` blocks,
 with original file locations, imports, project declarations, and `tsconfig.json`
