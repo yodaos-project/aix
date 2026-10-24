@@ -19,13 +19,34 @@ AIX.From 会初始化 WASM Runtime，接受完整归档字节或浏览器 File �
 
 ## API Reference
 
-### AIX.From(data)
+### AIX.From(data, limits?)
 
 ~~~typescript
-static From(data: Uint8Array | File): Promise<AIX>
+static From(data: Uint8Array | File, limits?: AixReadLimits): Promise<AIX>
 ~~~
 
-从完整 AIX 归档创建实例。ZIP、路径或规范化条目无效时 Promise reject。
+从完整 AIX 归档创建实例。ZIP、路径或规范化条目无效，或超出预算时 Promise reject。
+
+~~~typescript
+const aix = await AIX.From(file, {
+  maxEntries: 1024,
+  maxEntryBytes: 8 * 1024 * 1024,
+  maxTotalBytes: 32 * 1024 * 1024,
+});
+~~~
+
+这些数值是调用方选择的预算示例，等于上限时允许读取。所有中央目录条目都计入预算，
+包括目录和签名元数据。构造时在解压前检查元数据，`readFile` 在输出时执行大小限制，
+并保留 CRC 和大小校验。`maxTotalBytes` 限制整个归档声明的解压大小总和，重复读取
+不会消耗该预算。每项必须是非负安全整数；零表示不允许条目或字节。省略的字段、`{}`
+以及原有单参数调用均保持无限制的兼容策略。读取不可信包时应设置全部三项。
+这些 reader 预算不覆盖输入归档缓冲区、解析对象、调用方保留的副本或 `AIX.optimize`。
+
+Rust 使用 `AixReader::new_with_limits(data, AixReadLimits { ... })`，字段为
+`Option<u64>` 类型的 `max_entries`、`max_entry_bytes` 和 `max_total_bytes`。
+`AixReadLimits::default()` 和 `AixReader::new(data)` 保持无限制。
+直接调用 WASM 时使用 `AixReaderWasm.with_limits(data, limits)`，字段名与 TypeScript
+SDK 一样使用 camelCase；`new AixReaderWasm(data)` 保持原有策略。
 
 ### AIX.pack(files, options?)
 

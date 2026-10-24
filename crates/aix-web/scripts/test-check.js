@@ -49,6 +49,7 @@ async function main() {
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
     await page.evaluate(async () => { window.AIX = (await import('./index.js')).AIX; });
     assert(!requests.includes('/check/index.js'), 'The check adapter must remain lazy before the first check');
+    await require('../tests/reader-limits.cjs')(page);
     for (const { name, files, verify, verifyChecks } of cases) {
       const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aix-web-check-'));
       try {

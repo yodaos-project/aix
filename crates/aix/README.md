@@ -74,6 +74,30 @@ if let Some(version) = reader.get_version() {
 let content = reader.read_file("app.json")?;
 ```
 
+### Archive resource limits
+
+`AixReader::new` and `AixReadLimits::default()` preserve the unlimited policy for
+compatibility. Hosts accepting untrusted archives should set all three budgets:
+
+```rust
+use aiui_aix::{AixReadLimits, AixReader};
+
+let data = std::fs::read("bundle.aix")?;
+let reader = AixReader::new_with_limits(data, AixReadLimits {
+    max_entries: Some(1024),
+    max_entry_bytes: Some(8 * 1024 * 1024),
+    max_total_bytes: Some(32 * 1024 * 1024),
+})?;
+```
+
+Budgets are inclusive, include directories and signature metadata, and are
+checked against the central directory before extraction. Output is bounded for
+stored and deflated entries, with CRC and size verification retained. `None`
+means unlimited; zero permits no entries or bytes. The total budget sums declared
+uncompressed bytes across the archive; repeated reads do not consume it. The
+example values are host policy, not format requirements. Input archive bytes,
+parsed objects, and copies retained by the caller need separate memory budgets.
+
 ## CLI Tool
 
 Install the `aix` command from npm:

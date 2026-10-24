@@ -45,6 +45,26 @@ pub struct AixEntry {
     pub compressed_size: u64,
 }
 
+/// Caller-controlled budgets for reading an archive.
+///
+/// Limits are inclusive. `None` means unlimited; [`Default`] preserves the
+/// historical policy of [`AixReader::new`]. Set all three limits when accepting
+/// untrusted packages. Directory and `META-INF/aix/*` entries count too.
+///
+/// The total budget covers declared uncompressed bytes across the archive,
+/// not cumulative reads or all memory used by the host. The archive input
+/// buffer, parsed metadata, and copies retained by callers need separate budgets.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct AixReadLimits {
+    /// Maximum number of central-directory entries, including directories.
+    pub max_entries: Option<u64>,
+    /// Maximum declared and extracted bytes for any single entry.
+    pub max_entry_bytes: Option<u64>,
+    /// Maximum sum of all central-directory uncompressed sizes.
+    pub max_total_bytes: Option<u64>,
+}
+
 /// Summarizes a page declared by `app.json`.
 ///
 /// The reader derives this structure from the package page list and page-level
@@ -182,6 +202,7 @@ pub struct AixReader {
     entries: Vec<AixEntry>,
     index: HashMap<String, EntryLocator>,
     data: Vec<u8>,
+    limits: AixReadLimits,
 }
 
 /// Locates a single archive entry so extraction can seek directly to the
@@ -233,6 +254,8 @@ impl AixReader {
     /// The constructor scans the ZIP central directory, normalizes entry paths,
     /// and rejects duplicate names before exposing the package through the
     /// reader API.
+    /// No caller resource budgets are imposed, for backwards compatibility.
+    /// Use [`Self::new_with_limits`] for untrusted packages.
     ///
     /// # Parameters
     ///
@@ -248,8 +271,24 @@ impl AixReader {
     /// Returns an error if the input is not a valid ZIP archive, contains an
     /// invalid path, or includes duplicate normalized entry names.
     pub fn new(data: Vec<u8>) -> Result<Self> {
+        Self::new_with_limits(data, AixReadLimits::default())
+    }
+
+    /// Creates a reader with caller-controlled archive resource budgets.
+    ///
+    /// Checks each central-directory entry before indexing it, without
+    /// extracting any contents. Repeated reads do not consume the total budget.
+    /// Extraction is bounded by both the declared size and the configured byte
+    /// budgets, and still verifies CRC and size.
+    ///
+    /// # Errors
+    ///
+    /// Returns the errors of [`Self::new`], or an error when a budget is exceeded
+    /// or the sum of declared sizes overflows `u64`.
+    pub fn new_with_limits(data: Vec<u8>, limits: AixReadLimits) -> Result<Self> {
         let mut entries = Vec::new();
         let mut index = HashMap::new();
+        let mut total_bytes = 0u64;
         let archive = ZipArchive::from_slice(data.as_slice())
             .map_err(|error| anyhow!("Failed to read zip: {:?}", error))?;
         let mut zip_entries = archive.entries();
@@ -257,6 +296,22 @@ impl AixReader {
             .next_entry()
             .map_err(|error| anyhow!("Failed to read zip entry: {:?}", error))?
         {
+            if limits
+                .max_entries
+                .is_some_and(|max| entries.len() as u64 >= max)
+            {
+                return Err(anyhow!("Archive entry count limit exceeded"));
+            }
+            let size = file.uncompressed_size_hint();
+            if limits.max_entry_bytes.is_some_and(|max| size > max) {
+                return Err(anyhow!("Archive per-entry byte limit exceeded"));
+            }
+            total_bytes = total_bytes
+                .checked_add(size)
+                .ok_or_else(|| anyhow!("Archive total declared size overflow"))?;
+            if limits.max_total_bytes.is_some_and(|max| total_bytes > max) {
+                return Err(anyhow!("Archive total byte limit exceeded"));
+            }
             let name = file
                 .file_path()
                 .try_normalize()
@@ -284,6 +339,7 @@ impl AixReader {
             entries,
             index,
             data,
+            limits,
         })
     }
 
@@ -398,10 +454,19 @@ impl AixReader {
             .get_entry(locator.wayfinder)
             .map_err(|error| anyhow!("Failed to locate {}: {:?}", name, error))?;
         let claimed = local.claim_verifier();
-        let limit = usize::try_from(claimed.uncompressed_size)
-            .map_err(|_| anyhow!("File too large: {}", name))?;
+        let limit = claimed
+            .uncompressed_size
+            .min(self.limits.max_entry_bytes.unwrap_or(u64::MAX))
+            .min(self.limits.max_total_bytes.unwrap_or(u64::MAX));
+        let limit = usize::try_from(limit).map_err(|_| anyhow!("File too large: {}", name))?;
         let output = match locator.method {
-            CompressionMethod::STORE => local.data().to_vec(),
+            CompressionMethod::STORE => {
+                // A forged uncompressed size must not permit an oversized copy.
+                if local.data().len() > limit {
+                    return Err(anyhow!("Extracted file size limit exceeded: {}", name));
+                }
+                local.data().to_vec()
+            }
             CompressionMethod::DEFLATE => {
                 miniz_oxide::inflate::decompress_to_vec_with_limit(local.data(), limit)
                     .map_err(|error| anyhow!("Failed to extract {}: {}", name, error))?
@@ -915,6 +980,256 @@ mod tests {
             zip.write_all(&data).unwrap();
         }
         AixReader::new(zip.finish().unwrap().into_inner()).unwrap()
+    }
+
+    fn limited_archive_error(data: Vec<u8>, limits: AixReadLimits) -> String {
+        AixReader::new_with_limits(data, limits)
+            .err()
+            .unwrap()
+            .to_string()
+    }
+
+    fn entry_fixture(method: zip::CompressionMethod) -> Vec<u8> {
+        let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        zip.start_file("payload", FileOptions::default().compression_method(method))
+            .unwrap();
+        zip.write_all(&[42; 4096]).unwrap();
+        zip.finish().unwrap().into_inner()
+    }
+
+    fn central_offset(data: &[u8]) -> usize {
+        data.windows(4).position(|v| v == b"PK\x01\x02").unwrap()
+    }
+
+    #[test]
+    fn archive_limits_accept_exact_boundaries_and_preserve_unlimited_default() {
+        let data = archive(vec![
+            ("folder/", vec![]),
+            ("folder/a", vec![1; 32]),
+            (crypto::SIGNATURE_PATH, vec![2; 32]),
+        ])
+        .into_bytes();
+        assert_eq!(
+            AixReadLimits::default(),
+            AixReadLimits {
+                max_entries: None,
+                max_entry_bytes: None,
+                max_total_bytes: None,
+            }
+        );
+        let reader = AixReader::new_with_limits(
+            data.clone(),
+            AixReadLimits {
+                max_entries: Some(3),
+                max_entry_bytes: Some(32),
+                max_total_bytes: Some(64),
+            },
+        )
+        .unwrap();
+        assert_eq!(reader.list().len(), 3);
+        assert!(reader.read_file("folder/").unwrap().is_empty());
+        for _ in 0..3 {
+            assert_eq!(reader.read_file("folder/a").unwrap(), vec![1; 32]);
+            assert_eq!(
+                reader.read_file(crypto::SIGNATURE_PATH).unwrap(),
+                vec![2; 32]
+            );
+        }
+        assert!(limited_archive_error(
+            data.clone(),
+            AixReadLimits {
+                max_entries: Some(2),
+                ..Default::default()
+            }
+        )
+        .contains("entry count limit exceeded"));
+        assert!(limited_archive_error(
+            data.clone(),
+            AixReadLimits {
+                max_total_bytes: Some(63),
+                ..Default::default()
+            }
+        )
+        .contains("total byte limit exceeded"));
+        assert_eq!(AixReader::new(data).unwrap().list().len(), 3);
+    }
+
+    #[test]
+    fn zero_limits_allow_only_empty_archives_and_zero_byte_entries() {
+        let empty = archive(vec![]).into_bytes();
+        let limits = AixReadLimits {
+            max_entries: Some(0),
+            max_entry_bytes: Some(0),
+            max_total_bytes: Some(0),
+        };
+        assert!(AixReader::new_with_limits(empty, limits).is_ok());
+        let entry = archive(vec![("empty", vec![])]).into_bytes();
+        assert!(limited_archive_error(entry.clone(), limits).contains("entry count limit"));
+        let reader = AixReader::new_with_limits(
+            entry,
+            AixReadLimits {
+                max_entries: Some(1),
+                ..limits
+            },
+        )
+        .unwrap();
+        assert!(reader.read_file("empty").unwrap().is_empty());
+        let nonempty = archive(vec![("a", vec![1])]).into_bytes();
+        assert!(limited_archive_error(
+            nonempty.clone(),
+            AixReadLimits {
+                max_entry_bytes: Some(0),
+                ..Default::default()
+            }
+        )
+        .contains("per-entry byte limit"));
+        assert!(limited_archive_error(
+            nonempty,
+            AixReadLimits {
+                max_total_bytes: Some(0),
+                ..Default::default()
+            }
+        )
+        .contains("total byte limit"));
+    }
+
+    #[test]
+    fn rejects_oversized_metadata_before_extraction_for_stored_and_deflated_entries() {
+        for method in [
+            zip::CompressionMethod::Stored,
+            zip::CompressionMethod::Deflated,
+        ] {
+            let data = entry_fixture(method);
+            let limits = AixReadLimits {
+                max_entries: Some(1),
+                max_entry_bytes: Some(4096),
+                max_total_bytes: Some(4096),
+            };
+            assert_eq!(
+                AixReader::new(data.clone())
+                    .unwrap()
+                    .read_file("payload")
+                    .unwrap()
+                    .len(),
+                4096
+            );
+            assert_eq!(
+                AixReader::new_with_limits(data.clone(), limits)
+                    .unwrap()
+                    .read_file("payload")
+                    .unwrap()
+                    .len(),
+                4096
+            );
+            assert!(limited_archive_error(
+                data.clone(),
+                AixReadLimits {
+                    max_entry_bytes: Some(4095),
+                    ..limits
+                }
+            )
+            .contains("per-entry byte limit"));
+            assert!(limited_archive_error(
+                data,
+                AixReadLimits {
+                    max_total_bytes: Some(4095),
+                    ..limits
+                }
+            )
+            .contains("total byte limit"));
+        }
+    }
+
+    #[test]
+    fn forged_sizes_cannot_expand_or_copy_beyond_output_limit() {
+        for method in [
+            zip::CompressionMethod::Stored,
+            zip::CompressionMethod::Deflated,
+        ] {
+            let mut data = entry_fixture(method);
+            let offset = central_offset(&data);
+            // Actual output is 4096 bytes; both the declaration and host budget are 64.
+            data[offset + 24..offset + 28].copy_from_slice(&64u32.to_le_bytes());
+            let reader = AixReader::new_with_limits(
+                data,
+                AixReadLimits {
+                    max_entry_bytes: Some(64),
+                    max_total_bytes: Some(64),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            let error = reader.read_file("payload").unwrap_err().to_string();
+            assert!(
+                error.contains(if method == zip::CompressionMethod::Stored {
+                    "Extracted file size limit exceeded"
+                } else {
+                    "Failed to extract"
+                }),
+                "{error}"
+            );
+        }
+    }
+
+    #[test]
+    fn limited_reads_retain_crc_and_size_verification() {
+        for method in [
+            zip::CompressionMethod::Stored,
+            zip::CompressionMethod::Deflated,
+        ] {
+            for field in [16, 24] {
+                let mut data = entry_fixture(method);
+                let offset = central_offset(&data);
+                // Change either the expected CRC or the expected uncompressed size.
+                data[offset + field] ^= 1;
+                let reader = AixReader::new_with_limits(
+                    data,
+                    AixReadLimits {
+                        max_entry_bytes: Some(8192),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+                assert!(reader
+                    .read_file("payload")
+                    .unwrap_err()
+                    .to_string()
+                    .contains("Failed to verify"));
+            }
+        }
+    }
+
+    #[test]
+    fn entry_budget_counts_actual_directory_entries_despite_forged_eocd_hint() {
+        let mut data = archive(vec![("a", vec![]), ("b", vec![])]).into_bytes();
+        let end = data.len() - 22;
+        data[end + 8..end + 12].fill(0);
+        assert!(limited_archive_error(
+            data,
+            AixReadLimits {
+                max_entries: Some(1),
+                ..Default::default()
+            }
+        )
+        .contains("entry count limit"));
+    }
+
+    #[test]
+    fn aggregate_zip64_size_overflow_is_rejected_without_extracting() {
+        let mut data = archive(vec![("a", vec![]), ("b", vec![1])]).into_bytes();
+        let offset = central_offset(&data);
+        let name_len =
+            u16::from_le_bytes(data[offset + 28..offset + 30].try_into().unwrap()) as usize;
+        let extra_len = u16::from_le_bytes(data[offset + 30..offset + 32].try_into().unwrap());
+        data[offset + 24..offset + 28].copy_from_slice(&u32::MAX.to_le_bytes());
+        data[offset + 30..offset + 32].copy_from_slice(&(extra_len + 12).to_le_bytes());
+        let mut extra = vec![1, 0, 8, 0]; // ZIP64 field with one u64 uncompressed size.
+        extra.extend_from_slice(&u64::MAX.to_le_bytes());
+        data.splice(offset + 46 + name_len..offset + 46 + name_len, extra);
+        let end = data.len() - 22;
+        let size = u32::from_le_bytes(data[end + 12..end + 16].try_into().unwrap());
+        data[end + 12..end + 16].copy_from_slice(&(size + 12).to_le_bytes());
+        assert!(limited_archive_error(data, AixReadLimits::default()).contains("size overflow"));
     }
 
     #[test]

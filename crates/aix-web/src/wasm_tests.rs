@@ -45,6 +45,66 @@ fn assert_package(output: AixPackResultWasm) {
 }
 
 #[wasm_bindgen_test]
+fn reader_limits_reject_metadata_budgets_and_invalid_javascript_values() {
+    let output = pack_output(
+        vec![
+            InputFile::new("app.json", br#"{"pages":[]}"#),
+            InputFile::new("payload", &[42; 4096]),
+        ],
+        "limits".into(),
+        None,
+        None,
+    )
+    .unwrap();
+    let entries = AixReader::new(output.data.clone()).unwrap().list().to_vec();
+    let total: u64 = entries.iter().map(|entry| entry.size).sum();
+    let limits = serde_json::json!({
+        "maxEntries": entries.len(), "maxEntryBytes": 4096, "maxTotalBytes": total,
+    });
+    let reader =
+        AixReaderWasm::with_limits(output.data.clone(), to_value(&limits).unwrap()).unwrap();
+    assert_eq!(reader.read_file("payload").unwrap(), vec![42; 4096]);
+    for (limits, message) in [
+        (
+            serde_json::json!({"maxEntries": entries.len() - 1}),
+            "entry count limit",
+        ),
+        (
+            serde_json::json!({"maxEntryBytes": 4095}),
+            "per-entry byte limit",
+        ),
+        (
+            serde_json::json!({"maxTotalBytes": total - 1}),
+            "total byte limit",
+        ),
+        (serde_json::json!({"maxEntries": -1}), "Invalid read limits"),
+        (
+            serde_json::json!({"maxEntryBytes": 0.5}),
+            "Invalid read limits",
+        ),
+        (
+            serde_json::json!({"maxTotalBytes": 9007199254740992.0}),
+            "Invalid read limits",
+        ),
+        (
+            serde_json::json!({"maxEntryByte": 1}),
+            "Invalid read limits",
+        ),
+    ] {
+        let error = AixReaderWasm::with_limits(output.data.clone(), to_value(&limits).unwrap())
+            .err()
+            .unwrap();
+        assert!(error.as_string().unwrap().contains(message));
+    }
+    assert!(AixReaderWasm::with_limits(output.data.clone(), JsValue::NULL).is_err());
+    assert!(AixReaderWasm::with_limits(output.data.clone(), JsValue::TRUE).is_err());
+    assert!(AixReaderWasm::with_limits(output.data.clone(), js_sys::Array::new().into()).is_err());
+    assert!(
+        AixReaderWasm::with_limits(output.data, to_value(&serde_json::json!({})).unwrap()).is_ok()
+    );
+}
+
+#[wasm_bindgen_test]
 fn javascript_pack_and_reader_surfaces_round_trip() {
     let options = to_value(&OptimizeOptions::default()).unwrap();
     for optimize in [JsValue::NULL, JsValue::UNDEFINED, options] {

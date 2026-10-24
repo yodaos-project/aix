@@ -23,14 +23,38 @@ browser File object.
 
 ## API Reference
 
-### AIX.From(data)
+### AIX.From(data, limits?)
 
 ~~~typescript
-static From(data: Uint8Array | File): Promise<AIX>
+static From(data: Uint8Array | File, limits?: AixReadLimits): Promise<AIX>
 ~~~
 
 Creates an instance from a complete AIX archive. The promise rejects for an
-invalid ZIP, invalid entry path, or duplicate normalized entry.
+invalid ZIP, invalid entry path, duplicate normalized entry, or exceeded budget.
+
+~~~typescript
+const aix = await AIX.From(file, {
+  maxEntries: 1024,
+  maxEntryBytes: 8 * 1024 * 1024,
+  maxTotalBytes: 32 * 1024 * 1024,
+});
+~~~
+
+These example budgets are inclusive and caller-selected. All central-directory
+entries count, including directories and signature metadata. Metadata is checked
+before extraction, and `readFile` bounds output while retaining CRC and size
+verification. `maxTotalBytes` limits the sum of declared uncompressed sizes; it
+does not count repeated reads. Each option must be a non-negative safe integer;
+zero allows no entries or bytes. Omitted fields, `{}`, and the existing one-argument
+call retain the unlimited compatibility policy. Set all three fields for
+untrusted packages. These reader limits do not cover the input archive buffer,
+parsed objects, caller-retained copies, or `AIX.optimize`.
+
+Rust callers use `AixReader::new_with_limits(data, AixReadLimits { ... })`, with
+`Option<u64>` fields `max_entries`, `max_entry_bytes`, and `max_total_bytes`.
+`AixReadLimits::default()` and `AixReader::new(data)` remain unlimited. Direct
+WASM consumers use `AixReaderWasm.with_limits(data, limits)` with the same camelCase
+fields as the TypeScript SDK; `new AixReaderWasm(data)` keeps its existing policy.
 
 ### AIX.pack(files, options?)
 
