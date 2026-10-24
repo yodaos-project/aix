@@ -8,6 +8,9 @@ const distDir = path.join(rootDir, "dist");
 const aixWebDir = path.resolve(rootDir, "../../crates/aix-web");
 const wasmOutDir = path.join(aixWebDir, "dist", "pkg-cli");
 const pkgDir = path.join(distDir, "pkg");
+// Linked source maps let c8 report the original TypeScript, including code run
+// in CLI subprocesses and the check Worker. Release builds keep their size.
+const sourceMapFlag = process.argv.includes("--coverage") ? " --sourcemap" : "";
 
 async function main() {
 
@@ -34,15 +37,15 @@ async function main() {
   // dynamic require so its __dirname stays correct. Runtime-only node_modules
   // dependencies stay external as well.
   execSync(
-    'npx esbuild src/bin.ts --bundle --platform=node --format=cjs --target=node20 --outfile=dist/cli.js --banner:js="#!/usr/bin/env node"',
+    'npx esbuild src/bin.ts --bundle --platform=node --format=cjs --target=node20 --outfile=dist/cli.js --banner:js="#!/usr/bin/env node"' + sourceMapFlag,
     { cwd: rootDir, stdio: "inherit" },
   );
   execSync(
-    'npx esbuild src/cli.ts --bundle --platform=node --format=cjs --target=node20 --outfile=dist/cli-main.js --external:ignore --external:ws',
+    'npx esbuild src/cli.ts --bundle --platform=node --format=cjs --target=node20 --outfile=dist/cli-main.js --external:ignore --external:ws' + sourceMapFlag,
     { cwd: rootDir, stdio: "inherit" },
   );
   execSync(
-    'npx esbuild src/commands/check-worker.ts --bundle --platform=node --format=cjs --target=node20 --outfile=dist/check-worker.js',
+    'npx esbuild src/commands/check-worker.ts --bundle --platform=node --format=cjs --target=node20 --outfile=dist/check-worker.js' + sourceMapFlag,
     { cwd: rootDir, stdio: "inherit" },
   );
 

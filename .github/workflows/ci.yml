@@ -52,6 +52,49 @@ jobs:
       - name: Run native unit tests
         run: cargo test -p aiui-aix -p aiui-aix-pack
 
+  rust-coverage:
+    name: Rust Coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: coverage
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov@0.8.7
+
+      - name: Collect Rust coverage
+        run: bash scripts/coverage-rust.sh
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Summarize Rust coverage
+        run: node scripts/coverage-summary.cjs rust coverage/rust/coverage-summary.json
+
+      - name: Upload Rust coverage
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-coverage
+          path: coverage/rust/
+          if-no-files-found: error
+          retention-days: 14
+
   wasm-check:
     name: WASM Check
     runs-on: ubuntu-latest
@@ -100,17 +143,27 @@ jobs:
         working-directory: packages/cli
         run: npm ci
 
-      - name: Build npm CLI
+      - name: Build and test npm CLI with coverage
         working-directory: packages/cli
-        run: npm run build
+        run: npm run test:coverage
+
+      - name: Summarize CLI coverage
+        run: node scripts/coverage-summary.cjs cli packages/cli/coverage/coverage-summary.json
+
+      - name: Upload CLI coverage
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-coverage
+          path: |
+            packages/cli/coverage/
+            !packages/cli/coverage/tmp/
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Smoke test
         working-directory: packages/cli
         run: node dist/cli.js --help
-
-      - name: Test source checks
-        working-directory: packages/cli
-        run: npm test
 
       - name: Install Web SDK dependencies
         working-directory: crates/aix-web

@@ -67,6 +67,49 @@ cargo check -p aiui-aix-web --target wasm32-unknown-unknown
 
 This matches the baseline validation performed in CI.
 
+### Measure test coverage
+
+CI publishes separate **Rust Coverage** and **npm CLI Build** job summaries on
+pushes and pull requests. Download the `rust-coverage` and `cli-coverage` artifacts
+from the workflow run for HTML, LCOV, and JSON reports. Reporting does not require
+an external coverage service or secret, and no minimum coverage is enforced yet.
+
+Run Rust coverage from the repository root:
+
+```bash
+rustup component add llvm-tools-preview
+cargo install cargo-llvm-cov --version 0.8.7 --locked
+bash scripts/coverage-rust.sh
+node scripts/coverage-summary.cjs rust coverage/rust/coverage-summary.json
+```
+
+Open `coverage/rust/html/index.html` for the annotated report. The native tests
+cover all three workspace crates, including the native helpers in `aiui-aix-web`.
+These metrics do not measure execution inside WASM or doc tests. Inline unit
+tests are included in the source report. Stable Rust reports lines, functions,
+and regions; branch coverage requires a separate nightly configuration.
+
+Run CLI coverage with the Rust/WASM and Node.js toolchains installed:
+
+```bash
+cd packages/cli
+npm ci
+npm run test:coverage
+```
+
+Open `packages/cli/coverage/index.html` (relative to the repository root). The
+command rebuilds the CLI with source maps, then runs the existing test suite
+under c8. Coverage maps back to `packages/cli/src/**/*.ts`, collects CLI child
+processes and the check Worker, and includes unexecuted source files at zero
+coverage. Dependencies, the shared SDK checker, and Rust/WASM internals are not
+part of the CLI denominator. Ordinary `npm run build` output is unchanged.
+The coverage command also verifies that every CLI source is present and that
+executed functions from the child process and Worker survived source mapping.
+
+Rust and CLI percentages use different instrumentation and are reported
+separately; they must not be combined into one percentage. Browser/Worker SDK
+parity tests continue to run in CI, but do not contribute to these metrics.
+
 ### Build the web package
 
 The npm package in `crates/aix-web` depends on the Rust/WASM build output.
