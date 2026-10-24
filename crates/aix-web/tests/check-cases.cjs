@@ -31,6 +31,17 @@ test('maps inline syntax errors after Unicode and ignores comments and def block
 test('checks adjacent Ink scripts independently', {
   'main.ink': '<script lang="ts">const count = 1</script><script lang="ts">const count: string = "text"</script>',
 });
+test('uses shared SFC attributes and preserves diagnostic spans', {
+  'app.json': '{"pages":["pages/home"]}',
+  'pages/home.ink': '<!-- 😀 > <script def>{invalid}</script> -->\n<page><view /></page>\n<script setup data-note="example def text >" lang = \'ts\'>\nconst value: number = ;\n</script>',
+}, (report) => {
+  assert.equal(report.diagnostics.length, 1);
+  const diagnostic = report.diagnostics[0];
+  assert.equal(diagnostic.code, 'AIX029');
+  assert.equal(diagnostic.path, 'pages/home.ink');
+  assert.equal(diagnostic.line, 4);
+  assert.equal(diagnostic.column, 23);
+});
 test('checks CommonJS and TypeScript declaration syntax', {
   'helper.cjs': 'module.exports = 1;',
   'main.cts': 'import value = require("helper"); export = value;',

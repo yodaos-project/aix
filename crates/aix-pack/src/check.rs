@@ -71,11 +71,6 @@ pub fn prepare_check_source(files: Vec<InputFile>) -> Result<PreparedCheck> {
     Ok(PreparedCheck { report, coverage })
 }
 
-fn is_typescript_block(attributes: &str) -> bool {
-    let compact: String = attributes.chars().filter(|c| !c.is_whitespace()).collect();
-    compact.contains("lang=\"ts\"") || compact.contains("lang='ts'")
-}
-
 impl CheckReport {
     pub fn has_errors(&self) -> bool {
         self.diagnostics
@@ -454,7 +449,13 @@ fn check_files_with_coverage(files: &[InputFile]) -> (CheckReport, CheckCoverage
                         );
                     }
                     for block in &template_blocks {
-                        check_markup(path, content, block, &mut report);
+                        check_markup(
+                            path,
+                            content,
+                            block.body,
+                            block.body_span.start,
+                            &mut report,
+                        );
                     }
                     check_components(
                         def.get("usingComponents"),
@@ -487,18 +488,17 @@ fn check_files_with_coverage(files: &[InputFile]) -> (CheckReport, CheckCoverage
             );
         } else if path.ends_with(".ink") {
             for block in blocks(content, "script") {
-                if !block
-                    .attributes
-                    .split_whitespace()
-                    .any(|part| part == "def")
-                {
+                if !block.attributes.contains_key("def") {
                     coverage.scripts += 1;
                     check_script(
                         path,
                         block.body,
-                        block.offset,
+                        block.body_span.start,
                         content,
-                        is_typescript_block(block.attributes),
+                        block
+                            .attributes
+                            .get("lang")
+                            .is_some_and(|lang| lang == "ts"),
                         &permissions,
                         &mut report,
                     );
@@ -727,196 +727,20 @@ fn array_items(source: &str, start: usize) -> Vec<(usize, usize)> {
     items
 }
 
-struct Block<'a> {
-    attributes: &'a str,
-    body: &'a str,
-    offset: usize,
+/// Select named blocks from the core tokenizer; rule evaluation stays here.
+fn blocks<'a>(source: &'a str, name: &str) -> Vec<aix::xml::SfcBlock<'a>> {
+    aix::xml::parse_sfc_blocks(source)
+        .into_iter()
+        .filter(|block| block.name == name)
+        .collect()
 }
-fn blocks<'a>(source: &'a str, name: &str) -> Vec<Block<'a>> {
-    let mut found = Vec::new();
-    let mut cursor = 0;
-    while let Some(tag) = next_tag(source, cursor) {
-        cursor = tag.end;
-        if tag.close || tag.self_closing {
-            continue;
-        }
-        let tag_name = &source[tag.name_start..tag.name_end];
-        if tag_name != name {
-            if matches!(tag_name, "script" | "style") {
-                if let Some(close) = raw_close(source, tag.end, tag_name) {
-                    cursor = close.end;
-                }
-            }
-            continue;
-        }
-        let Some(close) = (if matches!(name, "script" | "style") {
-            raw_close(source, tag.end, name)
-        } else {
-            matching_close(source, tag.end, name)
-        }) else {
-            break;
-        };
-        found.push(Block {
-            attributes: &source[tag.name_end..tag.end - 1],
-            body: &source[tag.end..close.start],
-            offset: tag.end,
-        });
-        cursor = close.end;
-    }
-    found
-}
-
-struct Tag {
-    start: usize,
-    end: usize,
-    name_start: usize,
-    name_end: usize,
-    close: bool,
-    self_closing: bool,
-}
-fn next_tag(source: &str, from: usize) -> Option<Tag> {
-    let bytes = source.as_bytes();
-    let mut cursor = from;
-    while cursor < bytes.len() {
-        let relative = source[cursor..].find('<')?;
-        let start = cursor + relative;
-        if source[start..].starts_with("<!--") {
-            cursor = source[start + 4..]
-                .find("-->")
-                .map_or(bytes.len(), |end| start + 4 + end + 3);
-            continue;
-        }
-        let mut name_start = start + 1;
-        let close = bytes.get(name_start) == Some(&b'/');
-        if close {
-            name_start += 1;
-        }
-        let mut name_end = name_start;
-        while bytes
-            .get(name_end)
-            .is_some_and(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b':'))
-        {
-            name_end += 1;
-        }
-        if name_end == name_start
-            || !bytes
-                .get(name_end)
-                .is_some_and(|c| c.is_ascii_whitespace() || matches!(c, b'/' | b'>'))
-        {
-            cursor = start + 1;
-            continue;
-        }
-        let mut end = name_end;
-        let mut quote = None;
-        while let Some(byte) = bytes.get(end).copied() {
-            match (quote, byte) {
-                (Some(current), value) if current == value => quote = None,
-                (None, b'"' | b'\'') => quote = Some(byte),
-                (None, b'>') => break,
-                _ => {}
-            }
-            end += 1;
-        }
-        if end >= bytes.len() {
-            return None;
-        }
-        let self_closing = bytes[name_end..end]
-            .iter()
-            .rev()
-            .find(|c| !c.is_ascii_whitespace())
-            == Some(&b'/');
-        return Some(Tag {
-            start,
-            end: end + 1,
-            name_start,
-            name_end,
-            close,
-            self_closing,
-        });
-    }
-    None
-}
-
-fn matching_close(source: &str, from: usize, name: &str) -> Option<Tag> {
-    let mut depth = 1;
-    let mut cursor = from;
-    while let Some(tag) = next_tag(source, cursor) {
-        cursor = tag.end;
-        let tag_name = &source[tag.name_start..tag.name_end];
-        if tag_name == name {
-            if tag.close {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(tag);
-                }
-            } else if !tag.self_closing {
-                depth += 1;
-            }
-        } else if !tag.close && matches!(tag_name, "script" | "style") {
-            if let Some(close) = raw_close(source, tag.end, tag_name) {
-                cursor = close.end;
-            }
-        }
-    }
-    None
-}
-
-fn raw_close(source: &str, from: usize, name: &str) -> Option<Tag> {
-    let bytes = source.as_bytes();
-    let mut cursor = from;
-    let mut quote = None;
-    let mut line_comment = false;
-    let mut block_comment = false;
-    while cursor < bytes.len() {
-        let byte = bytes[cursor];
-        let next = bytes.get(cursor + 1).copied();
-        if line_comment {
-            if byte == b'\n' {
-                line_comment = false;
-            }
-        } else if block_comment {
-            if byte == b'*' && next == Some(b'/') {
-                block_comment = false;
-                cursor += 2;
-                continue;
-            }
-        } else if let Some(current) = quote {
-            if byte == b'\\' {
-                cursor += 2;
-                continue;
-            }
-            if byte == current {
-                quote = None;
-            }
-        } else if byte == b'/' && next == Some(b'/') && name == "script" {
-            line_comment = true;
-            cursor += 2;
-            continue;
-        } else if byte == b'/' && next == Some(b'*') {
-            block_comment = true;
-            cursor += 2;
-            continue;
-        } else if matches!(byte, b'"' | b'\'' | b'`') {
-            quote = Some(byte);
-        } else if byte == b'<' {
-            if let Some(tag) = next_tag(source, cursor) {
-                if tag.start == cursor && tag.close && &source[tag.name_start..tag.name_end] == name
-                {
-                    return Some(tag);
-                }
-            }
-        }
-        cursor += 1;
-    }
-    None
-}
-fn check_markup(path: &str, full: &str, block: &Block<'_>, report: &mut CheckReport) {
-    if let Err(error) = aix::xml::parse_xml(block.body) {
+fn check_markup(path: &str, full: &str, body: &str, offset: usize, report: &mut CheckReport) {
+    if let Err(error) = aix::xml::parse_xml(body) {
         report.error(
             "AIX036",
             path,
             full,
-            block.offset,
+            offset,
             format!("Invalid markup: {error}"),
         );
     }
@@ -929,7 +753,7 @@ fn definition(
     let content = texts.get(path)?;
     let defs: Vec<_> = blocks(content, "script")
         .into_iter()
-        .filter(|b| b.attributes.split_whitespace().any(|p| p == "def"))
+        .filter(|b| b.attributes.contains_key("def"))
         .collect();
     if defs.len() != 1 {
         report.error(
@@ -948,7 +772,8 @@ fn definition(
                 "AIX014",
                 path,
                 content,
-                defs[0].offset + json_error_offset(defs[0].body, error.line(), error.column()),
+                defs[0].body_span.start
+                    + json_error_offset(defs[0].body, error.line(), error.column()),
                 format!("Invalid <script def> JSON: {error}"),
             );
             None
@@ -963,7 +788,7 @@ fn definition_if_present(
     let content = texts.get(path)?;
     if blocks(content, "script")
         .iter()
-        .any(|b| b.attributes.split_whitespace().any(|p| p == "def"))
+        .any(|b| b.attributes.contains_key("def"))
     {
         definition(path, texts, report)
     } else {
@@ -994,7 +819,7 @@ fn check_page(
             );
         }
         for block in &page_blocks {
-            check_markup(&ink, content, block, report);
+            check_markup(&ink, content, block.body, block.body_span.start, report);
         }
         if !blocks(content, "widget").is_empty() {
             report.error(
@@ -1036,12 +861,7 @@ fn check_page(
             report.error("AIX016", &markup, "", 0, "Page markup file is missing");
         }
         if let Some(content) = texts.get(markup.as_str()) {
-            let block = Block {
-                attributes: "",
-                body: content,
-                offset: 0,
-            };
-            check_markup(&markup, content, &block, report);
+            check_markup(&markup, content, content, 0, report);
         }
         if let Some(def) = jsons.get(config.as_str()) {
             let content = texts.get(config.as_str()).map(String::as_str).unwrap_or("");
@@ -1092,8 +912,8 @@ fn check_page_schema(
     let base = if path.ends_with(".ink") {
         blocks(content, "script")
             .into_iter()
-            .find(|block| block.attributes.split_whitespace().any(|p| p == "def"))
-            .map_or(0, |block| block.offset)
+            .find(|block| block.attributes.contains_key("def"))
+            .map_or(0, |block| block.body_span.start)
     } else {
         0
     };
@@ -1146,7 +966,7 @@ fn check_component_cycles(
         }
         let Some(def) = blocks(content, "script")
             .into_iter()
-            .find(|b| b.attributes.split_whitespace().any(|p| p == "def"))
+            .find(|b| b.attributes.contains_key("def"))
             .and_then(|b| serde_json::from_str::<Value>(b.body).ok())
         else {
             continue;
@@ -1269,7 +1089,7 @@ fn check_widget(
         );
     }
     for block in &widget_blocks {
-        check_markup(&ink, content, block, report);
+        check_markup(&ink, content, block.body, block.body_span.start, report);
     }
     if let Some(def) = definition(&ink, texts, report) {
         if def.pointer("/widget/family").and_then(Value::as_str) != Some(family) {
@@ -1380,7 +1200,13 @@ fn check_components(
                 );
             }
             for block in &template_blocks {
-                check_markup(&entry, component_content, block, report);
+                check_markup(
+                    &entry,
+                    component_content,
+                    block.body,
+                    block.body_span.start,
+                    report,
+                );
             }
             if let Some(def) = definition_if_present(&entry, texts, report) {
                 if def
@@ -1408,12 +1234,7 @@ fn check_components(
                 );
             }
             if let Some(markup_content) = texts.get(markup.as_str()) {
-                let block = Block {
-                    attributes: "",
-                    body: markup_content,
-                    offset: 0,
-                };
-                check_markup(&markup, markup_content, &block, report);
+                check_markup(&markup, markup_content, markup_content, 0, report);
             }
             if let Some(def) = jsons.get(legacy.as_str()) {
                 let config = texts.get(legacy.as_str()).map(String::as_str).unwrap_or("");
@@ -1650,6 +1471,100 @@ fn check_script(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn source_and_archive_agree_on_sfc_boundaries() {
+        let definition = r#"{"navigationBarTitleText":"Real title","description":"Page description","schema":{"data":{"type":"object","properties":{"name":{"type":"string"}}}}}"#;
+        let closing_definition = definition.replace("Page description", "literal </script> text");
+        let page = r#"<page><view class="card" /></page>"#;
+        let style = ".card { width: 320px; height: 90px; }";
+        let cases = [
+            (
+                "commented definition",
+                format!(
+                    r#"<script def>{definition}</script>{page}<style>{style}</style><!-- archived example > <script def>{{"navigationBarTitleText":"COMMENTED OUT","schema":{{"data":{{}}}}}}</script> -->"#
+                ),
+                "Page description",
+            ),
+            (
+                "nested markup",
+                format!(
+                    r#"<script def>{definition}</script><page><page><view /></page><view class="card" /></page><style>{style}</style>"#
+                ),
+                "Page description",
+            ),
+            (
+                "quoted attributes",
+                format!(
+                    r#"<script data-note="a > b" def>{definition}</script><page data-note="a > b"><view class="card" /></page><style>{style}</style>"#
+                ),
+                "Page description",
+            ),
+            (
+                "raw script and style text",
+                format!(
+                    r#"<script setup>const example = "</script><page><view /></page>"; /* </script> */</script><script def>{closing_definition}</script>{page}<style>.example {{ content: "</style>"; }}{style}</style>"#
+                ),
+                "literal </script> text",
+            ),
+        ];
+        for (name, source, description) in cases {
+            let files = vec![
+                InputFile::new("app.json", br#"{"pages":["pages/home"]}"#),
+                InputFile::new("pages/home.ink", source.as_bytes()),
+            ];
+            let report = check_source(files.clone()).unwrap();
+            assert!(
+                report.diagnostics.is_empty(),
+                "{name}: {:?}",
+                report.diagnostics
+            );
+            let output = crate::pack(files, crate::PackOptions::new("sfc-regression")).unwrap();
+            assert!(output.warnings.is_empty(), "{name}: {:?}", output.warnings);
+            let reader = aix::AixReader::new(output.data).unwrap();
+            let pages = reader.get_pages();
+            assert_eq!(pages.len(), 1, "{name}");
+            assert_eq!(pages[0].title.as_deref(), Some("Real title"), "{name}");
+            assert_eq!(pages[0].description.as_deref(), Some(description), "{name}");
+            assert_eq!(
+                pages[0].data_schema["properties"]["name"]["type"], "string",
+                "{name}"
+            );
+            assert_eq!(
+                pages[0].size,
+                aix::PageConstraint {
+                    width: 320.0,
+                    height: 90.0
+                },
+                "{name}"
+            );
+            assert_eq!(
+                aix::PageAnalyzer::analyze_sfc(&source),
+                pages[0].size,
+                "{name}"
+            );
+            let tools = reader.get_tools();
+            assert_eq!(tools.len(), 1, "{name}");
+            assert_eq!(tools[0].target, aix::ToolTarget::Current, "{name}");
+            assert_eq!(tools[0].function.parameters, pages[0].data_schema, "{name}");
+            assert_eq!(tools[0].layout, pages[0].size, "{name}");
+        }
+    }
+
+    #[test]
+    fn shared_sfc_attributes_keep_script_diagnostics_at_original_positions() {
+        let content = "<!-- 😀 > <script def>{invalid}</script> -->\n<page><view /></page>\n<script setup data-note=\"example def text >\" lang = 'ts'>\nconst value: number = ;\n</script>";
+        let report = check(
+            r#"{"pages":["pages/home"]}"#,
+            &[("pages/home.ink", content)],
+        );
+        assert_eq!(report.diagnostics.len(), 1, "{:?}", report.diagnostics);
+        let diagnostic = &report.diagnostics[0];
+        assert_eq!(diagnostic.code, "AIX029");
+        assert_eq!(diagnostic.path, "pages/home.ink");
+        assert_eq!((diagnostic.line, diagnostic.column), (4, 23));
+    }
+
     fn check(app: &str, more: &[(&str, &str)]) -> CheckReport {
         let mut files = vec![InputFile::new("app.json", app.as_bytes())];
         files.extend(more.iter().map(|(p, s)| InputFile::new(*p, s.as_bytes())));

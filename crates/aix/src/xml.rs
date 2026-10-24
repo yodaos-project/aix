@@ -4,6 +4,9 @@ use hashbrown::HashMap;
 #[cfg(feature = "std")]
 use std::collections::HashMap;
 
+mod sfc;
+pub use sfc::{parse_sfc_blocks, SfcBlock};
+
 /// A lightweight XML/SFC AST node used internally by `aix`.
 ///
 /// This type represents the parsed output of `parse_xml()` and `parse_sfc()`,
@@ -29,8 +32,7 @@ pub enum Node {
 
 /// Parses XML/WXML-like text into a list of top-level nodes.
 ///
-/// This function uses `quick-xml` as a streaming parser and builds a simplified
-/// tree structure:
+/// This function scans tag boundaries and builds a simplified tree structure:
 ///
 /// - element nodes become `Node::Element`
 /// - non-empty text becomes `Node::Text`
@@ -198,9 +200,9 @@ fn parse_start_tag(raw: &str) -> Result<(String, HashMap<String, String>), Strin
 
 /// Parses `.ink` single-file component text and extracts top-level structure blocks.
 ///
-/// This is a simplified parser tailored for AIX analysis. It does not attempt to
-/// implement full XML semantics. Instead, it focuses on the following raw-text
-/// blocks:
+/// This compatibility wrapper builds owned nodes from [`parse_sfc_blocks`], the
+/// shared tokenizer used by metadata, layout analysis, and source diagnostics.
+/// It does not implement full XML semantics and returns the following blocks:
 ///
 /// - `script`
 /// - `style`
@@ -221,63 +223,68 @@ fn parse_start_tag(raw: &str) -> Result<(String, HashMap<String, String>), Strin
 /// - `Err(String)`: This return type is kept for API consistency. In normal usage,
 ///   this simplified parser primarily returns results through `Ok(...)`.
 pub fn parse_sfc(content: &str) -> Result<Vec<Node>, String> {
-    // Treat script/style/page/template as raw text blocks.
-    let mut nodes = Vec::new();
-    let mut current_pos = 0;
-
-    while current_pos < content.len() {
-        if let Some(start_idx) = content[current_pos..].find('<') {
-            let start = current_pos + start_idx;
-            if let Some(end_idx) = content[start..].find('>') {
-                let end = start + end_idx;
-                let tag_content = &content[start + 1..end];
-
-                let mut parts = tag_content.split_whitespace();
-                if let Some(name) = parts.next() {
-                    if name.starts_with('/') || name == "!" {
-                        current_pos = end + 1;
-                        continue;
-                    }
-
-                    let mut attributes = HashMap::new();
-                    for part in parts {
-                        if let Some((k, v)) = part.split_once('=') {
-                            let val = v.trim_matches('"').trim_matches('\'').to_string();
-                            attributes.insert(k.to_string(), val);
-                        } else {
-                            attributes.insert(part.to_string(), String::new());
-                        }
-                    }
-
-                    if name == "script" || name == "style" || name == "page" || name == "template" {
-                        let end_tag = format!("</{}>", name);
-                        if let Some(close_idx) = content[end + 1..].find(&end_tag) {
-                            let inner_content = &content[end + 1..end + 1 + close_idx];
-                            nodes.push(Node::Element {
-                                name: name.to_string(),
-                                attributes,
-                                children: vec![Node::Text(inner_content.to_string())],
-                            });
-                            current_pos = end + 1 + close_idx + end_tag.len();
-                            continue;
-                        }
-                    }
-                }
-                current_pos = end + 1;
-            } else {
-                break;
-            }
-        } else {
-            break;
-        }
-    }
-
-    Ok(nodes)
+    Ok(parse_sfc_blocks(content)
+        .into_iter()
+        .filter(|block| matches!(block.name, "script" | "style" | "page" | "template"))
+        .map(|block| Node::Element {
+            name: block.name.to_string(),
+            attributes: block.attributes,
+            children: vec![Node::Text(block.body.to_string())],
+        })
+        .collect())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sfc_ignores_comments_and_preserves_nested_markup_and_raw_text() {
+        let source = r#"<!-- old example > <script def>{"title":"old"}</script> -->
+<script data-note="a > b" def>{"description":"literal </script> text"}</script>
+<page><page><view /></page><view class="card" /></page>
+<style>.example { content: "</style>"; }.card { width: 320px; }</style>"#;
+        let nodes = parse_sfc(source).unwrap();
+        assert_eq!(nodes.len(), 3);
+        let Node::Element {
+            name,
+            attributes,
+            children,
+        } = &nodes[0]
+        else {
+            panic!("expected definition block");
+        };
+        assert_eq!(name, "script");
+        assert_eq!(
+            attributes.get("data-note").map(String::as_str),
+            Some("a > b")
+        );
+        assert!(attributes.contains_key("def"));
+        assert_eq!(
+            children,
+            &[Node::Text(
+                r#"{"description":"literal </script> text"}"#.into()
+            )]
+        );
+        let Node::Element { children, .. } = &nodes[1] else {
+            panic!("expected page block");
+        };
+        assert_eq!(
+            children,
+            &[Node::Text(
+                r#"<page><view /></page><view class="card" />"#.into()
+            )]
+        );
+        let Node::Element { children, .. } = &nodes[2] else {
+            panic!("expected style block");
+        };
+        assert_eq!(
+            children,
+            &[Node::Text(
+                r#".example { content: "</style>"; }.card { width: 320px; }"#.into()
+            )]
+        );
+    }
 
     #[test]
     fn test_valueless_attributes() {
