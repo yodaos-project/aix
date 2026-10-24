@@ -89,15 +89,56 @@ getVersion(): string | undefined
 supportsEngine(currentVersion: string): boolean
 getTitle(): string | undefined
 getPages(): PageInfo[]
+resolveMetadata(): MetadataResolution
 getWidgets(locale?: string): WidgetInfo[]
 getTools(): Tool[]
 ~~~
 
 list 返回规范化名称、压缩大小和未压缩大小；readFile 返回已校验的未压缩字节；getVersion 读取 VERSION；getTitle 读取应用标题；supportsEngine 检查 Manifest 的 semver 范围；getPages 解析 Ink 或多文件页面；getWidgets 校验 Widget 并应用 locale overlay；getTools 派生 OpenAI 兼容函数记录。
 
+### 元数据解析与诊断
+
+`getPages()` 和 `getTools()` 保留宽容行为：页面列表无效时返回空数组，缺失资源或无效
+页面元数据仍可能生成使用默认值的页面和工具。`app.json` 的 Page、Widget 和标题字段
+分别解析，因此无效 Widget 字段不会隐藏有效页面。`getWidgets()` 仍会在 Widget 配置
+无效或入口缺失时抛错。
+
+需要区分成功解析与默认结果时，使用 `resolveMetadata()`：
+
+~~~typescript
+const result = aix.resolveMetadata();
+for (const diagnostic of result.diagnostics) {
+  console.error(diagnostic.path, diagnostic.message);
+}
+// 只有解析成功的页面才会生成可调用工具。
+const tools = result.tools;
+// 如果要求全部页面解析成功，可在 diagnostics 非空时拒绝使用该结果。
+~~~
+
+该同步 API 返回 `pages`、`tools` 和 `diagnostics`，解析失败通过诊断返回。
+有效的 `pages: []` 没有诊断；`app.json.pages` 缺失、无法读取或无效时，诊断路径为
+`app.json`。每个失败页面返回第一个资源或元数据错误，并从页面和工具列表中排除，
+其余页面保留声明顺序。工具 target 使用与 `getTools()` 相同的规则，作用于成功解析的页面列表。
+
+页面需要可读取的 `.ink`，或传统页面的 `.json` 和 `.wxml`。已有资源必须通过 ZIP
+CRC/大小校验和 UTF-8 解码；页面 JSON 和完整的 Ink `<script def>` 必须能反序列化。
+损坏的 `.ink` 不会回退到多文件页面。定义、schema 和样式允许省略；`.wcss` 优先于
+`.wxss`。Widget 和标题字段不属于该报告。此 API 不替代源码检查中的完整 Ink 语法、
+组件引用和 JSON Schema 校验，也不验证运行时行为。打包校验保持不变。
+
+Rust 使用 `AixReader::resolve_metadata() -> MetadataResolution`；直接调用 WASM 时使用
+`reader.resolve_metadata()`，报告结构一致。
+
 ## 类型参考
 
 ~~~typescript
+interface MetadataDiagnostic { path: string; message: string }
+interface MetadataResolution {
+  pages: PageInfo[];
+  tools: Tool[];
+  diagnostics: MetadataDiagnostic[];
+}
+
 interface AixInputFile { path: string; data: Uint8Array }
 interface PackOptions { buildId?: string; engine?: string; optimize?: false | OptimizeOptions }
 interface OptimizeOptions { level?: 1 | 2 | 3; json?: boolean; png?: boolean; jpeg?: boolean }

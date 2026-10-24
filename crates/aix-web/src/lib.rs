@@ -324,6 +324,11 @@ impl AixReaderWasm {
         to_value(&self.inner.get_pages())
     }
 
+    /// Resolve readable pages/tools and expose per-resource failures as diagnostics.
+    pub fn resolve_metadata(&self) -> Result<JsValue, JsValue> {
+        to_value(&self.inner.resolve_metadata())
+    }
+
     pub fn get_widgets(&self, locale: Option<String>) -> Result<JsValue, JsValue> {
         let widgets = match locale.as_deref() {
             Some(locale) => self.inner.get_widgets_for_locale(locale),

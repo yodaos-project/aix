@@ -101,6 +101,7 @@ getVersion(): string | undefined
 supportsEngine(currentVersion: string): boolean
 getTitle(): string | undefined
 getPages(): PageInfo[]
+resolveMetadata(): MetadataResolution
 getWidgets(locale?: string): WidgetInfo[]
 getTools(): Tool[]
 ~~~
@@ -113,9 +114,56 @@ validates widget Ink entries and optionally applies locale overlays. `getTools`
 derives OpenAI-compatible function records. See the [Specification](/spec) for
 page, schema, layout, and tool semantics.
 
+### Metadata resolution and diagnostics
+
+`getPages()` and `getTools()` retain their tolerant behavior: invalid page lists
+return empty arrays, and missing resources or malformed page metadata can produce
+default page/tool records. Page, Widget, and title fields in `app.json` are parsed
+independently, so an invalid Widget field does not hide valid pages. `getWidgets()`
+continues to throw for invalid Widget configuration or missing Widget entries.
+
+Use `resolveMetadata()` when callers need to distinguish successful resolution
+from defaults:
+
+~~~typescript
+const result = aix.resolveMetadata();
+for (const diagnostic of result.diagnostics) {
+  console.error(diagnostic.path, diagnostic.message);
+}
+// Only successfully resolved pages contribute callable tools.
+const tools = result.tools;
+// To require complete success, decline the result if diagnostics is nonempty.
+~~~
+
+The synchronous report contains `pages`, `tools`, and `diagnostics`. Failures are
+returned as diagnostics rather than thrown. A valid `pages: []` has no diagnostics;
+missing, unreadable, or invalid `app.json.pages` produces an `app.json` diagnostic.
+Each failed page contributes its first resource/metadata error and is excluded
+from both lists, while other pages retain declaration order. Tool targeting uses
+the same rules as `getTools()`, applied to the successfully resolved page list.
+
+Resolution requires a readable `.ink` entry, or both `.json` and `.wxml` for a
+traditional page. Present resources must pass ZIP CRC/size checks and UTF-8
+decoding; page JSON and complete Ink `<script def>` blocks must deserialize.
+A broken `.ink` entry does not fall back to multi-file pages. Optional definitions,
+schemas, and styles may be absent; `.wcss` takes precedence over `.wxss`. Widget
+and title fields are outside this report. This API does not replace source checks
+for full Ink syntax, component references, or JSON Schema validity, and does not
+validate runtime behavior. Packing validation is unchanged.
+
+Rust uses `AixReader::resolve_metadata() -> MetadataResolution`; direct WASM
+consumers use `reader.resolve_metadata()` with the same report shape.
+
 ## Type Reference
 
 ~~~typescript
+interface MetadataDiagnostic { path: string; message: string }
+interface MetadataResolution {
+  pages: PageInfo[];
+  tools: Tool[];
+  diagnostics: MetadataDiagnostic[];
+}
+
 interface AixInputFile { path: string; data: Uint8Array }
 
 interface PackOptions {

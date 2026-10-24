@@ -254,6 +254,38 @@ const widgets = aix.getWidgets('en-US');
 // [{ path: "widgets/clock/index", family: "1x1", placement: "persistent", displayName: "Clock", description: "Shows the current time." }]
 ```
 
+#### `resolveMetadata(): MetadataResolution`
+
+Returns `{ pages, tools, diagnostics }` synchronously. Missing/unreadable resources,
+UTF-8 errors, and malformed page metadata produce `{ path, message }` diagnostics,
+one per failed page. Failed pages are excluded from both result lists; other
+pages retain declaration order. A valid empty page list has no diagnostics;
+invalid/unreadable `app.json.pages` produces an `app.json` diagnostic.
+
+```typescript
+const result = aix.resolveMetadata();
+console.log(result.diagnostics);
+const tools = result.tools; // only successfully resolved pages
+// For all-or-nothing acceptance, require result.diagnostics.length === 0.
+```
+
+This API requires readable `.ink`, or both `.json` and `.wxml` for traditional
+pages, and checks ZIP integrity and UTF-8 for resources it reads. It deserializes
+page JSON and complete Ink `<script def>` blocks. Optional definitions, schemas,
+and styles may be absent; present styles must be readable (`.wcss` before `.wxss`).
+A broken Ink entry never falls back to traditional files. Use source checking
+for full syntax, component, and JSON Schema validation. Runtime execution and
+packing validation are unchanged.
+
+`getPages()`/`getTools()` remain tolerant and can return default metadata/tools
+even for missing resources. Page, Widget, and title fields are parsed separately;
+invalid Widget fields no longer hide valid pages. `getWidgets()` still reports
+Widget errors. Direct WASM consumers use `reader.resolve_metadata()`.
+
+Exported `MetadataResolution` has `pages: PageInfo[]`, `tools: Tool[]`, and
+`diagnostics: MetadataDiagnostic[]`; `MetadataDiagnostic` has `path` and `message`
+string fields.
+
 #### `getTools(): Tool[]`
 Generates a list of OpenAI-compatible tool definitions based on the pages and their schemas.
 ```typescript

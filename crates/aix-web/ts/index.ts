@@ -118,6 +118,19 @@ export interface PageInfo {
   data_schema: any;
 }
 
+export interface MetadataDiagnostic {
+  /** Archive path of the missing, unreadable, or malformed resource. */
+  path: string;
+  message: string;
+}
+
+export interface MetadataResolution {
+  pages: PageInfo[];
+  tools: Tool[];
+  /** One failure per unresolved page, or an app.json configuration failure. */
+  diagnostics: MetadataDiagnostic[];
+}
+
 export interface WidgetInfo {
   path: string;
   family: string;
@@ -280,6 +293,15 @@ export class AIX {
    */
   getPages(): PageInfo[] {
     return (this.reader as any).get_pages() as PageInfo[];
+  }
+
+  /**
+   * Resolve readable page resources and metadata, excluding failed pages/tools.
+   * Inspect diagnostics to distinguish a valid empty result from resolution errors.
+   * Widget/title fields are independent. This does not run full source checks.
+   */
+  resolveMetadata(): MetadataResolution {
+    return this.reader.resolve_metadata() as MetadataResolution;
   }
 
   /**
