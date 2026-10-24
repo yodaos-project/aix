@@ -30,7 +30,60 @@ async function fromFile(file: File) {
 }
 ```
 
-## Using the Package Lab
+## Check Source Files
+
+The Web SDK and npm CLI use the same complete in-memory check engine:
+
+```typescript
+import { AIX, type CheckReport } from '@yodaos-pkg/aix';
+
+const encode = (source: string) => new TextEncoder().encode(source);
+const report: CheckReport = await AIX.checkFromSource([
+  { path: 'app.json', data: encode('{"pages":[]}') },
+  { path: 'main.ts', data: encode('const count: number = ;') },
+], { onProgress: (event) => console.log(event.type) });
+console.log(report.diagnostics); // AIX029: invalid TypeScript syntax at main.ts:1
+
+// Files from an <input type="file" webkitdirectory> selection also work.
+const fileReport = await AIX.checkFromFiles(Array.from(input.files ?? []));
+```
+
+Checks cover JSON/config validity, Page/Widget structure, component references
+and cycles, JS/TS syntax, statically recognizable permissions, and Page JSON Schemas. Each diagnostic has `code`, `severity`, `path`,
+`line`, `column`, and `message`. Source errors are returned in the report;
+invalid input paths or collection failures reject the promise.
+
+`checkFromSource` takes paths relative to the application root. `checkFromFiles`
+uses `webkitRelativePath`, removing the selected directory's outer folder.
+Both apply nested `.aixignore` rules and exclude local `.aix` caches. The shared
+check adapter loads only when checking is first requested. It uses the WASM
+engine without a Node filesystem, Node polyfills, or dependency downloads.
+The same API also works in a Web Worker.
+
+Both methods accept `CheckOptions` with an optional `onProgress` callback.
+`CheckProgressEvent` reports checker loading, source/schema validation (input
+file count), and diagnostic collection. These are stage notifications, not a
+percentage estimate. Browser checks are synchronous after loading; run the API
+in a Web Worker to keep a browser progress display responsive.
+
+`check_finished` events carry an exported `CheckResult` with `id`, `label`,
+`status` (`passed`, `warning`, `failed`, or `skipped`), `errors`, `warnings`, and
+an optional `detail` explaining incomplete/skipped checks. The CLI uses the same
+results for its final checklist. The returned `CheckReport` remains a diagnostic
+report, so JSON callers do not need to parse terminal output.
+
+JavaScript and TypeScript are syntax-checked, including `.ts`, `.mts`, `.cts`,
+and Ink `<script lang="ts">` blocks. Inline diagnostics retain their original
+Ink file locations. TypeScript semantic, import-resolution, and compiler-option
+checks are currently excluded. No type environment is loaded, and checks do not
+emit or run code.
+
+Page `schema.data` is validated against `$schema` (2020-12 by default), including
+nested keywords, patterns, and local references. Missing/null schemas remain
+accepted. External schema resources are not fetched. These checks validate
+schema declarations, not runtime data; packing and reader semantics are unchanged.
+
+## Using Play
 
 The official browser lab now lives in the docs site at `/play`.
 

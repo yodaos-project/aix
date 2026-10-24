@@ -41,12 +41,18 @@ aix pack ./my-agent -O --opt-level 3
 
 ### `aix check <INPUT_DIR>`
 
-仅检查源目录，不生成归档。校验 `app.json`、Page 和 Widget 入口、本地组件引用、JS/TS 语法，以及可静态识别的权限使用；与 `pack` 一样遵循 `.aixignore`。存在 error 时退出码为 1，warning 不影响退出码。`--format json` 输出包含文件、行列、级别和规则编号的诊断列表。
+仅检查源目录，不生成归档。校验 `app.json`、Page 和 Widget 入口、本地组件引用、JS/TS 语法、Page JSON Schema，以及可静态识别的权限使用；与 `pack` 一样遵循 `.aixignore`。存在 error 时退出码为 1，warning 不影响退出码。`--format json` 输出包含文件、行列、级别和规则编号的诊断列表。
 
 ```bash
 aix check ./my-agent
 aix check ./my-agent --format json
 ```
+
+文本模式在 stderr 展示扫描文件、加载检查器、源码与 Schema 校验及诊断收集等阶段，终端中显示动态进度。加载 CLI 命令模块之前即显示启动状态，后续阶段在同一进度行覆盖它。最终清单逐项保留 JSON/文本、App/Page/Widget/组件结构、JS/TS 语法、权限及 Page JSON Schema 五项检查的结果，并显示实际检查数量和诊断数量。每项分别标明通过、警告、失败或跳过；无适用输入或被无效输入阻断的检查会注明跳过原因。检查在 Worker 中运行，源码分析期间进度仍会刷新。`--format json` 不输出进度，stdout 保持为结构化诊断。
+
+JS/TS 语法检查覆盖 `.ts`、`.mts`、`.cts` 和 Ink `<script lang="ts">` 块，并保留原始文件行列。暂不进行 TypeScript 语义检查、导入解析或编译选项校验，不加载类型环境，也不执行或编译项目代码。
+
+Web SDK 的 `AIX.checkFromSource` 和 `AIX.checkFromFiles` 共用相同检查引擎，支持 `onProgress` 回调及逐项 `check_finished` 结果。SDK 本身不访问文件系统或网络。
 
 权限检查识别 `navigator.geolocation`、`navigator.mediaDevices.getUserMedia()` 和媒体库读取等直接调用。动态参数与宿主组件无法在本地确认时会给出 warning。检查通过不代表运行时和平台权限一定可用。
 

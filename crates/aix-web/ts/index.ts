@@ -4,6 +4,9 @@ import init, {
   pack_aix,
 } from '../dist/pkg/aix_web.js';
 import * as wasmExports from '../dist/pkg/aix_web.js';
+import type { CheckEngine, CheckOptions, CheckReport } from './check/types.js';
+
+export type { CheckDiagnostic, CheckOptions, CheckProgressEvent, CheckReport, CheckResult } from './check/types.js';
 
 export interface AixInputFile {
   path: string;
@@ -127,6 +130,26 @@ export class AIX {
 
   private constructor(reader: AixReaderWasm) {
     this.reader = reader;
+  }
+
+  /** Run source structure, JS/TS syntax, schema, and permission checks in memory. */
+  static async checkFromSource(files: AixInputFile[], options?: CheckOptions): Promise<CheckReport> {
+    options?.onProgress?.({ type: 'loading_checker' });
+    const [, { checkSource }] = await Promise.all([init(), import('./check/index.js')]);
+    return checkSource(files, wasmExports as unknown as CheckEngine, options);
+  }
+
+  /** Check a browser directory selection, retaining webkitRelativePath. */
+  static async checkFromFiles(files: File[], options?: CheckOptions): Promise<CheckReport> {
+    const sources = await Promise.all(files.map(async (file) => ({
+      path: resolveWebFilePath(file),
+      data: new Uint8Array(await file.arrayBuffer()),
+    })));
+    const selectedRoot = sources[0]?.path.split('/')[0];
+    if (selectedRoot && files.every((file) => file.webkitRelativePath?.startsWith(`${selectedRoot}/`))) {
+      for (const source of sources) source.path = source.path.slice(selectedRoot.length + 1);
+    }
+    return AIX.checkFromSource(sources, options);
   }
 
   /**

@@ -41,9 +41,17 @@ if (fs.existsSync(wasmPackagePath)) {
   fs.writeFileSync(wasmPackagePath, JSON.stringify(wasmPackage, null, 2));
 }
 
-// 4. Build TS (outputs to dist/)
+// 4. Build the SDK and shared check adapter.
+// Build TS (outputs to dist/)
 console.log('Building TS to dist/...');
 execSync('npm run build:ts', { cwd: rootDir, stdio: 'inherit' });
+execSync('node -e "require(\'./scripts/build-check\').buildCheck(\'dist/check/index.js\')"', { cwd: rootDir, stdio: 'inherit' });
+// These implementation modules are now inside the standalone checker bundle.
+for (const name of ['results']) {
+  for (const extension of ['js', 'd.ts']) {
+    fs.rmSync(path.join(distDir, 'check', `${name}.${extension}`), { force: true });
+  }
+}
 
 // 5. Fix import paths
 console.log('Fixing import paths in dist/index.js...');

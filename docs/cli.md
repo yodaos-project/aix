@@ -47,8 +47,8 @@ Without `--engine`, the range comes from `app.json.engine`, then `*`.
 ### `aix check <INPUT_DIR>`
 
 Checks source files without creating an artifact. It validates `app.json`, Page
-and Widget entries, local component references, JS/TS syntax, and statically
-recognizable permission use. It applies `.aixignore` like `pack`. Errors make
+and Widget entries, local component references, JS/TS syntax,
+Page JSON Schemas, and statically recognizable permission use. It applies `.aixignore` like `pack`. Errors make
 the command exit with status 1; warnings do not. `--format json` emits a
 machine-readable diagnostic list with file, line, column, severity, and rule
 code.
@@ -57,6 +57,38 @@ code.
 aix check ./my-agent
 aix check ./my-agent --format json
 ```
+
+Text mode reports scanning, checker loading, source/schema validation, and
+diagnostic collection on stderr. A terminal displays an animated
+spinner; checking runs in a Worker to keep it responsive. `--format json`
+disables progress and preserves the structured report on stdout.
+Startup status appears before loading the CLI command modules and is replaced
+by later stages on the same progress line.
+The final checklist preserves each check result: JSON/text validation,
+App/Page/Widget/component structure, JS/TS syntax, permission declarations and
+direct API use, and Page JSON Schemas. Items show passed, warning, failed, or skipped status, work counts,
+and diagnostic counts. Checks with no applicable input or blocked by invalid
+input show a skip reason instead of a success marker.
+
+JS/TS syntax checks include `.ts`, `.mts`, `.cts`, and Ink `<script lang="ts">`
+blocks, preserving original file locations. TypeScript semantic checks, import
+resolution, and compiler-option validation are currently excluded. No type
+environment is loaded. Checks never emit files or run project code.
+
+The CLI and Web SDK use the same in-memory Rust/WASM check engine. The CLI reads
+source files and formats diagnostics; the shared checker has no filesystem or
+network access. Web callers use `AIX.checkFromSource(files)` or
+`AIX.checkFromFiles(files)`. Both accept an optional `{ onProgress(event) {} }`
+argument. `check_finished` events include a `CheckResult` for each of the five
+items in the final checklist.
+
+Page `schema.data` is validated as a JSON Schema, including nested keyword
+types, regex patterns, and local `$ref` targets. Drafts 4, 6, 7, 2019-09, and
+2020-12 are selected through `$schema`; without it, 2020-12 is used. Invalid
+schemas produce `AIX047`. Missing or null `schema.data` remains accepted for
+pages without inputs. External `$ref` resources are not fetched and unresolved
+references are errors. This validates the schema declaration, not runtime page
+data. `pack` and the AIX reader retain their existing schema pass-through behavior.
 
 Permission analysis recognizes direct calls such as `navigator.geolocation`,
 `navigator.mediaDevices.getUserMedia()`, and media-library reads. Dynamic

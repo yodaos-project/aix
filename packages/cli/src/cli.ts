@@ -54,8 +54,8 @@ async function main() {
     .helpGroup(PACKAGE_COMMANDS)
     .description("Statically check an AIX source directory")
     .addOption(new Option("--format <format>", "Diagnostic output format").choices(["text", "json"]).default("text"))
-    .action((inputDir: string, options: { format: string }) => {
-      cmdCheck(inputDir, options.format as "text" | "json");
+    .action(async (inputDir: string, options: { format: string }) => {
+      await cmdCheck(inputDir, options.format as "text" | "json");
     });
 
   program

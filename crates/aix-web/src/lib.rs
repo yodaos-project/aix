@@ -142,6 +142,16 @@ pub fn check_aix_from_source(files: JsValue) -> Result<JsValue, JsValue> {
     to_value(&report)
 }
 
+/// Check source files and return diagnostics with executed check coverage.
+#[wasm_bindgen]
+pub fn prepare_aix_check(files: JsValue) -> Result<JsValue, JsValue> {
+    let files: Vec<InputFile> = serde_wasm_bindgen::from_value(files)
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    let prepared = aix_pack::check::prepare_check_source(files)
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    to_value(&prepared)
+}
+
 #[wasm_bindgen]
 pub fn pack_aix_from_source_with_progress(
     files: JsValue,

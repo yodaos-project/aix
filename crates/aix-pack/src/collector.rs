@@ -198,7 +198,7 @@ fn read_directory_recursive(root: &Path, current: &Path, files: &mut Vec<InputFi
     Ok(())
 }
 
-fn normalize_inputs(files: Vec<InputFile>) -> Result<Vec<InputFile>> {
+pub(crate) fn normalize_inputs(files: Vec<InputFile>) -> Result<Vec<InputFile>> {
     files
         .into_iter()
         .map(|file| {

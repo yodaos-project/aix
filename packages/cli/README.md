@@ -62,7 +62,8 @@ Without `--engine`, the range comes from `app.json.engine`, then `*`.
 ### `aix check <INPUT_DIR>`
 
 Run static checks without writing an artifact. Checks include `app.json`,
-Page and Widget entries, local components, JS/TS syntax, and direct API calls
+Page and Widget entries, local components, JS/TS syntax,
+Page `schema.data` JSON Schemas, and direct API calls
 with known permission requirements. Errors exit with status 1; warnings do not.
 Use `--format json` for structured diagnostics. Dynamic permission use and
 host components may need manual review.
@@ -71,6 +72,38 @@ host components may need manual review.
 aix check ./my-agent
 aix check ./my-agent --format json
 ```
+
+Text output shows check stages on stderr, with an animated spinner in a
+terminal. Startup status appears before loading command modules and is replaced
+by later stages on the same progress line. Checks run
+in a Worker so progress remains responsive during source analysis. JSON
+mode omits progress and keeps stdout machine-readable.
+The final checklist lists JSON/text validation, App/Page/Widget/component structure,
+JS/TS syntax, permissions, and Page JSON Schemas. Each item retains its passed, warning, failed, or skipped status,
+with work counts and diagnostic counts. Checks blocked by invalid inputs or with
+no applicable work are marked skipped with a reason.
+
+```text
+✔ JSON syntax and text encoding (2 files)
+✔ App, Page, Widget, and component structure
+✔ JS/TS syntax (1 script)
+✔ Permission declarations and direct API use
+✔ Page JSON Schemas (1 schema)
+0 diagnostic(s)
+```
+
+JS/TS syntax checks include `.ts`, `.mts`, `.cts`, and Ink `<script lang="ts">`
+blocks, retaining original file locations. TypeScript semantic checks, import
+resolution, and compiler-option validation are currently excluded. No type
+environment is loaded. Checks never emit files or run project code.
+
+The complete check engine is shared with the Web SDK. The CLI reads the directory
+and formats diagnostics; the shared checker has no filesystem or network access.
+
+Page schemas are checked against their `$schema` draft (2020-12 by default),
+including nested keywords, patterns, and local references. Missing or null
+`schema.data` is accepted. External references are not fetched; unresolved refs
+are errors. This checks declarations, not runtime data. Invalid schemas use diagnostic code `AIX047`.
 
 ### `aix show <INPUT>`
 

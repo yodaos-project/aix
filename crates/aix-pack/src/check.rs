@@ -45,6 +45,37 @@ pub struct CheckReport {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+/// Diagnostics and executed check coverage shared by browser and CLI hosts.
+#[derive(Debug, Serialize)]
+pub struct PreparedCheck {
+    pub report: CheckReport,
+    pub coverage: CheckCoverage,
+}
+
+/// Work actually reached by the native checker, after source collection.
+#[derive(Debug, Default, Serialize)]
+pub struct CheckCoverage {
+    pub text_files: usize,
+    pub structure: bool,
+    pub scripts: usize,
+    pub schemas: usize,
+}
+
+pub fn prepare_check_source(files: Vec<InputFile>) -> Result<PreparedCheck> {
+    let files: Vec<_> = collector::normalize_inputs(files)?
+        .into_iter()
+        .filter(|file| !file.path.split('/').any(|part| part == ".aix"))
+        .collect();
+    let collected = collector::collect_inputs(files, &collector::CollectOptions::default())?;
+    let (report, coverage) = check_files_with_coverage(&collected);
+    Ok(PreparedCheck { report, coverage })
+}
+
+fn is_typescript_block(attributes: &str) -> bool {
+    let compact: String = attributes.chars().filter(|c| !c.is_whitespace()).collect();
+    compact.contains("lang=\"ts\"") || compact.contains("lang='ts'")
+}
+
 impl CheckReport {
     pub fn has_errors(&self) -> bool {
         self.diagnostics
@@ -110,17 +141,23 @@ pub fn check_directory(path: &Path) -> Result<CheckReport> {
 
 /// Check already collected package inputs without writing an artifact.
 pub fn check_files(files: &[InputFile]) -> CheckReport {
+    check_files_with_coverage(files).0
+}
+
+fn check_files_with_coverage(files: &[InputFile]) -> (CheckReport, CheckCoverage) {
     let entries: BTreeMap<&str, &[u8]> = files
         .iter()
         .map(|f| (f.path.as_str(), f.data.as_slice()))
         .collect();
     let mut report = CheckReport::default();
+    let mut coverage = CheckCoverage::default();
     let mut texts = BTreeMap::<&str, String>::new();
     let mut jsons = BTreeMap::<&str, Value>::new();
     for file in files {
         if !file.path.ends_with(".json") && !is_source(&file.path) {
             continue;
         }
+        coverage.text_files += 1;
         match normalize_text_to_utf8(&file.path, &file.data)
             .and_then(|(bytes, _)| String::from_utf8(bytes).map_err(Into::into))
         {
@@ -148,7 +185,7 @@ pub fn check_files(files: &[InputFile]) -> CheckReport {
         if !entries.contains_key("app.json") {
             report.error("AIX003", "app.json", "", 0, "app.json is required");
         }
-        return finish(report);
+        return (finish(report), coverage);
     };
     let app_text = texts.get("app.json").map(String::as_str).unwrap_or("");
     let Some(app) = app.as_object() else {
@@ -159,8 +196,9 @@ pub fn check_files(files: &[InputFile]) -> CheckReport {
             0,
             "app.json must be an object",
         );
-        return finish(report);
+        return (finish(report), coverage);
     };
+    coverage.structure = true;
     if let Some(engine) = app.get("engine") {
         match engine.as_str() {
             Some(range) => {
@@ -282,7 +320,14 @@ pub fn check_files(files: &[InputFile]) -> CheckReport {
                             );
                             continue;
                         }
-                        check_page(path, &entries, &jsons, &texts, &mut report);
+                        check_page(
+                            path,
+                            &entries,
+                            &jsons,
+                            &texts,
+                            &mut report,
+                            &mut coverage.schemas,
+                        );
                     }
                     Some(path) => report.error(
                         "AIX039",
@@ -427,13 +472,16 @@ pub fn check_files(files: &[InputFile]) -> CheckReport {
             || path.ends_with(".ts")
             || path.ends_with(".mjs")
             || path.ends_with(".mts")
+            || path.ends_with(".cjs")
+            || path.ends_with(".cts")
         {
+            coverage.scripts += 1;
             check_script(
                 path,
                 content,
                 0,
                 content,
-                path.ends_with(".ts") || path.ends_with(".mts"),
+                is_typescript_source(path),
                 &permissions,
                 &mut report,
             );
@@ -444,13 +492,13 @@ pub fn check_files(files: &[InputFile]) -> CheckReport {
                     .split_whitespace()
                     .any(|part| part == "def")
                 {
+                    coverage.scripts += 1;
                     check_script(
                         path,
                         block.body,
                         block.offset,
                         content,
-                        block.attributes.contains("lang=\"ts\"")
-                            || block.attributes.contains("lang='ts'"),
+                        is_typescript_block(block.attributes),
                         &permissions,
                         &mut report,
                     );
@@ -473,7 +521,7 @@ pub fn check_files(files: &[InputFile]) -> CheckReport {
         }
     }
     check_component_cycles(&texts, &jsons, &mut report);
-    finish(report)
+    (finish(report), coverage)
 }
 
 fn finish(mut report: CheckReport) -> CheckReport {
@@ -490,7 +538,13 @@ fn finish(mut report: CheckReport) -> CheckReport {
     report
 }
 fn is_source(path: &str) -> bool {
-    [".ink", ".js", ".ts", ".mjs", ".mts"]
+    [".ink", ".js", ".ts", ".mjs", ".mts", ".cjs", ".cts"]
+        .iter()
+        .any(|ext| path.ends_with(ext))
+}
+
+fn is_typescript_source(path: &str) -> bool {
+    [".ts", ".mts", ".cts"]
         .iter()
         .any(|ext| path.ends_with(ext))
 }
@@ -922,6 +976,7 @@ fn check_page(
     jsons: &BTreeMap<&str, Value>,
     texts: &BTreeMap<&str, String>,
     report: &mut CheckReport,
+    schemas: &mut usize,
 ) {
     let ink = format!("{path}.ink");
     if entries.contains_key(ink.as_str()) {
@@ -960,7 +1015,7 @@ fn check_page(
                     "Page <script def> must be an object",
                 );
             }
-            check_page_schema(&def, &ink, content, report);
+            check_page_schema(&def, &ink, content, report, schemas);
             check_components(
                 def.get("usingComponents"),
                 &ink,
@@ -999,7 +1054,7 @@ fn check_page(
                     "Page config must be an object",
                 );
             }
-            check_page_schema(def, &config, content, report);
+            check_page_schema(def, &config, content, report, schemas);
             check_components(
                 def.get("usingComponents"),
                 &config,
@@ -1012,7 +1067,13 @@ fn check_page(
         }
     }
 }
-fn check_page_schema(def: &Value, path: &str, content: &str, report: &mut CheckReport) {
+fn check_page_schema(
+    def: &Value,
+    path: &str,
+    content: &str,
+    report: &mut CheckReport,
+    schemas: &mut usize,
+) {
     if let Some(schema) = def.get("schema") {
         if !schema.is_null() && !schema.is_object() {
             report.error(
@@ -1024,6 +1085,54 @@ fn check_page_schema(def: &Value, path: &str, content: &str, report: &mut CheckR
             );
         }
     }
+    let Some(data) = def.pointer("/schema/data").filter(|data| !data.is_null()) else {
+        return;
+    };
+    *schemas += 1;
+    let base = if path.ends_with(".ink") {
+        blocks(content, "script")
+            .into_iter()
+            .find(|block| block.attributes.split_whitespace().any(|p| p == "def"))
+            .map_or(0, |block| block.offset)
+    } else {
+        0
+    };
+    // Validate against the selected draft's meta-schema before compiling. In
+    // addition to keyword types, compilation catches invalid patterns and refs.
+    let result = match jsonschema::meta::try_validate(data) {
+        Ok(Ok(())) => jsonschema::validator_for(data)
+            .map(|_| ())
+            .map_err(|error| (error.instance_path.to_string(), error.to_string())),
+        Ok(Err(error)) => Err((error.instance_path.to_string(), error.to_string())),
+        Err(error) => Err((String::new(), error.to_string())),
+    };
+    if let Err((pointer, message)) = result {
+        let pointer = format!("/schema/data{pointer}");
+        report.error(
+            "AIX047",
+            path,
+            content,
+            json_pointer_offset(content, base, &pointer),
+            format!("Invalid JSON Schema at {pointer}: {message}"),
+        );
+    }
+}
+
+fn json_pointer_offset(source: &str, mut offset: usize, pointer: &str) -> usize {
+    for segment in pointer.split('/').skip(1) {
+        let field = segment.replace("~1", "/").replace("~0", "~");
+        let next = if source.as_bytes().get(skip_space(source, offset)) == Some(&b'[') {
+            field
+                .parse::<usize>()
+                .ok()
+                .and_then(|index| array_items(source, offset).get(index).map(|range| range.0))
+        } else {
+            object_field(source, offset, &field).map(|(_, start, _)| start)
+        };
+        let Some(next) = next else { break };
+        offset = next;
+    }
+    offset
 }
 fn check_component_cycles(
     texts: &BTreeMap<&str, String>,
@@ -1767,5 +1876,128 @@ mod tests {
             .find(|d| d.code == "AIX029")
             .unwrap();
         assert_eq!(diagnostic.line, 2);
+    }
+
+    #[test]
+    fn validates_nested_page_json_schema_and_source_location() {
+        let content = "<script setup>const example = {schema: 1};</script>\n<script def>\n{\n  \"schema\": {\"data\": {\n    \"type\": \"object\",\n    \"properties\": {\"你好/a~b\": {\"type\": \"invalid\"}}\n  }}\n}\n</script><page><view /></page>";
+        let report = check(
+            r#"{"pages":["pages/home"]}"#,
+            &[("pages/home.ink", content)],
+        );
+        let diagnostic = report
+            .diagnostics
+            .iter()
+            .find(|d| d.code == "AIX047")
+            .unwrap();
+        assert_eq!(diagnostic.path, "pages/home.ink");
+        assert_eq!(diagnostic.line, 6);
+        assert!(diagnostic
+            .message
+            .contains("/schema/data/properties/你好~1a~0b/type"));
+        assert_eq!(diagnostic.severity, Severity::Error);
+    }
+
+    #[test]
+    fn accepts_json_schema_drafts_and_local_recursive_refs() {
+        for schema in [
+            r#"{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"count":{"type":"integer","minimum":0}},"required":["count"]}"#,
+            r##"{"$schema":"https://json-schema.org/draft/2020-12/schema","$defs":{"node":{"type":"object","properties":{"next":{"$ref":"#/$defs/node"}}}},"$ref":"#/$defs/node"}"##,
+            "{}",
+            "true",
+            "false",
+            "null",
+        ] {
+            let content = format!("{{\"schema\":{{\"data\":{schema}}}}}");
+            let report = check(
+                r#"{"pages":["pages/home"]}"#,
+                &[
+                    ("pages/home.json", &content),
+                    ("pages/home.wxml", "<view />"),
+                ],
+            );
+            assert!(!report.has_errors(), "{schema}: {:?}", report.diagnostics);
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_schema_keywords_refs_patterns_and_drafts() {
+        for schema in [
+            r#"{"type":"object","required":"name"}"#,
+            r#"{"type":"array","items":{"minimum":"zero"}}"#,
+            r#"{"type":"string","pattern":"["}"#,
+            r##"{"$ref":"#/$defs/missing"}"##,
+            r#"{"$schema":"https://example.invalid/custom-schema"}"#,
+            r#"{"$ref":"https://example.invalid/remote-schema"}"#,
+            "42",
+        ] {
+            let content = format!("{{\"schema\":{{\"data\":{schema}}}}}");
+            let report = check(
+                r#"{"pages":["pages/home"]}"#,
+                &[
+                    ("pages/home.json", &content),
+                    ("pages/home.wxml", "<view />"),
+                ],
+            );
+            assert!(
+                report.diagnostics.iter().any(|d| d.code == "AIX047"),
+                "{schema}: {:?}",
+                report.diagnostics
+            );
+        }
+    }
+
+    #[test]
+    fn checks_commonjs_and_typescript_declaration_syntax() {
+        let prepared = prepare_check_source(vec![
+            InputFile::new("app.json", br#"{"pages":[]}"#),
+            InputFile::new("helper.cjs", b"module.exports = 1;"),
+            InputFile::new(
+                "main.cts",
+                b"import value = require('helper'); export = value;",
+            ),
+            InputFile::new(
+                "types.d.cts",
+                b"declare const value: number; export = value;",
+            ),
+        ])
+        .unwrap();
+        assert!(
+            !prepared.report.has_errors(),
+            "{:?}",
+            prepared.report.diagnostics
+        );
+        assert_eq!(prepared.coverage.scripts, 3);
+    }
+
+    #[test]
+    fn coverage_tracks_collected_and_executed_checks() {
+        let prepared = prepare_check_source(vec![
+            InputFile::new("app.json", br#"{"pages":["home"]}"#),
+            InputFile::new(".aixignore", b"ignored.ts"),
+            InputFile::new("ignored.ts", b"const broken = ;"),
+            InputFile::new("helper.js", b"export const count = 1;"),
+            InputFile::new("home.ink", br#"<script def>{"schema":{"data":{"type":"object"}}}</script><page><view /></page><script lang="ts">const count: number = 1;</script>"#),
+        ])
+        .unwrap();
+        assert!(!prepared.report.has_errors());
+        assert_eq!(prepared.coverage.text_files, 3);
+        assert!(prepared.coverage.structure);
+        assert_eq!(prepared.coverage.scripts, 2);
+        assert_eq!(prepared.coverage.schemas, 1);
+    }
+
+    #[test]
+    fn coverage_does_not_mark_early_return_checks_as_executed() {
+        let prepared = prepare_check_source(vec![
+            InputFile::new("app.json", b"null"),
+            InputFile::new("main.ts", b"const broken = ;"),
+        ])
+        .unwrap();
+        assert!(prepared.report.has_errors());
+        assert_eq!(prepared.coverage.text_files, 2);
+        assert!(!prepared.coverage.structure);
+        assert_eq!(prepared.coverage.scripts, 0);
+        assert_eq!(prepared.coverage.schemas, 0);
     }
 }
