@@ -62,7 +62,8 @@ Text mode reports scanning, checker loading, source/schema validation, project
 resolution, and type-checking stages on stderr. A terminal displays an animated
 spinner; checking runs in a Worker to keep it responsive. `--format json`
 disables progress and preserves the structured report on stdout.
-Startup status appears before loading the CLI command modules.
+Startup status appears before loading the CLI command modules and is replaced
+by later stages on the same progress line.
 
 Type checking uses one TypeScript project for `.ts`, `.mts`, `.cts`, and Ink
 `<script lang="ts">` blocks, including imports and project `.d.ts` declarations.

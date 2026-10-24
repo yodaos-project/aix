@@ -74,7 +74,8 @@ aix check ./my-agent --format json
 ```
 
 Text output shows check stages on stderr, with an animated spinner in a
-terminal. Startup status appears before loading command modules. Checks run
+terminal. Startup status appears before loading command modules and is replaced
+by later stages on the same progress line. Checks run
 in a Worker so progress remains responsive during TypeScript analysis. JSON
 mode omits progress and keeps stdout machine-readable.
 

@@ -5,6 +5,11 @@ import type { CheckProgressEvent, CheckReport } from "../wasm";
 import type { CheckWorkerMessage } from "./check-worker";
 
 export async function cmdCheck(input: string, format: "text" | "json"): Promise<void> {
+  if (format === "text" && process.stderr.isTTY) {
+    // Replace the bootstrap status on the same line before Ora takes over.
+    process.stderr.cursorTo(0);
+    process.stderr.clearLine(0);
+  }
   const spinner = format === "text" && process.stderr.isTTY
     ? ora({ text: "Scanning source files", stream: process.stderr }).start()
     : undefined;

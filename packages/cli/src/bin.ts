@@ -14,7 +14,10 @@ if (args[0] === "check") {
     else if (arg.startsWith("--format=")) format = arg.slice("--format=".length);
   }
   if (format === "text" && !help) {
-    process.stderr.write("Starting source checks\n");
+    const text = "Starting source checks";
+    process.stderr.write(process.stderr.isTTY
+      ? `${text.slice(0, Math.max(1, (process.stderr.columns || 80) - 1))}\r`
+      : `${text}\n`);
   }
 }
 

@@ -44,7 +44,28 @@ try {
     assert.equal(result.stderr, marker, 'Help must not print startup progress');
     assert.match(result.stdout, /Statically check an AIX source directory/);
   }
+  const terminalProbe = path.join(startupRoot, 'terminal.cjs');
+  writeFileSync(terminalProbe, `const readline = require('node:readline');
+    Object.defineProperty(process.stderr, 'isTTY', {value: true});
+    process.stderr.columns = 80;
+    for (const method of ['cursorTo', 'clearLine', 'moveCursor']) {
+      process.stderr[method] = (...args) => readline[method](process.stderr, ...args);
+    }`);
+  const terminalEnv = { ...process.env, TERM: 'xterm-256color' };
+  delete terminalEnv.CI;
+  const terminal = spawnSync(process.execPath, ['--require', terminalProbe, path.join(cliRoot, 'dist/cli.js'), 'check', input], { encoding: 'utf8', env: terminalEnv });
+  assert.equal(terminal.status, 0, terminal.stderr);
+  assert(terminal.stderr.startsWith('Starting source checks\r'), JSON.stringify(terminal.stderr));
+  assert(!terminal.stderr.includes('\n'), 'Terminal progress must reuse one line without persisting the startup status');
+  assert.match(terminal.stderr, /Scanning source files/);
+  assert.match(terminal.stdout, /0 diagnostic\(s\)/);
+  for (const options of [['--format', 'json'], ['--help']]) {
+    const quiet = spawnSync(process.execPath, ['--require', terminalProbe, path.join(cliRoot, 'dist/cli.js'), 'check', input, ...options], { encoding: 'utf8', env: terminalEnv });
+    assert.equal(quiet.status, 0, quiet.stderr);
+    assert.equal(quiet.stderr, '', 'Terminal JSON/help output must not include progress');
+  }
   console.log('ok - startup progress precedes command loading; JSON and help stay quiet');
+  console.log('ok - terminal progress replaces the startup status on the same line');
 } finally {
   rmSync(startupRoot, { recursive: true, force: true });
 }
