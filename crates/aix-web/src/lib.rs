@@ -1,4 +1,4 @@
-use aix::AixReader;
+use aix::{AixReadLimits, AixReader};
 use aix_pack::{collector::CollectOptions, InputFile, OptimizeOptions, PackOptions};
 use anyhow::Result;
 use js_sys::Function;
@@ -264,9 +264,35 @@ fn pack_output_from_source(
 
 #[wasm_bindgen]
 impl AixReaderWasm {
+    /// Compatibility constructor without caller resource budgets.
     #[wasm_bindgen(constructor)]
     pub fn new(data: Vec<u8>) -> Result<AixReaderWasm, JsValue> {
         let inner = AixReader::new(data).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        Ok(AixReaderWasm { inner })
+    }
+
+    /// Create a reader with inclusive caller budgets. Omitted fields are unlimited.
+    pub fn with_limits(data: Vec<u8>, limits: JsValue) -> Result<AixReaderWasm, JsValue> {
+        if !limits.is_object() || limits.is_null() || js_sys::Array::is_array(&limits) {
+            return Err(JsValue::from_str("Invalid read limits: expected an object"));
+        }
+        // serde-wasm-bindgen only visits known struct fields, so serde's
+        // deny_unknown_fields cannot catch a misspelled budget on its own.
+        for key in js_sys::Object::keys(limits.unchecked_ref::<js_sys::Object>()).iter() {
+            if !matches!(
+                key.as_string().as_deref(),
+                Some("maxEntries" | "maxEntryBytes" | "maxTotalBytes")
+            ) {
+                return Err(JsValue::from_str(&format!(
+                    "Invalid read limits: unknown field {:?}",
+                    key.as_string()
+                )));
+            }
+        }
+        let limits: AixReadLimits = serde_wasm_bindgen::from_value(limits)
+            .map_err(|error| JsValue::from_str(&format!("Invalid read limits: {}", error)))?;
+        let inner = AixReader::new_with_limits(data, limits)
+            .map_err(|error| JsValue::from_str(&error.to_string()))?;
         Ok(AixReaderWasm { inner })
     }
 

@@ -30,6 +30,30 @@ async function fromFile(file: File) {
 }
 ```
 
+## Archive Resource Limits
+
+Pass caller-selected budgets when reading untrusted packages:
+
+```typescript
+const aix = await AIX.From(file, {
+  maxEntries: 1024,
+  maxEntryBytes: 8 * 1024 * 1024,
+  maxTotalBytes: 32 * 1024 * 1024,
+});
+```
+
+All limits are inclusive non-negative safe integers. Directories and signature
+metadata count too. Metadata is rejected before extraction if over budget;
+extraction also bounds output and retains CRC and size checks. `maxTotalBytes`
+is the sum of declared uncompressed sizes, not a cumulative read budget.
+Zero allows no entries or bytes. Omitted fields and the original `AIX.From(data)`
+call remain unlimited for compatibility; set all three limits for untrusted
+packages. The input archive buffer, parsed objects, and retained copies need
+separate budgets. This policy applies to readers, not `AIX.optimize`.
+
+Direct WASM consumers can call `AixReaderWasm.with_limits(data, limits)` using
+the same fields. The existing `new AixReaderWasm(data)` constructor is unchanged.
+
 ## Check Source Files
 
 The Web SDK and npm CLI use the same complete in-memory check engine:

@@ -102,6 +102,16 @@ export interface AixEntry {
   compressed_size: number;
 }
 
+/** Inclusive archive budgets. Omitted fields are unlimited for compatibility. */
+export interface AixReadLimits {
+  /** Maximum central-directory entries, including directories and metadata. */
+  maxEntries?: number;
+  /** Maximum declared and extracted bytes per entry. */
+  maxEntryBytes?: number;
+  /** Maximum total declared uncompressed bytes; repeated reads do not consume it. */
+  maxTotalBytes?: number;
+}
+
 export interface PageInfo {
   name: string;
   title?: string;
@@ -155,8 +165,12 @@ export class AIX {
   /**
    * Initialize the WASM module and create an AIX instance from the given data.
    * @param data The .aix file content as Uint8Array or File
+   * @param limits Caller budgets; set all three when accepting untrusted archives.
+   * Values must be non-negative safe integers. Without limits, retains the
+   * historical unlimited policy. Input bytes and caller-retained copies are
+   * outside these budgets.
    */
-  static async From(data: Uint8Array | File): Promise<AIX> {
+  static async From(data: Uint8Array | File, limits?: AixReadLimits): Promise<AIX> {
     await init();
     let buffer: Uint8Array;
     if (data instanceof Uint8Array) {
@@ -165,7 +179,9 @@ export class AIX {
       const arrayBuffer = await data.arrayBuffer();
       buffer = new Uint8Array(arrayBuffer);
     }
-    const reader = new AixReaderWasm(buffer);
+    const reader = limits === undefined
+      ? new AixReaderWasm(buffer)
+      : AixReaderWasm.with_limits(buffer, limits);
     return new AIX(reader);
   }
 
