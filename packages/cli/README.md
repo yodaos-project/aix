@@ -100,14 +100,37 @@ with original file locations, imports, project declarations, and `tsconfig.json`
 compiler options/`extends`. One project `Program` uses `files`/`include`/`exclude`
 to select roots and follows their imports, preserving NodeNext ESM/CJS resolution
 and conditional exports. `.aixignore` excludes source availability. Without a
-config, strict ES2022 checks use Ink's `@yodaos-pkg/ink-env` types; the project's
-copy is preferred, with embedded declarations as a fallback. No files are emitted.
+config, checks use strict ES2022 settings. Ink declarations are selected separately
+from AIX and the preview runtime; no Ink type version is bundled. No files are emitted.
 JavaScript is syntax-checked and supplies inferred types when imported.
 
-The complete check engine is shared with the Web SDK. The CLI only reads the
-directory and formats diagnostics; type resolution uses that input snapshot,
-including configs and dependency declarations. Files outside the supplied tree
-are not read, and dependencies are not downloaded.
+The complete check engine is shared with the Web SDK. The CLI supplies source
+and selected type files and formats diagnostics; type resolution uses that snapshot,
+including configs and dependency declarations. The shared checker has no
+filesystem or network access. The CLI supplies any explicitly selected type package.
+
+Choose declarations by installing and locking `@yodaos-pkg/ink-env` in the project,
+or select a global default as with the preview runtime:
+
+```bash
+npm install --save-dev --save-exact @yodaos-pkg/ink-env@<version>
+aix types versions
+aix types select <version>       # omit version for an interactive list
+aix types current
+aix check ./my-agent --types-version <version>  # one check only
+aix types reset                  # clear the global default
+```
+
+Precedence is `--types-version`, then the project's installed `ink-env`, then the
+global selection. Global selection is saved separately in `~/.aix/types.json`;
+preview runtime selection is unchanged. Versions and npm dist-tags are accepted;
+`select` resolves tags to an exact version. Selected declarations are verified
+against npm integrity metadata, cached under `~/.aix/types/ink-env`, and reused
+offline. Package scripts are not run. Packages with dependencies should be
+installed in the project. `AIX_NPM_REGISTRY=npm|npmmirror` selects the registry.
+There is no implicit latest-version download or built-in Ink fallback.
+Without declarations, Ink globals produce normal missing-name diagnostics.
+Explicit `tsconfig.compilerOptions.types` (including `[]`) is respected.
 
 Page schemas are checked against their `$schema` draft (2020-12 by default),
 including nested keywords, patterns, and local references. Missing or null

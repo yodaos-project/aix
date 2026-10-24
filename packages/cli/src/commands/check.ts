@@ -4,7 +4,7 @@ import ora from "ora";
 import type { CheckProgressEvent, CheckReport, CheckResult } from "../wasm";
 import type { CheckWorkerMessage } from "./check-worker";
 
-export async function cmdCheck(input: string, format: "text" | "json"): Promise<void> {
+export async function cmdCheck(input: string, format: "text" | "json", typesVersion?: string): Promise<void> {
   if (format === "text" && process.stderr.isTTY) {
     // Replace the bootstrap status on the same line before Ora takes over.
     process.stderr.cursorTo(0);
@@ -23,10 +23,11 @@ export async function cmdCheck(input: string, format: "text" | "json"): Promise<
   let report: CheckReport;
   try {
     report = await new Promise<CheckReport>((resolve, reject) => {
-      const worker = new Worker(path.join(__dirname, "check-worker.js"), { workerData: { input } });
+      const worker = new Worker(path.join(__dirname, "check-worker.js"), { workerData: { input, typesVersion } });
       let result: CheckReport | undefined;
       worker.on("message", (message: CheckWorkerMessage) => {
         if (message.type === "report") result = message.report;
+        else if (message.type === "type_environment") status(`Loading Ink type declarations (${message.version})`);
         else if (message.event.type === "check_finished") checks.push(message.event.check);
         else status(formatProgress(message.event));
       });

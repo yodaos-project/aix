@@ -4,16 +4,16 @@ import type { CheckDiagnostic, CheckOptions, PreparedCheck } from './types.js';
 
 const ROOT = '/project/';
 const LIB = '/__aix__/typescript/';
-const INK = '/__aix__/node_modules/@yodaos-pkg/ink-env/index.d.ts';
 
 /** No ambient filesystem, process, network, or compiler output is used here. */
-export function checkTypeScript(prepared: PreparedCheck, onProgress?: CheckOptions['onProgress']): {
+export function checkTypeScript(prepared: PreparedCheck, checkOptions: CheckOptions = {}): {
   diagnostics: CheckDiagnostic[];
   rootCount?: number;
 } {
   if (!prepared.scripts.some((script) => script.typescript && !script.path.endsWith('.d.ts'))
     && !prepared.files.some((file) => file.path === 'tsconfig.json')) return { diagnostics: [] };
 
+  const { onProgress } = checkOptions;
   onProgress?.({ type: 'configuring_typescript' });
   const diagnostics: CheckDiagnostic[] = [];
   const originals = new Map<string, { path: string; source: string }>();
@@ -34,6 +34,31 @@ export function checkTypeScript(prepared: PreparedCheck, onProgress?: CheckOptio
     originals.set(name, script);
     sourceNames.set(resolve(ROOT, script.path), name);
     if (script.typescript) roots.push(name);
+  }
+  const typeFiles = checkOptions.typeFiles ?? [];
+  const suppliedNames = new Set<string>();
+  for (const file of typeFiles) {
+    if (!file.path || /[\\\x00:]/.test(file.path)
+      || file.path.split('/').some((part) => !part || part === '.' || part === '..')
+      || !/(?:\.d\.[cm]?ts|\.json)$/.test(file.path)) {
+      throw new Error(`Invalid type file path: ${file.path}`);
+    }
+    if (suppliedNames.has(file.path)) throw new Error(`Duplicate type file path: ${file.path}`);
+    suppliedNames.add(file.path);
+  }
+  // Version selection replaces an entire package, so removed declarations from
+  // another version cannot leak into imports or triple-slash references.
+  for (const file of typeFiles) {
+    if (!/^node_modules\/(?:@[^/]+\/)?[^/]+\/package\.json$/.test(file.path)) continue;
+    const prefix = resolve(ROOT, file.path).slice(0, -'package.json'.length);
+    for (const name of files.keys()) if (name.startsWith(prefix)) files.delete(name);
+    for (const name of originals.keys()) if (name.startsWith(prefix)) originals.delete(name);
+    roots = roots.filter((name) => !name.startsWith(prefix));
+  }
+  for (const file of typeFiles) {
+    const name = resolve(ROOT, file.path);
+    files.set(name, file.source);
+    originals.set(name, file);
   }
   const directories = new Set<string>(['/']);
   for (const file of files.keys()) {
@@ -71,6 +96,7 @@ export function checkTypeScript(prepared: PreparedCheck, onProgress?: CheckOptio
     skipLibCheck: true,
   };
   let projectReferences: readonly ts.ProjectReference[] | undefined;
+  let configuredTypes = false;
   const configPath = resolve(ROOT, 'tsconfig.json');
   if (system.fileExists(configPath)) {
     const config = ts.readJsonConfigFile(configPath, system.readFile);
@@ -81,15 +107,17 @@ export function checkTypeScript(prepared: PreparedCheck, onProgress?: CheckOptio
       [{ extension: '.ink', scriptKind: ts.ScriptKind.Deferred, isMixedContent: true }],
     );
     options = { ...options, moduleDetection: ts.ModuleDetectionKind.Auto, ...parsed.options };
+    configuredTypes = parsed.options.types !== undefined;
     if (parsed.options.module !== undefined && parsed.options.moduleResolution === undefined) delete options.moduleResolution;
     roots = parsed.fileNames.map((name) => sourceNames.get(normalize(name)) ?? name);
     projectReferences = parsed.projectReferences;
     diagnostics.push(...ts.getConfigFileParsingDiagnostics(parsed).map((error) => convert(error, 'AIX049')));
   }
   options = { ...options, noEmit: true, emitDeclarationOnly: false, allowJs: true, checkJs: false };
-  const inkTypes = ts.resolveTypeReferenceDirective(
+  if (checkOptions.types !== undefined) options.types = checkOptions.types;
+  else if (!configuredTypes && ts.resolveTypeReferenceDirective(
     '@yodaos-pkg/ink-env', resolve(ROOT, '__aix_types__.ts'), options, system,
-  ).resolvedTypeReferenceDirective?.resolvedFileName ?? INK;
+  ).resolvedTypeReferenceDirective) options.types = ['@yodaos-pkg/ink-env'];
 
   const host: ts.CompilerHost = {
     ...system,
@@ -123,16 +151,12 @@ export function checkTypeScript(prepared: PreparedCheck, onProgress?: CheckOptio
     resolveTypeReferenceDirectiveReferences: (names, containingFile, redirectedReference, compilerOptions, containingSourceFile) => names.map((entry) => {
       const name = typeof entry === 'string' ? entry : entry.fileName;
       const mode = (typeof entry === 'string' ? undefined : entry.resolutionMode) ?? containingSourceFile?.impliedNodeFormat;
-      const result = ts.resolveTypeReferenceDirective(name, containingFile, compilerOptions, system, redirectedReference, undefined, mode);
-      if (!result.resolvedTypeReferenceDirective && name === '@yodaos-pkg/ink-env') {
-        return { ...result, resolvedTypeReferenceDirective: { resolvedFileName: inkTypes, primary: false } };
-      }
-      return result;
+      return ts.resolveTypeReferenceDirective(name, containingFile, compilerOptions, system, redirectedReference, undefined, mode);
     }),
   };
   // One project Program owns the import graph and symbol table for all roots.
   onProgress?.({ type: 'resolving_typescript_project', rootCount: roots.length });
-  const program = ts.createProgram({ rootNames: [...roots, inkTypes], options, host, projectReferences });
+  const program = ts.createProgram({ rootNames: roots, options, host, projectReferences });
   onProgress?.({ type: 'checking_typescript', rootCount: roots.length });
   diagnostics.push(...program.getOptionsDiagnostics().map((error) => convert(error, 'AIX049')));
   diagnostics.push(...[

@@ -56,10 +56,11 @@ invalid input paths or collection failures reject the promise.
 
 `checkFromSource` takes paths relative to the application root. `checkFromFiles`
 uses `webkitRelativePath`, removing the selected directory's outer folder.
-Both apply nested `.aixignore` rules. The compiler and standard/Ink declarations
-load only when checking is first requested; they are bundled, so no Node
-filesystem, Node polyfills, or external type downloads are required. The same
-API also works in a Web Worker.
+Both apply nested `.aixignore` rules. The compiler and TypeScript standard
+libraries load only when checking is first requested. Ink declarations are
+chosen by the developer and are not bundled with AIX. No Node filesystem,
+Node polyfills, or automatic type downloads are used. The same API also works
+in a Web Worker.
 
 Both methods accept `CheckOptions` with an optional `onProgress` callback.
 `CheckProgressEvent` reports checker loading, source/schema validation (input
@@ -76,7 +77,7 @@ report, so JSON callers do not need to parse terminal output.
 
 Include `tsconfig.json`, extended configs, installed package metadata, and
 dependency declarations in the input snapshot when needed. Project Ink types
-are preferred to the embedded fallback; ignored `node_modules` declarations
+are used when available; ignored `node_modules` declarations
 remain usable for type resolution. Ordinary ignored sources are excluded from
 type checking and imports. Files outside the supplied snapshot are not read.
 The checker creates one TypeScript `Program` for the project. `tsconfig.json`
@@ -87,6 +88,32 @@ all collected TypeScript scripts are roots. Ink scripts can be selected with
 `*.ink` globs and remain isolated modules. NodeNext checks preserve ESM/CJS
 format, conditional import/require exports, and required ESM extensions.
 Checks do not emit or run code.
+
+To select an Ink version independently of AIX, supply that version's declarations
+and package metadata as `typeFiles`. Paths are relative to the project root;
+these files participate only in TypeScript resolution, not source checks or
+packing. The caller obtains the desired package version; the checker does not
+fetch it. Both check methods accept these options:
+
+```typescript
+await AIX.checkFromSource(sources, {
+  typeFiles: [
+    { path: 'node_modules/@yodaos-pkg/ink-env/package.json', source: selectedPackageJson },
+    { path: 'node_modules/@yodaos-pkg/ink-env/index.d.ts', source: selectedDeclarations },
+    // Include the selected package's other referenced declaration files too.
+  ],
+  types: ['@yodaos-pkg/ink-env'],
+  onProgress(event) { console.log(event.type); },
+});
+```
+
+A supplied package's `package.json` replaces that entire installed package's
+type snapshot, including removing declarations absent from the selected version.
+`types` overrides `tsconfig.json`'s `compilerOptions.types`; otherwise the config
+is respected. If neither specifies `types`, an available project/supplied
+`@yodaos-pkg/ink-env` is loaded automatically. `types: []` disables that automatic
+inclusion. Without Ink declarations, Ink globals produce normal TypeScript
+missing-name errors. DOM and Node types are not included by default.
 
 Page `schema.data` is validated against `$schema` (2020-12 by default), including
 nested keywords, patterns, and local references. Missing/null schemas remain

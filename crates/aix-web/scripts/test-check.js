@@ -11,6 +11,8 @@ const dist = process.env.AIX_WEB_DIST || path.resolve(__dirname, '../dist');
 const cli = process.env.AIX_CLI_PATH || path.resolve(__dirname, '../../../packages/cli/dist/cli.js');
 
 async function main() {
+  const cliHome = fs.mkdtempSync(path.join(os.tmpdir(), 'aix-web-cli-home-'));
+  const cliEnv = {...process.env, HOME: cliHome, USERPROFILE: cliHome};
   const requests = [];
   const server = http.createServer((request, response) => {
     const pathname = new URL(request.url, 'http://localhost').pathname;
@@ -23,7 +25,7 @@ async function main() {
       response.end(`import { AIX } from './index.js';
         onmessage = async ({data}) => {
           const checks = [];
-          try { postMessage({report: await AIX.checkFromSource(data, {
+          try { postMessage({report: await AIX.checkFromSource(data.files, { ...data.options,
             onProgress(event) { if (event.type === 'check_finished') checks.push(event.check); }
           }), checks}); }
           catch (error) { postMessage({error: String(error)}); }
@@ -55,7 +57,7 @@ async function main() {
           fs.mkdirSync(path.dirname(target), { recursive: true });
           fs.writeFileSync(target, content);
         }
-        const result = spawnSync(process.execPath, [cli, 'check', root, '--format', 'json'], { encoding: 'utf8' });
+        const result = spawnSync(process.execPath, [cli, 'check', root, '--format', 'json'], { encoding: 'utf8', env: cliEnv });
         assert([0, 1].includes(result.status), result.stderr);
         const expected = JSON.parse(result.stdout);
         const { reports, progress, fileProgress, workerChecks } = await page.evaluate(async (files) => {
@@ -74,7 +76,7 @@ async function main() {
           const workerReport = await new Promise((resolve, reject) => {
             worker.onmessage = ({data}) => data.error ? reject(new Error(data.error)) : resolve(data);
             worker.onerror = (event) => reject(new Error(event.message));
-            worker.postMessage(sources);
+            worker.postMessage({files: sources});
           });
           const progress = [];
           const fileProgress = [];
@@ -103,13 +105,34 @@ async function main() {
         fs.rmSync(root, { recursive: true, force: true });
       }
     }
+    for (const {name, files, options, verify} of require('../tests/type-options-cases.cjs')) {
+      const reports = await page.evaluate(async ({files, options}) => {
+        const sources = Object.entries(files).map(([path, source]) => ({path, data: new TextEncoder().encode(source)}));
+        const browserFiles = Object.entries(files).map(([path, source]) => {
+          const file = new File([source], path.split('/').pop());
+          Object.defineProperty(file, 'webkitRelativePath', {value: path});
+          return file;
+        });
+        const worker = window.checkWorker;
+        const workerReport = await new Promise((resolve, reject) => {
+          worker.onmessage = ({data}) => data.error ? reject(new Error(data.error)) : resolve(data.report);
+          worker.postMessage({files: sources, options});
+        });
+        return [await window.AIX.checkFromSource(sources, options), await window.AIX.checkFromFiles(browserFiles, options), workerReport];
+      }, {files, options});
+      for (const report of reports) verify(report);
+      assert.deepEqual(reports[0], reports[1]);
+      assert.deepEqual(reports[0], reports[2]);
+      console.log(`ok - browser/Worker: ${name}`);
+    }
     await page.evaluate(() => window.checkWorker?.terminate());
     assert.deepEqual(pageErrors, []);
-    assert(requests.every((request) => !request.includes('node_modules')), 'Types must be embedded');
+    assert(requests.every((request) => !request.includes('node_modules')), 'The checker must not download type packages');
     console.log(`${cases.length} browser SDK / Web Worker / CLI parity tests passed`);
   } finally {
     await browser?.close();
     await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(cliHome, {recursive: true, force: true});
   }
 }
 

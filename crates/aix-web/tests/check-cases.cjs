@@ -20,15 +20,18 @@ test("catches semantic errors across imports", {
   assert.equal(diagnostics[0].line, 2);
   assert.match(diagnostics[0].message, /TS2322/);
 });
-test("uses Ink globals without ambient Node pollution", {
+test("uses explicitly installed Ink globals without ambient Node pollution", {
+  "node_modules/@yodaos-pkg/ink-env/package.json": '{"types":"index.d.ts"}',
+  "node_modules/@yodaos-pkg/ink-env/index.d.ts": 'declare const console: { log(...args: unknown[]): void }; declare function setTimeout(callback: () => void, delay: number): number; declare function fetch(url: string): Promise<unknown>;',
   "main.ts": "console.log('Ink');\nconst id: number = setTimeout(() => {}, 10);\nfetch('https://example.com');",
 }, clean);
 test("resolves project declarations and imported JS types", {
   "types.d.ts": "declare const custom: number;",
   "value.js": "export const value = 'hello';",
-  "main.ts": "import { value } from './value.js';\nconst text: string = value; console.log(custom);",
+  "main.ts": "import { value } from './value.js';\nconst text: string = value; void custom;",
 }, clean);
 test("honors tsconfig extends and path aliases", {
+  "node_modules/@yodaos-pkg/ink-env/index.d.ts": 'declare const console: { log(...args: unknown[]): void };',
   "base.json": '{"compilerOptions":{"module":"CommonJS","strict":false,"baseUrl":".","paths":{"@lib/*":["lib/*"]}}}',
   "tsconfig.json": '{"extends":"./base.json","compilerOptions":{"types":["@yodaos-pkg/ink-env"]}}',
   "lib/value.ts": "export const value: number = 1;",
@@ -69,7 +72,7 @@ test("prefers project Ink declarations", {
 test("ignored files stay excluded even when imported", {
   ".aixignore": "ignored.ts\n",
   "ignored.ts": "export const value: number = 'bad';",
-  "main.ts": "import { value } from './ignored'; console.log(value);",
+  "main.ts": "import { value } from './ignored'; void value;",
 }, (diagnostics) => {
   assert.equal(diagnostics.length, 1);
   assert.equal(diagnostics[0].path, "main.ts");
@@ -86,7 +89,7 @@ test("reports CLI errors as JSON and exits 1", {
   assert(diagnostics.some((d) => d.code === "AIX048" && d.message.includes("TS2322")));
 });
 test("keeps warning-only exit status and text output", {
-  "main.ts": "fetch('https://example.com');",
+  "main.ts": "declare function fetch(url: string): Promise<unknown>; fetch('https://example.com');",
 }, (_, root) => {
   const result = spawnSync(process.execPath, [path.join(cliRoot, "dist/cli.js"), "check", root], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stdout + result.stderr);
@@ -240,7 +243,7 @@ test('does not pass source checks blocked by invalid app metadata', {
 
 test('keeps successful checks alongside schema type and permission issues', {
   'app.json': '{"pages":["home"]}',
-  'home.ink': '<script def>{"schema":{"data":{"type":"invalid"}}}</script><page><view /></page><script lang="ts">const count: number = "bad"; fetch("https://example.com");</script>',
+  'home.ink': '<script def>{"schema":{"data":{"type":"invalid"}}}</script><page><view /></page><script lang="ts">declare function fetch(url: string): Promise<unknown>; const count: number = "bad"; fetch("https://example.com");</script>',
 }, (diagnostics, _, report) => {
   assert(diagnostics.some((diagnostic) => diagnostic.code === 'AIX048'));
   assert(report.diagnostics.some((diagnostic) => diagnostic.code === 'AIX047'));
@@ -257,5 +260,26 @@ test('does not pass permission analysis blocked by script syntax errors', {
   assert.equal(checks.find((check) => check.id === 'syntax').status, 'failed');
   assert.equal(checks.find((check) => check.id === 'permissions').status, 'skipped');
 });
+
+test('does not supply an implicit Ink version', {
+  'main.ts': 'setTimeout(() => {}, 10);',
+}, (diagnostics) => {
+  assert.equal(diagnostics.length, 1);
+  assert.match(diagnostics[0].message, /TS2304.*setTimeout/);
+});
+
+test('respects explicit types opt-out instead of forcing installed Ink types', {
+  'node_modules/@yodaos-pkg/ink-env/index.d.ts': 'declare const selectedInk: number;',
+  'tsconfig.json': '{"compilerOptions":{"types":[]}}',
+  'main.ts': 'void selectedInk;',
+}, (diagnostics) => {
+  assert.equal(diagnostics.length, 1);
+  assert.match(diagnostics[0].message, /TS2304.*selectedInk/);
+});
+
+test('reports a requested but absent Ink environment', {
+  'tsconfig.json': '{"compilerOptions":{"types":["@yodaos-pkg/ink-env"]}}',
+  'main.ts': 'export {};',
+}, (diagnostics) => assert(diagnostics.some((diagnostic) => /TS2688/.test(diagnostic.message))));
 
 module.exports = cases;

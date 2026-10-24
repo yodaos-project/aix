@@ -13,7 +13,7 @@ export function checkSource(
   options.onProgress?.({ type: 'checking_sources', fileCount: files.length });
   const prepared = engine.prepare_aix_check(files);
   for (const check of sourceResults(prepared)) options.onProgress?.({ type: 'check_finished', check });
-  const typescript = checkTypeScript(prepared, options.onProgress);
+  const typescript = checkTypeScript(prepared, options);
   for (const check of typeScriptResults(typescript.diagnostics, typescript.rootCount)) {
     options.onProgress?.({ type: 'check_finished', check });
   }

@@ -31,6 +31,13 @@ export type CheckProgressEvent =
 
 export interface CheckOptions {
   onProgress?: (event: CheckProgressEvent) => void;
+  /** Developer-supplied declarations/package metadata, relative to the project root.
+   * These files are used only by TypeScript, never packaged or source-checked.
+   * A supplied package.json replaces that package's installed type snapshot.
+   */
+  typeFiles?: { path: string; source: string }[];
+  /** Override tsconfig compilerOptions.types. An empty array disables automatic Ink types. */
+  types?: string[];
 }
 
 export interface CheckScriptSource {

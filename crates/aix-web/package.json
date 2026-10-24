@@ -9,7 +9,6 @@
     "dist/"
   ],
   "devDependencies": {
-    "@yodaos-pkg/ink-env": "^0.16.0",
     "esbuild": "^0.24.2",
     "playwright": "^1.64.1",
     "typescript": "^5.9.3"

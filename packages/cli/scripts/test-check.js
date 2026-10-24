@@ -8,6 +8,13 @@ const cases = require('../../../crates/aix-web/tests/check-cases.cjs');
 const cliRoot = path.resolve(__dirname, '..');
 const { checkSource } = require('../dist/pkg/check.cjs');
 const engine = require('../dist/pkg/aix_web.js');
+// A developer's selected global types must not affect deterministic fixtures.
+const testHome = mkdtempSync(path.join(tmpdir(), 'aix-check-home-'));
+process.env.HOME = testHome;
+process.env.USERPROFILE = testHome;
+process.on('exit', () => rmSync(testHome, {recursive: true, force: true}));
+assert(!require('node:fs').readFileSync(path.join(cliRoot, 'dist/pkg/check.cjs'), 'utf8').includes('/__aix__/node_modules/'),
+  'The checker must not bundle an Ink declaration snapshot');
 
 // Observe command-module loading rather than relying on machine-specific timing.
 // Even a cold/slow command bundle must be preceded by visible startup progress.
@@ -75,7 +82,7 @@ try {
   assert.match(stripVTControlCharacters(failed.stderr), /✖ TypeScript project types and imports \(1 root\): 1 error\n$/);
   assert.match(stripVTControlCharacters(failed.stderr), /✔ JS\/TS syntax \(1 script\)/);
   assert(!failed.stderr.includes('Checks passed'), failed.stderr);
-  writeFileSync(path.join(input, 'main.ts'), 'fetch("https://example.com");');
+  writeFileSync(path.join(input, 'main.ts'), 'declare function fetch(url: string): Promise<unknown>; fetch("https://example.com");');
   const warned = spawnSync(process.execPath, ['--require', terminalProbe, path.join(cliRoot, 'dist/cli.js'), 'check', input], { encoding: 'utf8', env: terminalEnv });
   assert.equal(warned.status, 0, warned.stderr);
   assert.match(stripVTControlCharacters(warned.stderr), /⚠ Permission declarations and direct API use: 1 warning/);
@@ -139,3 +146,15 @@ for (const { name, files, verify, verifyChecks } of cases) {
   }
 }
 console.log(`${cases.length} shared checker / CLI parity tests passed`);
+
+for (const { name, files, options, verify } of require('../../../crates/aix-web/tests/type-options-cases.cjs')) {
+  const inputs = Object.entries(files).map(([path, source]) => ({path, data: Buffer.from(source)}));
+  verify(checkSource(inputs, engine, options));
+  console.log(`ok - ${name}`);
+}
+for (const path of ['../escape.d.ts', '/absolute.d.ts', 'C:/escape.d.ts', 'node_modules/../escape.d.ts', 'main.ts']) {
+  assert.throws(() => checkSource([
+    {path: 'app.json', data: Buffer.from('{"pages":[]}')},
+    {path: 'main.ts', data: Buffer.from('export {};')},
+  ], engine, {typeFiles: [{path, source: ''}]}), /Invalid type file path/);
+}

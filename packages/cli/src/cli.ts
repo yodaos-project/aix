@@ -14,6 +14,7 @@ import {
 } from "./commands/launch";
 import { cmdShow } from "./commands/show";
 import { cmdCheck } from "./commands/check";
+import { cmdTypesCurrent, cmdTypesReset, cmdTypesSelect, cmdTypesVersions } from "./commands/types";
 import { formatError } from "./ui/status";
 import { confirm } from "@inquirer/prompts";
 
@@ -54,8 +55,9 @@ async function main() {
     .helpGroup(PACKAGE_COMMANDS)
     .description("Statically check an AIX source directory")
     .addOption(new Option("--format <format>", "Diagnostic output format").choices(["text", "json"]).default("text"))
-    .action(async (inputDir: string, options: { format: string }) => {
-      await cmdCheck(inputDir, options.format as "text" | "json");
+    .option("--types-version <version>", "Use an ink-env version or dist-tag for this check")
+    .action(async (inputDir: string, options: { format: string; typesVersion?: string }) => {
+      await cmdCheck(inputDir, options.format as "text" | "json", options.typesVersion);
     });
 
   program
@@ -222,6 +224,15 @@ async function main() {
     .action(async () => {
       await cmdRuntimeSelect();
     });
+
+  const types = program.command("types")
+    .helpGroup(PACKAGE_COMMANDS)
+    .description("Choose Ink type declarations independently of the preview runtime")
+    .action(() => { types.outputHelp(); });
+  types.command("versions").description("List published ink-env versions").action(cmdTypesVersions);
+  types.command("current").description("Print the globally selected type version").action(cmdTypesCurrent);
+  types.command("select [version]").description("Select and cache a type version (interactive when omitted)").action(cmdTypesSelect);
+  types.command("reset").description("Clear the global type selection").action(cmdTypesReset);
 
   await program.parseAsync(process.argv);
 }
