@@ -55,7 +55,7 @@ async function main() {
         const result = spawnSync(process.execPath, [cli, 'check', root, '--format', 'json'], { encoding: 'utf8' });
         assert([0, 1].includes(result.status), result.stderr);
         const expected = JSON.parse(result.stdout);
-        const reports = await page.evaluate(async (files) => {
+        const { reports, progress, fileProgress } = await page.evaluate(async (files) => {
           const sources = Object.entries(files).map(([path, source]) => ({path, data: new TextEncoder().encode(source)}));
           const browserFiles = Object.entries(files).map(([path, source]) => {
             const file = new File([source], path.split('/').pop());
@@ -73,9 +73,21 @@ async function main() {
             worker.onerror = (event) => reject(new Error(event.message));
             worker.postMessage(sources);
           });
-          return [await window.AIX.checkFromSource(sources), await window.AIX.checkFromFiles(browserFiles),
-            await window.AIX.checkFromFiles(selectedDirectory), workerReport];
+          const progress = [];
+          const fileProgress = [];
+          const reports = [await window.AIX.checkFromSource(sources, {onProgress: (event) => progress.push(event)}),
+            await window.AIX.checkFromFiles(browserFiles),
+            await window.AIX.checkFromFiles(selectedDirectory, {onProgress: (event) => fileProgress.push(event)}), workerReport];
+          return { reports, progress, fileProgress };
         }, files);
+        for (const events of [progress, fileProgress]) {
+          assert.deepEqual(events[0], {type: 'loading_checker'});
+          assert.deepEqual(events[1], {type: 'checking_sources', fileCount: Object.keys(files).length});
+          assert.deepEqual(events.at(-1), {type: 'collecting_diagnostics'});
+          if (name === 'catches semantic errors across imports') {
+            assert(events.some((event) => event.type === 'checking_typescript' && event.rootCount === 2));
+          }
+        }
         for (const report of reports) {
           assert.deepEqual(report, expected, name);
           verify(report.diagnostics.filter((d) => ['AIX048', 'AIX049'].includes(d.code)), root, report);

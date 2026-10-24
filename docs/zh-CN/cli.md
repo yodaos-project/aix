@@ -48,6 +48,8 @@ aix check ./my-agent
 aix check ./my-agent --format json
 ```
 
+文本模式在 stderr 展示扫描文件、加载检查器、源码与 Schema 校验、项目解析和类型检查等阶段，终端中显示动态进度。检查在 Worker 中运行，TypeScript 分析期间进度仍会刷新。`--format json` 不输出进度，stdout 保持为结构化诊断。
+
 权限检查识别 `navigator.geolocation`、`navigator.mediaDevices.getUserMedia()` 和媒体库读取等直接调用。动态参数与宿主组件无法在本地确认时会给出 warning。检查通过不代表运行时和平台权限一定可用。
 
 | 已识别调用 | 所需声明 |

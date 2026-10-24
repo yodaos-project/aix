@@ -1,16 +1,17 @@
 import ts from 'typescript';
 import environment from './environment.generated.js';
-import type { CheckDiagnostic, PreparedCheck } from './types.js';
+import type { CheckDiagnostic, CheckOptions, PreparedCheck } from './types.js';
 
 const ROOT = '/project/';
 const LIB = '/__aix__/typescript/';
 const INK = '/__aix__/node_modules/@yodaos-pkg/ink-env/index.d.ts';
 
 /** No ambient filesystem, process, network, or compiler output is used here. */
-export function checkTypeScript(prepared: PreparedCheck): CheckDiagnostic[] {
+export function checkTypeScript(prepared: PreparedCheck, onProgress?: CheckOptions['onProgress']): CheckDiagnostic[] {
   if (!prepared.scripts.some((script) => script.typescript && !script.path.endsWith('.d.ts'))
     && !prepared.files.some((file) => file.path === 'tsconfig.json')) return [];
 
+  onProgress?.({ type: 'configuring_typescript' });
   const diagnostics: CheckDiagnostic[] = [];
   const originals = new Map<string, { path: string; source: string }>();
   const files = new Map<string, string>(Object.entries(environment));
@@ -127,7 +128,9 @@ export function checkTypeScript(prepared: PreparedCheck): CheckDiagnostic[] {
     }),
   };
   // One project Program owns the import graph and symbol table for all roots.
+  onProgress?.({ type: 'resolving_typescript_project', rootCount: roots.length });
   const program = ts.createProgram({ rootNames: [...roots, inkTypes], options, host, projectReferences });
+  onProgress?.({ type: 'checking_typescript', rootCount: roots.length });
   diagnostics.push(...program.getOptionsDiagnostics().map((error) => convert(error, 'AIX049')));
   diagnostics.push(...[
     ...program.getGlobalDiagnostics(),

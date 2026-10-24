@@ -41,7 +41,7 @@ const encode = (source: string) => new TextEncoder().encode(source);
 const report: CheckReport = await AIX.checkFromSource([
   { path: 'app.json', data: encode('{"pages":[]}') },
   { path: 'main.ts', data: encode('const count: number = "wrong";') },
-]);
+], { onProgress: (event) => console.log(event.type) });
 console.log(report.diagnostics); // AIX048, TS2322 at main.ts:1
 
 // Files from an <input type="file" webkitdirectory> selection also work.
@@ -60,6 +60,13 @@ Both apply nested `.aixignore` rules. The compiler and standard/Ink declarations
 load only when checking is first requested; they are bundled, so no Node
 filesystem, Node polyfills, or external type downloads are required. The same
 API also works in a Web Worker.
+
+Both methods accept `CheckOptions` with an optional `onProgress` callback.
+`CheckProgressEvent` reports checker loading, source/schema validation (input
+file count), TypeScript configuration, project resolution and type checking
+(project root count), and diagnostic collection. These are stage notifications,
+not a percentage estimate. Browser checks are synchronous after loading; run
+the API in a Web Worker to keep a browser progress display responsive.
 
 Include `tsconfig.json`, extended configs, installed package metadata, and
 dependency declarations in the input snapshot when needed. Project Ink types

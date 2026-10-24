@@ -37,6 +37,10 @@ async function main() {
     'npx esbuild src/cli.ts --bundle --platform=node --format=cjs --target=node20 --outfile=dist/cli.js --banner:js="#!/usr/bin/env node" --external:ignore --external:ws',
     { cwd: rootDir, stdio: "inherit" },
   );
+  execSync(
+    'npx esbuild src/commands/check-worker.ts --bundle --platform=node --format=cjs --target=node20 --outfile=dist/check-worker.js',
+    { cwd: rootDir, stdio: "inherit" },
+  );
 
   fs.chmodSync(path.join(distDir, "cli.js"), 0o755);
 

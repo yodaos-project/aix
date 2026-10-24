@@ -2,9 +2,9 @@
 // dynamic require (never bundled) so its internal __dirname resolves the
 // sibling .wasm file, which esbuild would otherwise relocate.
 import path from 'node:path';
-import type { CheckEngine, CheckReport } from '../../../crates/aix-web/ts/check/types';
+import type { CheckEngine, CheckOptions, CheckReport } from '../../../crates/aix-web/ts/check/types';
 
-export type { CheckDiagnostic, CheckReport } from '../../../crates/aix-web/ts/check/types';
+export type { CheckDiagnostic, CheckProgressEvent, CheckReport } from '../../../crates/aix-web/ts/check/types';
 
 type WasmEngine = CheckEngine & {
   AixReaderWasm: new (data: Uint8Array) => AixReaderInstance;
@@ -33,7 +33,7 @@ type WasmEngine = CheckEngine & {
 
 export type AixInputFile = { path: string; data: Uint8Array };
 
-type SourceChecker = { checkSource(files: AixInputFile[], engine: CheckEngine): CheckReport };
+type SourceChecker = { checkSource(files: AixInputFile[], engine: CheckEngine, options?: CheckOptions): CheckReport };
 
 export function loadSourceChecker(): SourceChecker {
   return require(path.join(__dirname, 'pkg', 'check.cjs')) as SourceChecker;

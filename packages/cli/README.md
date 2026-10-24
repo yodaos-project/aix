@@ -73,6 +73,10 @@ aix check ./my-agent
 aix check ./my-agent --format json
 ```
 
+Text output shows check stages on stderr, with an animated spinner in a
+terminal. Checks run in a Worker so progress remains responsive during
+TypeScript analysis. JSON mode omits progress and keeps stdout machine-readable.
+
 TypeScript checks include `.ts`, `.mts`, `.cts`, and Ink `<script lang="ts">` blocks,
 with original file locations, imports, project declarations, and `tsconfig.json`
 compiler options/`extends`. One project `Program` uses `files`/`include`/`exclude`

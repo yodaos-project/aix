@@ -58,6 +58,11 @@ aix check ./my-agent
 aix check ./my-agent --format json
 ```
 
+Text mode reports scanning, checker loading, source/schema validation, project
+resolution, and type-checking stages on stderr. A terminal displays an animated
+spinner; checking runs in a Worker to keep it responsive. `--format json`
+disables progress and preserves the structured report on stdout.
+
 Type checking uses one TypeScript project for `.ts`, `.mts`, `.cts`, and Ink
 `<script lang="ts">` blocks, including imports and project `.d.ts` declarations.
 Inline errors point to their original `.ink` file and line. `tsconfig.json`
@@ -82,6 +87,7 @@ and dependency declarations resolve from that input snapshot, including ignored
 `node_modules` declarations; ordinary ignored sources remain excluded. The
 checker never reads files outside the supplied tree or downloads dependencies.
 Web callers use `AIX.checkFromSource(files)` or `AIX.checkFromFiles(files)`.
+Both accept an optional `{ onProgress(event) {} }` argument for check stages.
 
 Page `schema.data` is validated as a JSON Schema, including nested keyword
 types, regex patterns, and local `$ref` targets. Drafts 4, 6, 7, 2019-09, and

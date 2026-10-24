@@ -11,6 +11,18 @@ export interface CheckReport {
   diagnostics: CheckDiagnostic[];
 }
 
+export type CheckProgressEvent =
+  | { type: 'loading_checker' }
+  | { type: 'checking_sources'; fileCount: number }
+  | { type: 'configuring_typescript' }
+  | { type: 'resolving_typescript_project'; rootCount: number }
+  | { type: 'checking_typescript'; rootCount: number }
+  | { type: 'collecting_diagnostics' };
+
+export interface CheckOptions {
+  onProgress?: (event: CheckProgressEvent) => void;
+}
+
 export interface CheckScriptSource {
   path: string;
   source: string;
