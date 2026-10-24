@@ -47,8 +47,8 @@ Without `--engine`, the range comes from `app.json.engine`, then `*`.
 ### `aix check <INPUT_DIR>`
 
 Checks source files without creating an artifact. It validates `app.json`, Page
-and Widget entries, local component references, JS/TS syntax, and statically
-recognizable permission use. It applies `.aixignore` like `pack`. Errors make
+and Widget entries, local component references, JS/TS syntax, TypeScript types,
+Page JSON Schemas, and statically recognizable permission use. It applies `.aixignore` like `pack`. Errors make
 the command exit with status 1; warnings do not. `--format json` emits a
 machine-readable diagnostic list with file, line, column, severity, and rule
 code.
@@ -57,6 +57,29 @@ code.
 aix check ./my-agent
 aix check ./my-agent --format json
 ```
+
+Type checking uses the TypeScript compiler for `.ts`, `.mts`, and Ink
+`<script lang="ts">` blocks, including imports and project `.d.ts` declarations.
+Inline errors point to their original `.ink` file and line. `tsconfig.json`
+compiler options and `extends` are respected; source roots come from the AIX
+collector rather than `include`/`exclude`, so `.aixignore` controls source
+exclusion. Ignored source files cannot be pulled back in by an import.
+Without a config, checks use strict mode, ES2022, ES modules, and bundler module
+resolution. Checks never emit files or run project code. JavaScript remains
+syntax-checked and can supply inferred types to imported TypeScript code.
+Ink ambient declarations come from the project's `@yodaos-pkg/ink-env`, falling
+back to the CLI's installed copy. DOM and Node types are not loaded by default.
+Type errors use `AIX048` with the original `TS` code; config errors use `AIX049`.
+The Rust/WASM checker validates syntax and schemas; semantic TypeScript checking
+runs in the npm CLI, which supplies the TypeScript compiler.
+
+Page `schema.data` is validated as a JSON Schema, including nested keyword
+types, regex patterns, and local `$ref` targets. Drafts 4, 6, 7, 2019-09, and
+2020-12 are selected through `$schema`; without it, 2020-12 is used. Invalid
+schemas produce `AIX047`. Missing or null `schema.data` remains accepted for
+pages without inputs. External `$ref` resources are not fetched and unresolved
+references are errors. This validates the schema declaration, not runtime page
+data. `pack` and the AIX reader retain their existing schema pass-through behavior.
 
 Permission analysis recognizes direct calls such as `navigator.geolocation`,
 `navigator.mediaDevices.getUserMedia()`, and media-library reads. Dynamic

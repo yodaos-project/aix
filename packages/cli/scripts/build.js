@@ -30,7 +30,7 @@ for (const file of ["aix_web.js", "aix_web_bg.wasm"]) {
 // dynamic require so its __dirname stays correct. Runtime-only node_modules
 // dependencies stay external as well.
 execSync(
-  'npx esbuild src/cli.ts --bundle --platform=node --format=cjs --target=node20 --outfile=dist/cli.js --banner:js="#!/usr/bin/env node" --external:ignore --external:ws',
+  'npx esbuild src/cli.ts --bundle --platform=node --format=cjs --target=node20 --outfile=dist/cli.js --banner:js="#!/usr/bin/env node" --external:ignore --external:ws --external:typescript --external:@yodaos-pkg/ink-env',
   { cwd: rootDir, stdio: "inherit" },
 );
 

@@ -45,6 +45,82 @@ pub struct CheckReport {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+/// Normalized scripts for hosts that can run the TypeScript compiler. Inline
+/// script text retains its UTF-16 positions in the original Ink file.
+#[derive(Debug, Serialize)]
+pub struct CheckScriptSource {
+    pub path: String,
+    pub source: String,
+    pub script: String,
+    pub typescript: bool,
+}
+
+pub fn collect_script_sources(files: Vec<InputFile>) -> Result<Vec<CheckScriptSource>> {
+    let files = collector::collect_inputs(files, &collector::CollectOptions::default())?;
+    let mut scripts = Vec::new();
+    for file in files {
+        if !is_source(&file.path) {
+            continue;
+        }
+        let Ok((bytes, _)) = normalize_text_to_utf8(&file.path, &file.data) else {
+            continue; // Encoding failures are reported by check_source.
+        };
+        let Ok(source) = String::from_utf8(bytes) else {
+            continue;
+        };
+        let mut typescript = file.path.ends_with(".ts") || file.path.ends_with(".mts");
+        let script = if file.path.ends_with(".ink") {
+            let mut script = String::new();
+            let mut cursor = 0;
+            for block in blocks(&source, "script") {
+                if block.attributes.split_whitespace().any(|p| p == "def") {
+                    continue;
+                }
+                typescript |= is_typescript_block(block.attributes);
+                if cursor > 0 {
+                    // Each block is parsed separately by Ink. Separate adjacent
+                    // blocks even after a line comment or a missing semicolon,
+                    // replacing two tag characters to retain source offsets.
+                    script.push_str("\n;");
+                    mask_script_gap(&source[cursor + 2..block.offset], &mut script);
+                } else {
+                    mask_script_gap(&source[cursor..block.offset], &mut script);
+                }
+                script.push_str(block.body);
+                cursor = block.offset + block.body.len();
+            }
+            mask_script_gap(&source[cursor..], &mut script);
+            script
+        } else {
+            source.clone()
+        };
+        scripts.push(CheckScriptSource {
+            path: file.path,
+            source,
+            script,
+            typescript,
+        });
+    }
+    Ok(scripts)
+}
+
+fn mask_script_gap(gap: &str, output: &mut String) {
+    for ch in gap.chars() {
+        if matches!(ch, '\n' | '\r') {
+            output.push(ch);
+        } else {
+            for _ in 0..ch.len_utf16() {
+                output.push(' ');
+            }
+        }
+    }
+}
+
+fn is_typescript_block(attributes: &str) -> bool {
+    let compact: String = attributes.chars().filter(|c| !c.is_whitespace()).collect();
+    compact.contains("lang=\"ts\"") || compact.contains("lang='ts'")
+}
+
 impl CheckReport {
     pub fn has_errors(&self) -> bool {
         self.diagnostics
@@ -449,8 +525,7 @@ pub fn check_files(files: &[InputFile]) -> CheckReport {
                         block.body,
                         block.offset,
                         content,
-                        block.attributes.contains("lang=\"ts\"")
-                            || block.attributes.contains("lang='ts'"),
+                        is_typescript_block(block.attributes),
                         &permissions,
                         &mut report,
                     );
@@ -1024,6 +1099,53 @@ fn check_page_schema(def: &Value, path: &str, content: &str, report: &mut CheckR
             );
         }
     }
+    let Some(data) = def.pointer("/schema/data").filter(|data| !data.is_null()) else {
+        return;
+    };
+    let base = if path.ends_with(".ink") {
+        blocks(content, "script")
+            .into_iter()
+            .find(|block| block.attributes.split_whitespace().any(|p| p == "def"))
+            .map_or(0, |block| block.offset)
+    } else {
+        0
+    };
+    // Validate against the selected draft's meta-schema before compiling. In
+    // addition to keyword types, compilation catches invalid patterns and refs.
+    let result = match jsonschema::meta::try_validate(data) {
+        Ok(Ok(())) => jsonschema::validator_for(data)
+            .map(|_| ())
+            .map_err(|error| (error.instance_path.to_string(), error.to_string())),
+        Ok(Err(error)) => Err((error.instance_path.to_string(), error.to_string())),
+        Err(error) => Err((String::new(), error.to_string())),
+    };
+    if let Err((pointer, message)) = result {
+        let pointer = format!("/schema/data{pointer}");
+        report.error(
+            "AIX047",
+            path,
+            content,
+            json_pointer_offset(content, base, &pointer),
+            format!("Invalid JSON Schema at {pointer}: {message}"),
+        );
+    }
+}
+
+fn json_pointer_offset(source: &str, mut offset: usize, pointer: &str) -> usize {
+    for segment in pointer.split('/').skip(1) {
+        let field = segment.replace("~1", "/").replace("~0", "~");
+        let next = if source.as_bytes().get(skip_space(source, offset)) == Some(&b'[') {
+            field
+                .parse::<usize>()
+                .ok()
+                .and_then(|index| array_items(source, offset).get(index).map(|range| range.0))
+        } else {
+            object_field(source, offset, &field).map(|(_, start, _)| start)
+        };
+        let Some(next) = next else { break };
+        offset = next;
+    }
+    offset
 }
 fn check_component_cycles(
     texts: &BTreeMap<&str, String>,
@@ -1767,5 +1889,97 @@ mod tests {
             .find(|d| d.code == "AIX029")
             .unwrap();
         assert_eq!(diagnostic.line, 2);
+    }
+
+    #[test]
+    fn validates_nested_page_json_schema_and_source_location() {
+        let content = "<script setup>const example = {schema: 1};</script>\n<script def>\n{\n  \"schema\": {\"data\": {\n    \"type\": \"object\",\n    \"properties\": {\"你好/a~b\": {\"type\": \"invalid\"}}\n  }}\n}\n</script><page><view /></page>";
+        let report = check(
+            r#"{"pages":["pages/home"]}"#,
+            &[("pages/home.ink", content)],
+        );
+        let diagnostic = report
+            .diagnostics
+            .iter()
+            .find(|d| d.code == "AIX047")
+            .unwrap();
+        assert_eq!(diagnostic.path, "pages/home.ink");
+        assert_eq!(diagnostic.line, 6);
+        assert!(diagnostic
+            .message
+            .contains("/schema/data/properties/你好~1a~0b/type"));
+        assert_eq!(diagnostic.severity, Severity::Error);
+    }
+
+    #[test]
+    fn accepts_json_schema_drafts_and_local_recursive_refs() {
+        for schema in [
+            r#"{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"count":{"type":"integer","minimum":0}},"required":["count"]}"#,
+            r##"{"$schema":"https://json-schema.org/draft/2020-12/schema","$defs":{"node":{"type":"object","properties":{"next":{"$ref":"#/$defs/node"}}}},"$ref":"#/$defs/node"}"##,
+            "{}",
+            "true",
+            "false",
+            "null",
+        ] {
+            let content = format!("{{\"schema\":{{\"data\":{schema}}}}}");
+            let report = check(
+                r#"{"pages":["pages/home"]}"#,
+                &[
+                    ("pages/home.json", &content),
+                    ("pages/home.wxml", "<view />"),
+                ],
+            );
+            assert!(!report.has_errors(), "{schema}: {:?}", report.diagnostics);
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_schema_keywords_refs_patterns_and_drafts() {
+        for schema in [
+            r#"{"type":"object","required":"name"}"#,
+            r#"{"type":"array","items":{"minimum":"zero"}}"#,
+            r#"{"type":"string","pattern":"["}"#,
+            r##"{"$ref":"#/$defs/missing"}"##,
+            r#"{"$schema":"https://example.invalid/custom-schema"}"#,
+            r#"{"$ref":"https://example.invalid/remote-schema"}"#,
+            "42",
+        ] {
+            let content = format!("{{\"schema\":{{\"data\":{schema}}}}}");
+            let report = check(
+                r#"{"pages":["pages/home"]}"#,
+                &[
+                    ("pages/home.json", &content),
+                    ("pages/home.wxml", "<view />"),
+                ],
+            );
+            assert!(
+                report.diagnostics.iter().any(|d| d.code == "AIX047"),
+                "{schema}: {:?}",
+                report.diagnostics
+            );
+        }
+    }
+
+    #[test]
+    fn script_collection_preserves_inline_utf16_offsets_and_ignore_rules() {
+        let source = "<!-- 😀 <script lang=\"ts\">fake</script> -->\n<script def>{\"schema\":{}}</script><page><view /></page>\n<script setup lang = 'ts'>const text = '😀';\nconst count: number = 'bad';</script>";
+        let scripts = collect_script_sources(vec![
+            InputFile::new("app.json", br#"{"pages":[]}"#),
+            InputFile::new(".aixignore", b"ignored.ts"),
+            InputFile::new("ignored.ts", b"const broken: string = 1;"),
+            InputFile::new("page.ink", source.as_bytes()),
+        ])
+        .unwrap();
+        assert_eq!(scripts.len(), 1);
+        let script = &scripts[0];
+        assert!(script.typescript);
+        assert!(!script.script.contains("fake"));
+        assert!(!script.script.contains("schema"));
+        let offset = source.find("const count").unwrap();
+        let masked_offset = script.script.find("const count").unwrap();
+        assert_eq!(
+            source[..offset].encode_utf16().count(),
+            script.script[..masked_offset].encode_utf16().count()
+        );
     }
 }

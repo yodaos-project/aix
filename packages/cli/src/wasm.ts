@@ -5,6 +5,7 @@ import path from 'node:path';
 
 type WasmEngine = {
   check_aix_from_source: (files: AixInputFile[]) => CheckReport;
+  collect_check_scripts: (files: AixInputFile[]) => CheckScriptSource[];
   AixReaderWasm: new (data: Uint8Array) => AixReaderInstance;
   AixSourcePackBuilderWasm?: new () => AixSourcePackBuilderInstance;
   pack_aix: (
@@ -40,6 +41,12 @@ export type CheckDiagnostic = {
   message: string;
 };
 export type CheckReport = { diagnostics: CheckDiagnostic[] };
+export type CheckScriptSource = {
+  path: string;
+  source: string;
+  script: string;
+  typescript: boolean;
+};
 
 export type AixEntry = { name: string; size: number; compressed_size: number };
 

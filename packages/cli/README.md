@@ -62,7 +62,8 @@ Without `--engine`, the range comes from `app.json.engine`, then `*`.
 ### `aix check <INPUT_DIR>`
 
 Run static checks without writing an artifact. Checks include `app.json`,
-Page and Widget entries, local components, JS/TS syntax, and direct API calls
+Page and Widget entries, local components, JS/TS syntax, TypeScript types,
+Page `schema.data` JSON Schemas, and direct API calls
 with known permission requirements. Errors exit with status 1; warnings do not.
 Use `--format json` for structured diagnostics. Dynamic permission use and
 host components may need manual review.
@@ -71,6 +72,19 @@ host components may need manual review.
 aix check ./my-agent
 aix check ./my-agent --format json
 ```
+
+TypeScript checks include `.ts`, `.mts`, and Ink `<script lang="ts">` blocks,
+with original file locations, imports, project declarations, and `tsconfig.json`
+compiler options/`extends`. Source selection follows `.aixignore`. Without a
+config, strict ES2022 checks use Ink's `@yodaos-pkg/ink-env` types; the project's
+copy is preferred, with the CLI's copy as a fallback. No files are emitted.
+JavaScript is syntax-checked and supplies inferred types when imported.
+
+Page schemas are checked against their `$schema` draft (2020-12 by default),
+including nested keywords, patterns, and local references. Missing or null
+`schema.data` is accepted. External references are not fetched; unresolved refs
+are errors. This checks declarations, not runtime data. Diagnostic codes are
+`AIX047` (schema), `AIX048` (TypeScript), and `AIX049` (TypeScript config).
 
 ### `aix show <INPUT>`
 
