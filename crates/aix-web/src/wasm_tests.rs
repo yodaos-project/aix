@@ -84,6 +84,7 @@ fn assert_package(output: AixPackResultWasm) {
     assert!(warnings.is_empty());
     let reader = AixReaderWasm::new(data).unwrap();
     assert_eq!(reader.get_version().as_deref(), Some("build"));
+    assert!(reader.get_agent_id().unwrap().is_none());
     assert_eq!(reader.get_title().as_deref(), Some("Example"));
     assert!(reader.supports_engine("0.18.1").unwrap());
     assert!(reader.supports_engine("invalid").is_err());
@@ -115,7 +116,7 @@ fn metadata_diagnostics_cross_the_wasm_boundary_without_hiding_valid_pages() {
         InputFile::new("good.ink", br#"<script def>{"navigationBarTitleText":"Good"}</script><page><view /></page>"#),
         InputFile::new("bad.ink", br#"<script def>{"schema":false}</script><page><view /></page>"#),
     ];
-    let output = pack_output(inputs, "metadata".into(), None, None).unwrap();
+    let output = pack_output(inputs, "metadata".into(), None, None, None).unwrap();
     let reader = AixReaderWasm::new(output.data).unwrap();
     let report: aix::MetadataResolution =
         serde_wasm_bindgen::from_value(reader.resolve_metadata().unwrap()).unwrap();
@@ -143,6 +144,7 @@ fn metadata_diagnostics_cross_the_wasm_boundary_without_hiding_valid_pages() {
             "metadata".into(),
             None,
             None,
+            None,
         )
         .unwrap();
         let reader = AixReaderWasm::new(output.data).unwrap();
@@ -162,6 +164,7 @@ fn reader_limits_reject_metadata_budgets_and_invalid_javascript_values() {
             InputFile::new("payload", &[42; 4096]),
         ],
         "limits".into(),
+        None,
         None,
         None,
     )
@@ -224,6 +227,7 @@ fn javascript_pack_and_reader_surfaces_round_trip() {
                 "build".into(),
                 Some("*".into()),
                 optimize.clone(),
+                None,
             )
             .unwrap(),
         );
@@ -233,6 +237,7 @@ fn javascript_pack_and_reader_surfaces_round_trip() {
                 "build".into(),
                 None,
                 optimize.clone(),
+                None,
             )
             .unwrap(),
         );
@@ -242,6 +247,7 @@ fn javascript_pack_and_reader_surfaces_round_trip() {
             None,
             optimize.clone(),
             Function::new_no_args("return;"),
+            None,
         )
         .unwrap();
         assert_package(optimize_aix(output.data, optimize).unwrap());
@@ -257,6 +263,7 @@ fn javascript_pack_and_reader_surfaces_round_trip() {
                 None,
                 JsValue::NULL,
                 Function::new_no_args("return;"),
+                None,
             )
             .unwrap(),
     );
@@ -269,7 +276,8 @@ fn javascript_pack_and_reader_surfaces_round_trip() {
             "build".into(),
             None,
             JsValue::NULL,
-            Function::new_no_args("return;")
+            Function::new_no_args("return;"),
+            None
         )
         .is_err());
 }
@@ -306,14 +314,18 @@ fn javascript_boundary_errors_and_callback_failures_are_propagated() {
     assert!(optimize_aix(vec![], JsValue::NULL).is_err());
     assert!(optimize_aix(vec![], JsValue::TRUE).is_err());
     for inputs in [JsValue::NULL, to_value(&Vec::<InputFile>::new()).unwrap()] {
-        assert!(pack_aix(inputs.clone(), "build".into(), None, JsValue::NULL).is_err());
-        assert!(pack_aix_from_source(inputs.clone(), "build".into(), None, JsValue::NULL).is_err());
+        assert!(pack_aix(inputs.clone(), "build".into(), None, JsValue::NULL, None).is_err());
+        assert!(
+            pack_aix_from_source(inputs.clone(), "build".into(), None, JsValue::NULL, None)
+                .is_err()
+        );
         assert!(pack_aix_from_source_with_progress(
             inputs,
             "build".into(),
             None,
             JsValue::NULL,
-            callback()
+            callback(),
+            None
         )
         .is_err());
     }
@@ -321,14 +333,16 @@ fn javascript_boundary_errors_and_callback_failures_are_propagated() {
         to_value(&files()).unwrap(),
         "build".into(),
         None,
-        JsValue::TRUE
+        JsValue::TRUE,
+        None
     )
     .is_err());
     assert!(pack_aix_from_source(
         to_value(&files()).unwrap(),
         "build".into(),
         None,
-        JsValue::TRUE
+        JsValue::TRUE,
+        None
     )
     .is_err());
     assert!(pack_aix_from_source_with_progress(
@@ -336,7 +350,8 @@ fn javascript_boundary_errors_and_callback_failures_are_propagated() {
         "build".into(),
         None,
         JsValue::TRUE,
-        callback()
+        callback(),
+        None
     )
     .is_err());
     assert!(pack_aix_from_source_with_progress(
@@ -344,7 +359,8 @@ fn javascript_boundary_errors_and_callback_failures_are_propagated() {
         "build".into(),
         None,
         JsValue::NULL,
-        callback()
+        callback(),
+        None
     )
     .is_err());
     assert!(pack_aix_from_source_with_progress(
@@ -352,7 +368,8 @@ fn javascript_boundary_errors_and_callback_failures_are_propagated() {
         "build".into(),
         None,
         JsValue::NULL,
-        Function::new_no_args("throw new Error('transfer failed')")
+        Function::new_no_args("throw new Error('transfer failed')"),
+        None
     )
     .is_err());
     let mut builder = AixSourcePackBuilderWasm::new();
@@ -360,14 +377,14 @@ fn javascript_boundary_errors_and_callback_failures_are_propagated() {
         builder.add_file(file.path, file.data);
     }
     assert!(builder
-        .pack_from_source_with_progress("build".into(), None, JsValue::TRUE, callback())
+        .pack_from_source_with_progress("build".into(), None, JsValue::TRUE, callback(), None)
         .is_err());
     assert!(
         !builder.files.is_empty(),
         "invalid options must not consume inputs"
     );
     assert!(builder
-        .pack_from_source_with_progress("build".into(), None, JsValue::NULL, callback())
+        .pack_from_source_with_progress("build".into(), None, JsValue::NULL, callback(), None)
         .is_err());
     let output = pack_output(
         vec![InputFile::new(
@@ -375,6 +392,7 @@ fn javascript_boundary_errors_and_callback_failures_are_propagated() {
             br#"{"pages":[],"widgets":[{"path":"missing","family":"1x1"}]}"#,
         )],
         "build".into(),
+        None,
         None,
         None,
     )

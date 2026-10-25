@@ -62,6 +62,7 @@ impl AixSourcePackBuilderWasm {
         engine: Option<String>,
         optimize_options: JsValue,
         progress: Function,
+        agent_id: Option<String>,
     ) -> Result<AixPackResultWasm, JsValue> {
         let optimize = parse_optimize_options(optimize_options)?;
         let files = std::mem::take(&mut self.files);
@@ -70,6 +71,7 @@ impl AixSourcePackBuilderWasm {
             &CollectOptions::default(),
             PackOptions {
                 build_id,
+                agent_id,
                 engine,
                 optimize,
                 signing_key: None,
@@ -94,11 +96,12 @@ pub fn pack_aix(
     build_id: String,
     engine: Option<String>,
     optimize_options: JsValue,
+    agent_id: Option<String>,
 ) -> Result<AixPackResultWasm, JsValue> {
     let files: Vec<InputFile> = serde_wasm_bindgen::from_value(files)
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
     let optimize = parse_optimize_options(optimize_options)?;
-    let output = pack_output(files, build_id, engine, optimize)
+    let output = pack_output(files, build_id, engine, optimize, agent_id)
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
     Ok(AixPackResultWasm {
         data: output.data,
@@ -113,11 +116,12 @@ pub fn pack_aix_from_source(
     build_id: String,
     engine: Option<String>,
     optimize_options: JsValue,
+    agent_id: Option<String>,
 ) -> Result<AixPackResultWasm, JsValue> {
     let files: Vec<InputFile> = serde_wasm_bindgen::from_value(files)
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
     let optimize = parse_optimize_options(optimize_options)?;
-    let output = pack_output_from_source(files, build_id, engine, optimize)
+    let output = pack_output_from_source(files, build_id, engine, optimize, agent_id)
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
     Ok(AixPackResultWasm {
         data: output.data,
@@ -163,6 +167,7 @@ pub fn pack_aix_from_source_with_progress(
     engine: Option<String>,
     optimize_options: JsValue,
     progress: Function,
+    agent_id: Option<String>,
 ) -> Result<AixPackResultWasm, JsValue> {
     emit_progress_event(
         &progress,
@@ -176,6 +181,7 @@ pub fn pack_aix_from_source_with_progress(
         &CollectOptions::default(),
         PackOptions {
             build_id,
+            agent_id,
             engine,
             optimize,
             signing_key: None,
@@ -236,11 +242,13 @@ fn pack_output(
     build_id: String,
     engine: Option<String>,
     optimize: Option<OptimizeOptions>,
+    agent_id: Option<String>,
 ) -> Result<aix_pack::PackOutput> {
     aix_pack::pack(
         files,
         PackOptions {
             build_id,
+            agent_id,
             engine,
             optimize,
             signing_key: None,
@@ -253,12 +261,14 @@ fn pack_output_from_source(
     build_id: String,
     engine: Option<String>,
     optimize: Option<OptimizeOptions>,
+    agent_id: Option<String>,
 ) -> Result<aix_pack::PackOutput> {
     aix_pack::collector::pack_source_files(
         files,
         &CollectOptions::default(),
         PackOptions {
             build_id,
+            agent_id,
             engine,
             optimize,
             signing_key: None,
@@ -324,6 +334,7 @@ mod tests {
             "test-build".into(),
             Some("*".into()),
             None,
+            None,
         )
         .unwrap();
 
@@ -357,6 +368,7 @@ mod tests {
             ],
             "test-build".into(),
             Some("*".into()),
+            None,
             None,
         )
         .unwrap();

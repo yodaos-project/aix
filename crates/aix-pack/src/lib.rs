@@ -57,6 +57,7 @@ impl Default for OptimizeOptions {
 #[derive(Clone)]
 pub struct PackOptions<'a> {
     pub build_id: String,
+    pub agent_id: Option<String>,
     pub engine: Option<String>,
     pub optimize: Option<OptimizeOptions>,
     pub signing_key: Option<&'a aix::crypto::PrivateKey>,
@@ -66,6 +67,7 @@ impl<'a> PackOptions<'a> {
     pub fn new(build_id: impl Into<String>) -> Self {
         Self {
             build_id: build_id.into(),
+            agent_id: None,
             engine: None,
             optimize: None,
             signing_key: None,
@@ -147,6 +149,7 @@ pub fn pack(mut files: Vec<InputFile>, options: PackOptions<'_>) -> Result<PackO
         options.optimize.as_ref(),
         &engine,
         options.signing_key,
+        options.agent_id.as_deref(),
         |_| Ok(()),
     )?;
     output.warnings = warnings;
@@ -156,6 +159,7 @@ pub fn pack(mut files: Vec<InputFile>, options: PackOptions<'_>) -> Result<PackO
 pub fn optimize_package(data: &[u8], options: &OptimizeOptions) -> Result<PackOutput> {
     let reader = aix::AixReader::new(data.to_vec())?;
     let engine = reader.get_engine().unwrap_or_else(|| "*".into());
+    let agent_id = reader.get_agent_id()?;
     let mut entries = Vec::with_capacity(reader.list().len());
     for entry in reader.list() {
         if entry.name.ends_with('/') || entry.name.starts_with("META-INF/aix/") {
@@ -163,7 +167,14 @@ pub fn optimize_package(data: &[u8], options: &OptimizeOptions) -> Result<PackOu
         }
         entries.push(InputFile::new(&entry.name, reader.read_file(&entry.name)?));
     }
-    pack_entries(entries, Some(options), &engine, None, |_| Ok(()))
+    pack_entries(
+        entries,
+        Some(options),
+        &engine,
+        None,
+        agent_id.as_deref(),
+        |_| Ok(()),
+    )
 }
 
 pub fn pack_with_progress<F>(
@@ -196,6 +207,7 @@ where
         options.optimize.as_ref(),
         &engine,
         options.signing_key,
+        options.agent_id.as_deref(),
         progress,
     )?;
     output.warnings = warnings;
@@ -207,11 +219,15 @@ fn pack_entries<F>(
     optimize: Option<&OptimizeOptions>,
     engine: &str,
     signing_key: Option<&aix::crypto::PrivateKey>,
+    agent_id: Option<&str>,
     mut progress: F,
 ) -> Result<PackOutput>
 where
     F: FnMut(PackProgressEvent) -> Result<()>,
 {
+    if agent_id.is_some_and(|id| !aix::crypto::is_valid_agent_id(id)) {
+        return Err(anyhow!("Invalid AIX manifest agent_id"));
+    }
     files.sort_by(|a, b| a.path.as_bytes().cmp(b.path.as_bytes()));
     validate_paths(&files)?;
 
@@ -250,7 +266,7 @@ where
     }
 
     progress(PackProgressEvent::FinalizingArchive)?;
-    let manifest = build_manifest(&prepared_files, engine, signing_key);
+    let manifest = build_manifest(&prepared_files, engine, signing_key, agent_id);
     let manifest_data = serde_json::to_vec(&manifest)?;
     if let Some(key) = signing_key {
         let signature = key.sign(b"package-manifest", &manifest_data);
@@ -312,6 +328,7 @@ fn build_manifest(
     files: &[InputFile],
     engine: &str,
     signing_key: Option<&aix::crypto::PrivateKey>,
+    agent_id: Option<&str>,
 ) -> aix::crypto::PackageManifest {
     let mut entries = Vec::with_capacity(files.len());
     let mut version = String::new();
@@ -330,6 +347,7 @@ fn build_manifest(
     aix::crypto::PackageManifest {
         format: "aix".into(),
         version,
+        agent_id: agent_id.map(String::from),
         engine: engine.into(),
         algorithm: "ed25519".into(),
         digest: "sha256".into(),
@@ -674,17 +692,65 @@ mod tests {
             vec![InputFile::new("app.json", br#"{"pages":[]}"#)],
             PackOptions {
                 signing_key: Some(&key),
+                agent_id: Some("stable-project".into()),
                 ..PackOptions::new("build")
             },
         )
         .unwrap();
+        aix::AixReader::new(original.data.clone())
+            .unwrap()
+            .verify_signature(&key.public_key())
+            .unwrap();
         let optimized = optimize_package(&original.data, &OptimizeOptions::default()).unwrap();
         let reader = aix::AixReader::new(optimized.data).unwrap();
         assert_eq!(reader.get_version().as_deref(), Some("build"));
         assert_eq!(reader.get_engine().as_deref(), Some("*"));
+        assert_eq!(
+            reader.get_agent_id().unwrap().as_deref(),
+            Some("stable-project")
+        );
         assert!(reader.read_file(aix::crypto::SIGNATURE_PATH).is_err());
         assert!(reader.get_manifest().unwrap().unwrap().key_id.is_empty());
         assert!(optimize_package(b"bad zip", &OptimizeOptions::default()).is_err());
+    }
+
+    #[test]
+    fn stable_agent_identity_is_independent_of_build_version() {
+        for (build, with_progress) in [("first-build", false), ("second-build", true)] {
+            let files = vec![InputFile::new("app.json", br#"{"pages":[]}"#)];
+            let options = PackOptions {
+                agent_id: Some("stable-project".into()),
+                ..PackOptions::new(build)
+            };
+            let output = if with_progress {
+                pack_with_progress(files, options, |_| Ok(()))
+            } else {
+                pack(files, options)
+            }
+            .unwrap();
+            let reader = aix::AixReader::new(output.data).unwrap();
+            assert_eq!(reader.get_version().as_deref(), Some(build));
+            assert_eq!(
+                reader.get_agent_id().unwrap().as_deref(),
+                Some("stable-project")
+            );
+        }
+        for id in ["", " ", "!!!", "Uppercase", "-project", "project-"] {
+            let options = PackOptions {
+                agent_id: Some(id.into()),
+                ..PackOptions::new("build")
+            };
+            let files = vec![InputFile::new("app.json", br#"{"pages":[]}"#)];
+            for with_progress in [false, true] {
+                let error = if with_progress {
+                    pack_with_progress(files.clone(), options.clone(), |_| Ok(()))
+                } else {
+                    pack(files.clone(), options.clone())
+                }
+                .unwrap_err();
+                assert_eq!(error.to_string(), "Invalid AIX manifest agent_id");
+            }
+        }
     }
 
     #[test]
@@ -791,6 +857,7 @@ mod tests {
             vec![InputFile::new("app.json", br#"{ "pages": [] }"#)],
             PackOptions {
                 build_id: "test-build".into(),
+                agent_id: None,
                 engine: Some("^0.14.0".into()),
                 optimize: Some(OptimizeOptions::default()),
                 signing_key: None,
@@ -844,6 +911,7 @@ mod tests {
             vec![InputFile::new("../app.json", b"{}")],
             PackOptions {
                 build_id: "test-build".into(),
+                agent_id: None,
                 engine: Some("*".into()),
                 optimize: None,
                 signing_key: None,
@@ -875,6 +943,7 @@ mod tests {
             vec![InputFile::new("app.json", br#"{"pages":[]}"#)],
             PackOptions {
                 build_id: "signed-build".into(),
+                agent_id: None,
                 engine: Some(">=0.14.0".into()),
                 optimize: None,
                 signing_key: Some(&key),

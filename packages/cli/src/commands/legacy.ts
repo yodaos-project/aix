@@ -7,6 +7,7 @@ import {
 } from "../wasm";
 import type { PackProgressEvent } from "../wasm";
 import { walkDirectory, WalkedFile } from "../walk";
+import { readProjectAgentId } from "../agent-identity";
 import ora from "ora";
 import { formatError } from "../ui/status";
 
@@ -139,6 +140,7 @@ export async function cmdPack(args: string[]) {
       : null;
 
     const buildId = crypto.randomUUID();
+    const agentId = readProjectAgentId(inputDir);
     const sourceBuilderCtor = engineApi.AixSourcePackBuilderWasm;
     const progressPack = engineApi.pack_aix_from_source_with_progress;
     const handlePackProgress = (event: PackProgressEvent) => {
@@ -190,6 +192,7 @@ export async function cmdPack(args: string[]) {
         engine,
         optimizeArg,
         handlePackProgress,
+        agentId,
       );
     } else {
       const inputFiles: AixInputFile[] = files.map((f: WalkedFile) => ({
@@ -197,8 +200,8 @@ export async function cmdPack(args: string[]) {
         data: f.data,
       }));
       result = progressPack
-        ? progressPack(inputFiles, buildId, engine, optimizeArg, handlePackProgress)
-        : engineApi.pack_aix_from_source(inputFiles, buildId, engine, optimizeArg);
+        ? progressPack(inputFiles, buildId, engine, optimizeArg, handlePackProgress, agentId)
+        : engineApi.pack_aix_from_source(inputFiles, buildId, engine, optimizeArg, agentId);
     }
 
     for (const warning of result.warnings ?? []) {

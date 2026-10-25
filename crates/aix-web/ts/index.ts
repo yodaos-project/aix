@@ -62,6 +62,8 @@ export interface PackResult {
 
 export interface PackOptions {
   buildId?: string;
+  /** Stable normalized project ID; reuse across builds. */
+  agentId?: string;
   engine?: string;
   optimize?: false | OptimizeOptions;
 }
@@ -83,6 +85,7 @@ type PackFromSourceFn = (
   buildId: string,
   engine: string | undefined,
   optimize: false | OptimizeOptions | undefined,
+  agentId?: string,
 ) => { data: Uint8Array; report: unknown; warnings?: string[] };
 
 type PackFromSourceWithProgressFn = (
@@ -91,6 +94,7 @@ type PackFromSourceWithProgressFn = (
   engine: string | undefined,
   optimize: false | OptimizeOptions | undefined,
   progress: (event: PackProgressEvent) => void,
+  agentId?: string,
 ) => { data: Uint8Array; report: unknown; warnings?: string[] };
 
 function generateBuildId(): string {
@@ -250,7 +254,7 @@ export class AIX {
     const tooling = await loadTooling();
     const buildId = options?.buildId ?? generateBuildId();
     const optimize = options?.optimize === false ? undefined : options?.optimize;
-    const result = tooling.pack_aix(files, buildId, options?.engine, optimize);
+    const result = tooling.pack_aix(files, buildId, options?.engine, optimize, options?.agentId);
     return { data: result.data, report: result.report as OptimizeReport, warnings: result.warnings ?? [] };
   }
 
@@ -275,8 +279,9 @@ export class AIX {
           options.engine,
           optimize,
           options.onProgress,
+          options.agentId,
         )
-      : getPackFromSource(tooling)(files, buildId, options?.engine, optimize);
+      : getPackFromSource(tooling)(files, buildId, options?.engine, optimize, options?.agentId);
     return { data: result.data, report: result.report as OptimizeReport, warnings: result.warnings ?? [] };
   }
 
@@ -320,6 +325,11 @@ export class AIX {
    */
   getVersion(): string | undefined {
     return this.reader.get_version();
+  }
+
+  /** Stable project ID from the manifest; undefined for legacy packages. */
+  getAgentId(): string | undefined {
+    return this.reader.get_agent_id();
   }
 
   supportsEngine(currentVersion: string): boolean {

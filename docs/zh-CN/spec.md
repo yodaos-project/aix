@@ -159,8 +159,14 @@ META-INF/aix/manifest.json      # 推荐的生成 Manifest
 ## 7. Manifest、完整性与签名
 
 ```json
-{"format":"aix","version":"VERSION_VALUE","engine":"^0.14.0","algorithm":"ed25519","digest":"sha256","key_id":"sha256:PUBLIC_KEY_DIGEST","package_id":"sha256:ENTRY_LIST_DIGEST","entries":[{"path":"app.json","size":42,"sha256":"HEX_DIGEST"}]}
+{"format":"aix","version":"VERSION_VALUE","agent_id":"stable-project-id","engine":"^0.14.0","algorithm":"ed25519","digest":"sha256","key_id":"sha256:PUBLIC_KEY_DIGEST","package_id":"sha256:ENTRY_LIST_DIGEST","entries":[{"path":"app.json","size":42,"sha256":"HEX_DIGEST"}]}
 ```
+
+`agent_id` 是可选的稳定项目身份，与每次构建的 `version` 分离。它是由小写 ASCII
+字母、数字、`_` 和 `-` 组成的非空字符串，首尾不能为 `-`；重新打包和优化时保持不变。
+CLI 将它保存在 `<项目>/.aix/agent-id`，并派生 `develop.rokid.agent.<agent_id>`
+用于开发安装和启动。旧包缺少该字段或为 null 时回退到 `VERSION`；存在但无效的
+身份必须报错。签名包通过 Manifest 签名保护该字段。
 
 Manifest `entries` 必须严格按 UTF-8 字节递增，排除 `META-INF/aix/*`，覆盖每个非目录、非元数据条目。`package_id` 对每条依次编码大端路径长度、路径字节、大端大小、大端摘要字符串长度和摘要字节，再计算 SHA-256。
 
@@ -265,6 +271,7 @@ Widget 字段：`path` 为必需无扩展名路径，`family` 为必需的宿主
 | --- | --- | --- | --- |
 | `format` | string | 是 | 必须为 `aix`。 |
 | `version` | string | 是 | 必须等于 `VERSION`。 |
+| `agent_id` | string/null | 否 | 稳定的规范化项目身份；旧包可省略或为 null。 |
 | `engine` | string | 是 | 有效 semver；裸版本精确匹配。 |
 | `algorithm` | string | 是 | 当前为 `ed25519`。 |
 | `digest` | string | 是 | 当前为 `sha256`。 |

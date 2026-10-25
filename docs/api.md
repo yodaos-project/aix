@@ -71,6 +71,13 @@ static pack(files: AixInputFile[], options?: PackOptions): Promise<PackResult>
 Packs already-normalized in-memory entries. The input must contain app.json and
 must not contain VERSION or reserved META-INF/aix paths.
 
+Set `options.agentId` to the same normalized project ID across builds to write
+manifest `agent_id`. It is independent of `buildId` / `VERSION` and is preserved
+by `optimize`. `getAgentId()` returns this ID, returns `undefined` for legacy
+packages without it, and throws for malformed manifest identities. Direct WASM
+pack exports accept the ID as an optional final argument; reader exports expose
+`get_agent_id()`. Rust uses `PackOptions.agent_id` and `AixReader::get_agent_id()`.
+
 ### AIX.packFromSource(files, options?)
 
 ~~~typescript
@@ -104,6 +111,7 @@ an existing signature is not retained.
 list(): AixEntry[]
 readFile(name: string): Uint8Array
 getVersion(): string | undefined
+getAgentId(): string | undefined
 supportsEngine(currentVersion: string): boolean
 getTitle(): string | undefined
 getPages(): PageInfo[]
@@ -174,6 +182,7 @@ interface AixInputFile { path: string; data: Uint8Array }
 
 interface PackOptions {
   buildId?: string;
+  agentId?: string;
   engine?: string;
   optimize?: false | OptimizeOptions;
 }

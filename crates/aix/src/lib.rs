@@ -579,6 +579,19 @@ impl AixReader {
             .map_err(|error| anyhow!("Invalid AIX manifest: {}", error))
     }
 
+    /// Returns the stable project identity, or `None` for legacy packages.
+    /// A present but malformed manifest or identity is an error.
+    pub fn get_agent_id(&self) -> Result<Option<String>> {
+        let id = self.get_manifest()?.and_then(|manifest| manifest.agent_id);
+        if id
+            .as_deref()
+            .is_some_and(|id| !crypto::is_valid_agent_id(id))
+        {
+            return Err(anyhow!("Invalid AIX manifest agent_id"));
+        }
+        Ok(id)
+    }
+
     /// Returns the engine range declared by this package manifest.
     ///
     /// # Returns
@@ -1620,6 +1633,7 @@ mod tests {
             },
         ];
         let manifest = crypto::PackageManifest {
+            agent_id: None,
             format: "aix".into(),
             version: "build".into(),
             engine: "*".into(),
@@ -1654,6 +1668,20 @@ mod tests {
                 .entry_count,
             2
         );
+        // Identity metadata is covered by the original manifest signature.
+        let original_signature =
+            key.sign(b"package-manifest", &serde_json::to_vec(&manifest).unwrap());
+        let mut altered_identity = manifest.clone();
+        altered_identity.agent_id = Some("different-project".into());
+        assert!(fixture(
+            &altered_identity,
+            payload(),
+            Some(original_signature.to_bytes().to_vec())
+        )
+        .verify_signature(&key.public_key())
+        .unwrap_err()
+        .to_string()
+        .contains("AIX signature verification failed"));
         enum Mutation {
             Format,
             Engine,
@@ -1882,6 +1910,7 @@ mod tests {
                 zip.write_all(b"test-build").unwrap();
 
                 let manifest = crypto::PackageManifest {
+                    agent_id: None,
                     format: "aix".into(),
                     version: "test-build".into(),
                     engine: engine.into(),
@@ -2000,6 +2029,41 @@ mod tests {
     fn missing_manifest_returns_none() {
         let reader = AixReader::new(create_test_aix()).unwrap();
         assert!(reader.get_manifest().unwrap().is_none());
+        assert!(reader.get_agent_id().unwrap().is_none());
+    }
+
+    #[test]
+    fn agent_identity_is_optional_and_rejects_invalid_present_metadata() {
+        let reader = AixReader::new(create_engine_test_aix(br#"{"pages":[]}"#, Some("*"))).unwrap();
+        assert!(reader.get_agent_id().unwrap().is_none());
+        let mut manifest = serde_json::to_value(reader.get_manifest().unwrap().unwrap()).unwrap();
+        assert!(manifest.get("agent_id").is_none());
+        for id in [
+            serde_json::json!("stable-project_1"),
+            serde_json::json!(""),
+            serde_json::json!("!!!"),
+            serde_json::json!(42),
+        ] {
+            manifest["agent_id"] = id.clone();
+            let reader = archive(vec![(
+                crypto::MANIFEST_PATH,
+                serde_json::to_vec(&manifest).unwrap(),
+            )]);
+            if id == serde_json::json!("stable-project_1") {
+                assert_eq!(
+                    reader.get_agent_id().unwrap().as_deref(),
+                    Some("stable-project_1")
+                );
+            } else {
+                assert!(reader
+                    .get_agent_id()
+                    .unwrap_err()
+                    .to_string()
+                    .contains("Invalid AIX manifest"));
+            }
+        }
+        let reader = archive(vec![(crypto::MANIFEST_PATH, b"{".to_vec())]);
+        assert!(reader.get_agent_id().is_err());
     }
 
     #[test]
