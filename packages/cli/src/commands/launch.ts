@@ -6,6 +6,7 @@ import { select } from "@inquirer/prompts";
 import ora from "ora";
 import { cmdPack } from "./legacy";
 import { loadEngine } from "../wasm";
+import { formatAgentId, readProjectAgentId } from "../agent-identity";
 
 const DEVELOP_URI = "content://com.rokid.aiui.develop";
 const STAGING_DIR = "/sdcard/aiui/package/.staging/adb/";
@@ -594,17 +595,7 @@ function readLaunchMetadata(input: string, isProject: boolean): {
 } {
   if (isProject) {
     const app = JSON.parse(fs.readFileSync(path.join(input, "app.json"), "utf8")) as Definition;
-    const stateDirectory = path.join(input, ".aix");
-    const idPath = path.join(stateDirectory, "agent-id");
-    let id: string;
-    if (fs.existsSync(idPath)) {
-      id = fs.readFileSync(idPath, "utf8").trim();
-      if (!id) throw new Error(`${idPath} is empty.`);
-    } else {
-      fs.mkdirSync(stateDirectory, { recursive: true });
-      id = crypto.randomUUID();
-      fs.writeFileSync(idPath, `${id}\n`, { flag: "wx" });
-    }
+    const id = readProjectAgentId(input);
     const agentsPath = path.join(input, "AGENTS.md");
     return {
       app,
@@ -618,13 +609,7 @@ function readLaunchMetadata(input: string, isProject: boolean): {
   const app = JSON.parse(new TextDecoder().decode(reader.read_file("app.json"))) as Definition;
   let agentsText: string | undefined;
   try { agentsText = new TextDecoder().decode(reader.read_file("AGENTS.md")); } catch { /* optional */ }
-  return { app, agentId: formatAgentId(version), agentsText };
-}
-
-function formatAgentId(id: string): string {
-  const normalized = id.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
-  if (!normalized) throw new Error("AIX version/agent ID cannot be normalized.");
-  return `develop.rokid.agent.${normalized}`;
+  return { app, agentId: formatAgentId(reader.get_agent_id() ?? version), agentsText };
 }
 
 function buildDefinition(app: Definition, agentId: string, agentsText?: string): Definition {

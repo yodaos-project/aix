@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { fixture, succeeds, fails } = require('./helpers/cli.cjs');
-const { AixReaderWasm } = require('../dist/pkg/aix_web.js');
+const { AixReaderWasm, pack_aix } = require('../dist/pkg/aix_web.js');
 
 function reader(file) {
   return new AixReaderWasm(new Uint8Array(fs.readFileSync(file)));
@@ -45,6 +45,7 @@ test('pack, list/ls, and optimize round-trip source files and engine metadata', 
   const optimizedReader = reader(optimized);
   t.after(() => optimizedReader.free());
   assert.equal(optimizedReader.get_version(), archive.get_version());
+  assert.equal(optimizedReader.get_agent_id(), archive.get_agent_id());
   assert.deepEqual(Buffer.from(optimizedReader.read_file('data.json')), Buffer.from(archive.read_file('data.json')));
 });
 
@@ -108,7 +109,7 @@ test('show reads packaged metadata and rejects invalid input or persisted identi
   const archive = reader(output);
   t.after(() => archive.free());
   const definition = JSON.parse(succeeds(f.run(['show', output, '--compact'])));
-  assert.equal(definition.agentId, `develop.rokid.agent.${archive.get_version()}`);
+  assert.equal(definition.agentId, `develop.rokid.agent.${archive.get_agent_id()}`);
   assert.equal(definition.agentDesc, 'Description');
   assert.equal(definition.nativeVersion, '2.0.0');
   assert.equal(definition.inkVersion, '^0.18.0');
@@ -117,4 +118,56 @@ test('show reads packaged metadata and rejects invalid input or persisted identi
   fails(f.run(['show', project]), /agent-id is empty/);
   f.write('agent/.aix/agent-id', '!!!');
   fails(f.run(['show', project]), /cannot be normalized/);
+});
+
+test('repacking preserves project identity in the manifest while changing VERSION', (t) => {
+  const f = fixture(t);
+  const project = f.project();
+  const first = path.join(f.root, 'first.aix');
+  const second = path.join(f.root, 'renamed.aix');
+  succeeds(f.run(['pack', project, '-o', first]));
+  const id = fs.readFileSync(path.join(project, '.aix/agent-id'), 'utf8').trim();
+  succeeds(f.run(['pack', project, '-o', second]));
+  const one = reader(first);
+  const two = reader(second);
+  t.after(() => { one.free(); two.free(); });
+  assert.notEqual(one.get_version(), two.get_version());
+  assert.equal(one.get_agent_id(), id);
+  assert.equal(two.get_agent_id(), id);
+  const manifest = JSON.parse(Buffer.from(two.read_file('META-INF/aix/manifest.json')));
+  assert.equal(manifest.agent_id, id);
+  assert.equal(manifest.version, two.get_version());
+  assert(!two.list().some(({ name }) => name.startsWith('.aix/')));
+  for (const input of [project, first, second]) {
+    assert.equal(JSON.parse(succeeds(f.run(['show', input]))).agentId, `develop.rokid.agent.${id}`);
+  }
+});
+
+test('legacy artifacts keep VERSION identity after optimization', (t) => {
+  const f = fixture(t);
+  const result = pack_aix([{ path: 'app.json', data: Buffer.from('{"pages":[]}') }], 'legacy-build', undefined, null);
+  const archive = f.write('legacy.aix', Buffer.from(result.data));
+  result.free();
+  const optimized = path.join(f.root, 'optimized.aix');
+  succeeds(f.run(['optimize', archive, '-o', optimized]));
+  for (const input of [archive, optimized]) {
+    assert.equal(JSON.parse(succeeds(f.run(['show', input]))).agentId, 'develop.rokid.agent.legacy-build');
+    const legacy = reader(input);
+    try { assert.equal(legacy.get_agent_id(), undefined); } finally { legacy.free(); }
+  }
+});
+
+test('pack reuses normalized persisted identity and rejects empty or invalid state', (t) => {
+  const f = fixture(t);
+  const project = f.project();
+  const output = path.join(f.root, 'agent.aix');
+  f.write('agent/.aix/agent-id', ' Project ID! \n');
+  succeeds(f.run(['pack', project, '-o', output]));
+  assert.equal(JSON.parse(succeeds(f.run(['show', output]))).agentId, 'develop.rokid.agent.project-id');
+  fs.unlinkSync(output);
+  for (const [id, message] of [[' \n', /agent-id is empty/], ['!!!', /cannot be normalized/]]) {
+    f.write('agent/.aix/agent-id', id);
+    fails(f.run(['pack', project, '-o', output]), message);
+    assert(!fs.existsSync(output));
+  }
 });

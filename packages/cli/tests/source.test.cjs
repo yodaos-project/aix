@@ -13,6 +13,44 @@ function property(t, object, key, value) {
   t.after(() => original ? Object.defineProperty(object, key, original) : delete object[key]);
 }
 
+test('project identity reuses the winning ID when another command initializes it first', (t) => {
+  const f = fixture(t);
+  const project = f.project();
+  const idPath = path.join(project, '.aix/agent-id');
+  const writeFile = fs.writeFileSync;
+  let attempts = 0;
+  t.mock.method(fs, 'writeFileSync', (file, data, options) => {
+    if (file === idPath && options?.flag === 'wx') {
+      attempts++;
+      // Model another command winning between the existence check and creation.
+      writeFile(idPath, 'competing-project\n', { flag: 'wx' });
+      throw Object.assign(new Error('identity already initialized'), { code: 'EEXIST' });
+    }
+    return writeFile(file, data, options);
+  });
+  const { readProjectAgentId, formatAgentId } = source('agent-identity.ts');
+  assert.equal(readProjectAgentId(project), 'competing-project');
+  assert.equal(readProjectAgentId(project), 'competing-project');
+  assert.equal(formatAgentId(readProjectAgentId(project)), 'develop.rokid.agent.competing-project');
+  assert.equal(fs.readFileSync(idPath, 'utf8'), 'competing-project\n');
+  assert.equal(attempts, 1, 'later reads must not overwrite the winning identity');
+});
+
+test('project identity propagates write failures instead of returning an unpersisted ID', (t) => {
+  const f = fixture(t);
+  const project = f.project();
+  const idPath = path.join(project, '.aix/agent-id');
+  const failure = Object.assign(new Error('identity directory is read-only'), { code: 'EACCES' });
+  const writeFile = fs.writeFileSync;
+  t.mock.method(fs, 'writeFileSync', (file, data, options) => {
+    if (file === idPath) throw failure;
+    return writeFile(file, data, options);
+  });
+  const { readProjectAgentId } = source('agent-identity.ts');
+  assert.throws(() => readProjectAgentId(project), (error) => error === failure);
+  assert.equal(fs.existsSync(idPath), false);
+});
+
 test('non-recursive watcher fallback refreshes new subdirectories, debounces changes, and closes all handles', (t) => {
   const f = fixture(t);
   const root = f.project();

@@ -200,6 +200,7 @@ function 名は論理ページパスです。description はページ `descripti
 {
   "format": "aix",
   "version": "VERSION_VALUE",
+  "agent_id": "stable-project-id",
   "engine": "^0.14.0",
   "algorithm": "ed25519",
   "digest": "sha256",
@@ -208,6 +209,13 @@ function 名は論理ページパスです。description はページ `descripti
   "entries": [{ "path": "app.json", "size": 42, "sha256": "HEX_DIGEST" }]
 }
 ```
+
+`agent_id` はビルドごとの `version` と独立した任意の安定したプロジェクト ID です。
+小文字 ASCII 英数字、`_`、`-` からなる空でない文字列で、先頭と末尾の `-` は許可しません。
+CLI は `<project>/.aix/agent-id` を再利用し、再ビルドと最適化でも ID を維持します。
+開発用 Agent ID は `develop.rokid.agent.<agent_id>` です。旧パッケージで省略または
+null の場合のみ `VERSION` に fallback し、不正な値はエラーにします。署名済み
+パッケージでは Manifest 署名がこのフィールドも保護します。
 
 Manifest の entries は UTF-8 バイト順で厳密に昇順で、`META-INF/aix/*` を除外し、ディレクトリでもメタデータでもないすべての ZIP エントリーを含まなければなりません。`package_id` は、各エントリーの big-endian パス長、パス bytes、big-endian size、big-endian digest 文字列長、digest bytes / 文字列表現をエントリー順にハッシュします。このバイト配置は互換性に関わります。
 
@@ -368,6 +376,7 @@ size はルート XML 要素だけを検査します。外部 selector は id、
 | --- | --- | --- | --- |
 | `format` | string | yes | `aix` と一致。 |
 | `version` | string | yes | UTF-8 の `VERSION` 内容と一致。 |
+| `agent_id` | string または null | no | 正規化済みの安定したプロジェクト ID。旧形式では省略可能。 |
 | `engine` | string | yes | 有効な semver requirement。裸の version は完全一致。 |
 | `algorithm` | string | yes | 現在は `ed25519`。 |
 | `digest` | string | yes | 現在は `sha256`。 |

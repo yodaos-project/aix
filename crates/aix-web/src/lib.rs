@@ -74,6 +74,12 @@ impl AixReaderWasm {
         self.inner.get_version()
     }
 
+    pub fn get_agent_id(&self) -> Result<Option<String>, JsValue> {
+        self.inner
+            .get_agent_id()
+            .map_err(|error| JsValue::from_str(&error.to_string()))
+    }
+
     pub fn supports_engine(&self, current_version: &str) -> Result<bool, JsValue> {
         self.inner
             .supports_engine(current_version)

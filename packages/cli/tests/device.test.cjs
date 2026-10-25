@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { fixture, succeeds, fails } = require('./helpers/cli.cjs');
+const { AixReaderWasm } = require('../dist/pkg/aix_web.js');
 
 const agentId = 'develop.rokid.agent.test-agent';
 const widgetPath = 'widgets/card';
@@ -27,6 +28,26 @@ function setup(t, adb = {}) {
 const calls = (f) => f.calls().filter((call) => call.kind === 'adb');
 const layouts = (f) => calls(f).filter((call) => call.method === 'push')
   .flatMap((call) => call.files).filter((file) => file.path.endsWith('widget-config.json')).map((file) => file.json);
+
+test('pack/install/launch cycles and uninstall keep the same Agent identity', (t) => {
+  const f = setup(t);
+  const archive = path.join(f.root, 'agent.aix');
+  const versions = [];
+  for (let build = 0; build < 2; build++) {
+    succeeds(f.run(['pack', f.project, '-o', archive]));
+    const reader = new AixReaderWasm(new Uint8Array(fs.readFileSync(archive)));
+    try { versions.push(reader.get_version()); } finally { reader.free(); }
+    succeeds(f.run(['install', archive]));
+    succeeds(f.run(['launch-page', archive]));
+  }
+  assert.notEqual(versions[0], versions[1]);
+  assert.deepEqual(calls(f).filter(({ method }) => method === 'open').map(({ request }) => request.agentId), [agentId, agentId]);
+  const definitions = calls(f).filter(({ method }) => method === 'push')
+    .flatMap(({ files }) => files).filter(({ path: file }) => file.endsWith('agent.json'));
+  assert.deepEqual(definitions.map(({ json }) => json.agentId), [agentId, agentId]);
+  succeeds(f.run(['uninstall', archive]));
+  assert.deepEqual(calls(f).at(-1).args.slice(-2), ['--arg', agentId]);
+});
 
 test('first Widget launch creates the default grid when the device has no configuration', (t) => {
   const f = setup(t);

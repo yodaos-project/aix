@@ -23,6 +23,11 @@ npm install -g @yodaos-pkg/aix-cli
 
 将目录打包为 `.aix`。打包时会校验 JSON，将支持的文本转换为 UTF-8，生成 UUID v4 `VERSION`，并写入 `META-INF/aix/manifest.json`。
 
+打包时创建或复用 `<项目>/.aix/agent-id`，将规范化后的 ID 写入 Manifest 的
+`agent_id` 字段。重新打包会更新 `VERSION`，但保持 Agent 身份不变；本地 `.aix/`
+目录不进入归档。跨源码检出或 CI 构建保持身份时，需要共享同一份 `.aix/agent-id`。
+删除该文件后，下次打包或目录命令会生成新身份。
+
 ```bash
 aix pack ./my-agent
 aix pack ./my-agent -o my-app.aix
@@ -118,7 +123,7 @@ aix install ./bundle.aix
 aix install ./my-agent --definition ./agent.json --serial <serial>
 ```
 
-目录使用 `.aix/agent-id`，产物使用 `VERSION`。 `agent.json` 可以覆盖生成的元数据，但不能覆盖 `agentId`。Apply 和手机上传结果会被校验；手机确认不代表云端已完成索引。
+目录使用 `.aix/agent-id`，产物优先使用 Manifest 的 `agent_id`，仅旧包缺少身份字段时回退到 `VERSION`。项目打包后，两种输入会解析为相同的 `develop.rokid.agent.<id>`；`optimize` 也会保留该身份。 `agent.json` 可以覆盖生成的元数据，但不能覆盖 `agentId`。Apply 和手机上传结果会被校验；手机确认不代表云端已完成索引。
 
 ### `aix uninstall <INPUT>`
 

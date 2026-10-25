@@ -35,6 +35,7 @@ fn bench_pack(c: &mut Criterion) {
                         files,
                         PackOptions {
                             build_id: "bench-build".into(),
+                            agent_id: None,
                             engine: Some("*".into()),
                             optimize: None,
                             signing_key: None,

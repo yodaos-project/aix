@@ -41,6 +41,12 @@ Packs a directory into `.aix`. Packing validates JSON, converts supported text
 to UTF-8, generates a UUID v4 `VERSION`, and writes
 `META-INF/aix/manifest.json`.
 
+Packing creates or reuses `<project>/.aix/agent-id` and stores its normalized ID
+in the manifest as `agent_id`. Repacking changes `VERSION` but retains Agent
+identity. The local `.aix/` directory is excluded from the archive. To retain
+identity across checkouts or CI builds, share the same `.aix/agent-id` file.
+Deleting it creates a new identity on the next pack or directory command.
+
 ```bash
 aix pack ./my-agent
 aix pack ./my-agent -o my-app.aix
@@ -164,7 +170,10 @@ aix install ./bundle.aix
 aix install ./my-agent --definition ./agent.json --serial <serial>
 ```
 
-Directories reuse `.aix/agent-id`; artifacts use `VERSION`. `agent.json` may
+Directories reuse `.aix/agent-id`; artifacts use manifest `agent_id`, falling
+back to `VERSION` only for legacy packages without that identity. Both forms
+resolve to the same `develop.rokid.agent.<id>` after packing a project.
+`optimize` preserves the identity. `agent.json` may
 override generated metadata except `agentId`. Apply and phone-upload results
 are validated; phone confirmation does not prove cloud indexing.
 

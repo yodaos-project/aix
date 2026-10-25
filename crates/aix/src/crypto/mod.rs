@@ -102,6 +102,9 @@ impl Signature {
 pub struct PackageManifest {
     pub format: String,
     pub version: String,
+    /// Stable project identity, independent of the per-build version.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
     pub engine: String,
     pub algorithm: String,
     pub digest: String,
@@ -115,6 +118,16 @@ pub struct ManifestEntry {
     pub path: String,
     pub size: u64,
     pub sha256: String,
+}
+
+/// Stable project identities use a portable, normalized identifier alphabet.
+pub fn is_valid_agent_id(id: &str) -> bool {
+    !id.is_empty()
+        && !id.starts_with('-')
+        && !id.ends_with('-')
+        && id.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-')
+        })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

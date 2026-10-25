@@ -244,6 +244,7 @@ The generated `META-INF/aix/manifest.json` has this shape:
 {
   "format": "aix",
   "version": "VERSION_VALUE",
+  "agent_id": "stable-project-id",
   "engine": "^0.14.0",
   "algorithm": "ed25519",
   "digest": "sha256",
@@ -252,6 +253,15 @@ The generated `META-INF/aix/manifest.json` has this shape:
   "entries": [{ "path": "app.json", "size": 42, "sha256": "HEX_DIGEST" }]
 }
 ```
+
+`agent_id` is an optional stable project identity, independent of the per-build
+`version`. It is a non-empty string of lowercase ASCII letters, digits, `_`, and
+`-`, with no leading or trailing `-`. Producers retain it across builds and
+optimization. The CLI persists it in `<project>/.aix/agent-id` and derives
+`develop.rokid.agent.<agent_id>` for development installs and launches. Legacy
+packages may omit it (or use null); the CLI then falls back to `VERSION`. Invalid
+present identities are errors, not a reason to generate or select another ID.
+For signed packages, this field is authenticated by the manifest signature.
 
 Manifest entries must be strictly increasing by UTF-8 byte order, must exclude `META-INF/aix/*`, and must include every non-directory, non-metadata ZIP entry. `package_id` hashes, in entry order, the big-endian path length, path bytes, big-endian size, big-endian digest-string length, and digest bytes/string representation for each entry. This byte layout is compatibility-sensitive.
 
@@ -437,6 +447,7 @@ whether `_blank` means a new surface, isolated context, or initial navigation.
 | --- | --- | --- | --- |
 | `format` | string | yes | Must equal `aix`. |
 | `version` | string | yes | Must equal UTF-8 contents of `VERSION`. |
+| `agent_id` | string or null | no | Stable normalized project identity; absent/null in legacy packages. |
 | `engine` | string | yes | Valid semver requirement; bare versions mean exact match. |
 | `algorithm` | string | yes | Current verifier accepts `ed25519`. |
 | `digest` | string | yes | Current verifier accepts `sha256`. |

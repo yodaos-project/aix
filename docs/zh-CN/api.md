@@ -61,6 +61,12 @@ static pack(files: AixInputFile[], options?: PackOptions): Promise<PackResult>
 
 打包已规范化的内存条目。输入必须包含 app.json，不得包含 VERSION 或 META-INF/aix 保留路径。
 
+跨构建复用相同的 `options.agentId` 会写入 Manifest 的 `agent_id`；它是规范化的
+项目 ID，与 `buildId` / `VERSION` 独立，`optimize` 会保留它。`getAgentId()` 返回
+该 ID，旧包缺少身份时返回 `undefined`，Manifest 身份无效时抛错。直接调用 WASM
+打包函数时将 ID 作为末尾可选参数，读取时调用 `get_agent_id()`；Rust 使用
+`PackOptions.agent_id` 和 `AixReader::get_agent_id()`。
+
 ### AIX.packFromSource(files, options?)
 
 ~~~typescript
@@ -91,6 +97,7 @@ static optimize(data: Uint8Array | File, options?: OptimizeOptions): Promise<Pac
 list(): AixEntry[]
 readFile(name: string): Uint8Array
 getVersion(): string | undefined
+getAgentId(): string | undefined
 supportsEngine(currentVersion: string): boolean
 getTitle(): string | undefined
 getPages(): PageInfo[]
@@ -145,7 +152,7 @@ interface MetadataResolution {
 }
 
 interface AixInputFile { path: string; data: Uint8Array }
-interface PackOptions { buildId?: string; engine?: string; optimize?: false | OptimizeOptions }
+interface PackOptions { buildId?: string; agentId?: string; engine?: string; optimize?: false | OptimizeOptions }
 interface OptimizeOptions { level?: 1 | 2 | 3; json?: boolean; png?: boolean; jpeg?: boolean }
 interface PackFromSourceOptions extends PackOptions { onProgress?: (event: PackProgressEvent) => void }
 interface PackResult { data: Uint8Array; report: OptimizeReport; warnings: string[] }

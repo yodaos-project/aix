@@ -15,12 +15,14 @@ type WasmEngine = CheckEngine & {
     buildId: string,
     engine: string | undefined,
     optimize: unknown,
+    agentId?: string,
   ) => AixPackResult;
   pack_aix_from_source: (
     files: AixInputFile[],
     buildId: string,
     engine: string | undefined,
     optimize: unknown,
+    agentId?: string,
   ) => AixPackResult;
   pack_aix_from_source_with_progress?: (
     files: AixInputFile[],
@@ -28,6 +30,7 @@ type WasmEngine = CheckEngine & {
     engine: string | undefined,
     optimize: unknown,
     progress: (event: PackProgressEvent) => void,
+    agentId?: string,
   ) => AixPackResult;
   optimize_aix: (data: Uint8Array, options: unknown) => AixPackResult;
 };
@@ -46,6 +49,7 @@ export type AixReaderInstance = {
   list: () => AixEntry[];
   read_file: (name: string) => Uint8Array;
   get_version: () => string | undefined;
+  get_agent_id: () => string | undefined;
   get_title: () => string | undefined;
   supports_engine: (version: string) => boolean;
   get_pages: () => unknown[];
@@ -60,6 +64,7 @@ export type AixSourcePackBuilderInstance = {
     engine: string | undefined,
     optimize: unknown,
     progress: (event: PackProgressEvent) => void,
+    agentId?: string,
   ) => AixPackResult;
 };
 
