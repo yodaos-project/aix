@@ -1,13 +1,13 @@
 [package]
 name = "aiui-aix-pack"
-version = "0.10.1"
+version = "0.11.0"
 edition = "2021"
 description = "Cross-platform in-memory packer and optimizer for AIX artifacts"
 license = "MIT"
 repository = "https://github.com/jsar-project/aix"
 
 [dependencies]
-aix = { package = "aiui-aix", path = "../aix", version = "0.10.1" }
+aix = { package = "aiui-aix", path = "../aix", version = "0.11.0" }
 anyhow = { workspace = true }
 chardetng = "0.1"
 encoding_rs = "0.8"
