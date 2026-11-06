@@ -1,8 +1,9 @@
 # @yodaos-pkg/aix
 
 `@yodaos-pkg/aix` is the browser-facing WebAssembly and TypeScript package for
-reading, creating, optimizing, and inspecting AIX artifacts. It runs in modern
-browsers and other environments with WebAssembly support.
+reading, creating, optimizing, and inspecting AIX artifacts. The high-level SDK
+targets modern browsers and Web Workers with ES modules, fetch, and WebAssembly.
+The npm CLI uses a separate Node.js WASM build.
 
 ## Installation
 
@@ -29,6 +30,11 @@ the build features, compatibility plan, tradeoffs, and measured costs.
 
 ## API Reference
 
+This reference covers the public TypeScript exports in v0.11.0. The seven
+static methods are asynchronous; instance methods are synchronous. Source checks
+use `AIX.checkFromSource()` or `AIX.checkFromFiles()`; there is no `AIX.check()`
+or instance `check()` method.
+
 ### AIX.From(data, limits?)
 
 ~~~typescript
@@ -49,7 +55,8 @@ const aix = await AIX.From(file, {
 These example budgets are inclusive and caller-selected. All central-directory
 entries count, including directories and signature metadata. Metadata is checked
 before extraction, and `readFile` bounds output while retaining CRC and size
-verification. `maxTotalBytes` limits the sum of declared uncompressed sizes; it
+verification. Unknown limit fields are rejected. `maxTotalBytes` limits the sum
+of declared uncompressed sizes; it
 does not count repeated reads. Each option must be a non-negative safe integer;
 zero allows no entries or bytes. Omitted fields, `{}`, and the existing one-argument
 call retain the unlimited compatibility policy. Set all three fields for
@@ -62,6 +69,93 @@ Rust callers use `AixReader::new_with_limits(data, AixReadLimits { ... })`, with
 WASM consumers use `AixReaderWasm.with_limits(data, limits)` with the same camelCase
 fields as the TypeScript SDK; `new AixReaderWasm(data)` keeps its existing policy.
 
+### AIX.checkFromSource(files, options?)
+
+~~~typescript
+static checkFromSource(files: AixInputFile[], options?: CheckOptions): Promise<CheckReport>
+~~~
+
+Checks an in-memory source tree without creating an archive, emitting files, or
+running project code. Paths are relative to the application root, with `app.json`
+at that root. Collection normalizes paths, applies root/nested `.aixignore`
+rules, and excludes rule files and `.aix/` caches at every depth.
+
+Checks cover JSON/text validity, App/Page/Widget structure, component references
+and cycles, JS/TS syntax (including `.mts`, `.cts`, and Ink `lang="ts"` scripts),
+statically recognizable permission use, and Page `schema.data` declarations.
+Schema checks use `$schema` (2020-12 by default), support local references, and
+do not fetch external resources. They validate schema declarations, not runtime
+data. TypeScript type checking, import resolution, compiler options, dynamic API
+usage, and runtime behavior are outside this check.
+
+~~~typescript
+import { AIX, type AixInputFile, type CheckReport } from '@yodaos-pkg/aix';
+
+const encode = (text: string) => new TextEncoder().encode(text);
+const files: AixInputFile[] = [
+  { path: 'app.json', data: encode('{"pages":[]}') },
+  { path: 'main.ts', data: encode('const count: number = ;') },
+];
+const report: CheckReport = await AIX.checkFromSource(files, {
+  onProgress(event) {
+    if (event.type === 'check_finished') {
+      console.log(event.check.id, event.check.status, event.check.detail);
+    }
+  },
+});
+for (const diagnostic of report.diagnostics) {
+  console.log(diagnostic.path, diagnostic.line, diagnostic.column,
+    diagnostic.severity, diagnostic.code, diagnostic.message);
+}
+const hasErrors = report.diagnostics.some(item => item.severity === 'error');
+~~~
+
+Source errors and warnings resolve to `CheckReport.diagnostics`; they do not
+reject the promise. Check for `severity === 'error'` to decide whether to
+continue. Collection failures such as invalid paths or malformed ignore rules,
+WASM loading failures, and exceptions from `onProgress` reject the promise.
+`CheckReport` has no success flag or checklist array. Per-category results are
+available through `check_finished` progress events.
+
+### AIX.checkFromFiles(files, options?)
+
+~~~typescript
+static checkFromFiles(files: File[], options?: CheckOptions): Promise<CheckReport>
+~~~
+
+Checks browser `File` objects, using `webkitRelativePath` or falling back to
+`name`. When all relative paths share the selected directory prefix, that outer
+directory is removed before delegating to `checkFromSource`. Read failures
+reject the promise. For a directory picker:
+
+~~~html
+<input id="source" type="file" webkitdirectory multiple>
+~~~
+
+~~~typescript
+import { AIX } from '@yodaos-pkg/aix';
+
+const input = document.querySelector<HTMLInputElement>('#source')!;
+input.addEventListener('change', async () => {
+  const report = await AIX.checkFromFiles(Array.from(input.files ?? []));
+  console.log(report.diagnostics);
+});
+~~~
+
+### Check progress and browser responsiveness
+
+`CheckOptions.onProgress` receives `loading_checker`, `checking_sources` (input
+file count before collection), five `check_finished` events, and finally
+`collecting_diagnostics` on successful completion. The five IDs are `json`,
+`structure`, `syntax`, `permissions`, and `schemas`. Each result has a status,
+error/warning counts, and optional `detail`; checks without applicable work or
+blocked by invalid input may be `skipped`.
+
+These events describe stages, not percentage completion. After initialization,
+the browser check runs synchronously. Use a Web Worker to keep a progress UI
+responsive. The npm CLI uses the same checker in a Node.js Worker; see
+[`aix check`](/cli#aix-check-input-dir).
+
 ### AIX.pack(files, options?)
 
 ~~~typescript
@@ -69,10 +163,26 @@ static pack(files: AixInputFile[], options?: PackOptions): Promise<PackResult>
 ~~~
 
 Packs already-normalized in-memory entries. The input must contain app.json and
-must not contain VERSION or reserved META-INF/aix paths.
+must not contain VERSION or reserved META-INF/aix paths. This lower-level
+entry point does not collect a source tree or apply `.aixignore` rules.
+
+`buildId` defaults to a generated UUID v4 and becomes `VERSION`. `engine` uses
+the explicit option, then `app.json.engine`, then `*`. All `.json` files are
+validated and supported text is normalized to UTF-8. Standalone `.js`/`.ts`
+files are minified even when `optimize` is omitted or `false`; this does not
+transpile TypeScript to JavaScript.
+
+Optional JSON/image optimization is disabled when `optimize` is omitted or
+`false`. Passing `{}` enables defaults: `level: 2`, `json: true`, `png: true`,
+and `jpeg: true`. Packing does not automatically run the full source checker.
+`warnings` are nonfatal packaging diagnostics; use the check APIs for the full
+static report.
 
 Set `options.agentId` to the same normalized project ID across builds to write
-manifest `agent_id`. It is independent of `buildId` / `VERSION` and is preserved
+manifest `agent_id`. The SDK does not create a filesystem identity file or
+generate this ID automatically. Use a nonempty string of lowercase ASCII
+letters, digits, `_`, and `-`, without a leading or trailing `-`.
+It is independent of `buildId` / `VERSION` and is preserved
 by `optimize`. `getAgentId()` returns this ID, returns `undefined` for legacy
 packages without it, and throws for malformed manifest identities. Direct WASM
 pack exports accept the ID as an optional final argument; reader exports expose
@@ -85,7 +195,10 @@ static packFromSource(files: AixInputFile[], options?: PackFromSourceOptions): P
 ~~~
 
 Packs a source tree, normalizing paths, applying nested .aixignore rules, and
-omitting ignore files. Use pack when those steps were already performed.
+omitting ignore files and `.aix/` caches at any depth. Duplicate normalized
+paths and invalid collection rules reject the promise. Use `pack` when those
+steps were already performed. `onProgress` is available here and in
+`packFromFiles`, not in `pack` or `optimize`; callback exceptions reject the call.
 
 ### AIX.packFromFiles(files, options?)
 
@@ -94,7 +207,23 @@ static packFromFiles(files: File[], options?: PackFromSourceOptions): Promise<Pa
 ~~~
 
 Converts browser File objects to source entries using webkitRelativePath when
-available, then delegates to packFromSource.
+available (otherwise `name`), then delegates to `packFromSource`.
+
+Unlike `checkFromFiles`, this method preserves the outer directory in
+`webkitRelativePath`. For an input selected with `webkitdirectory`, remove that
+prefix yourself so that `app.json` is at the archive root, and call
+`packFromSource`:
+
+~~~typescript
+import { AIX } from '@yodaos-pkg/aix';
+
+const input = document.querySelector<HTMLInputElement>('#source')!;
+const files = await Promise.all(Array.from(input.files ?? []).map(async file => ({
+  path: file.webkitRelativePath.split('/').slice(1).join('/'),
+  data: new Uint8Array(await file.arrayBuffer()),
+})));
+const packed = await AIX.packFromSource(files, { agentId: 'my-agent' });
+~~~
 
 ### AIX.optimize(data, options?)
 
@@ -103,7 +232,9 @@ static optimize(data: Uint8Array | File, options?: OptimizeOptions): Promise<Pac
 ~~~
 
 Writes an optimized copy of an existing package. Optimization changes bytes, so
-an existing signature is not retained.
+an existing signature is not retained. `VERSION` and manifest `agent_id` are
+preserved. Omitted options use the optimization defaults above. Report byte
+totals describe uncompressed entry data, not the ZIP download size.
 
 ### Instance methods
 
@@ -120,13 +251,24 @@ getWidgets(locale?: string): WidgetInfo[]
 getTools(): Tool[]
 ~~~
 
-`list` returns normalized names and compressed/uncompressed sizes. `readFile`
-returns verified uncompressed bytes. `getVersion` reads VERSION; `getTitle`
-reads app.json.window.navigationBarTitleText. `supportsEngine` checks the
-manifest semver range. `getPages` resolves Ink or multi-file pages. `getWidgets`
-validates widget Ink entries and optionally applies locale overlays. `getTools`
-derives OpenAI-compatible function records. See the [Specification](/spec) for
-page, schema, layout, and tool semantics.
+| Method | Behavior |
+| --- | --- |
+| `list()` | Lists normalized entry names and compressed/uncompressed byte sizes. |
+| `readFile(name)` | Reads an exact entry name and verifies its CRC and size; throws for missing/corrupt entries or exceeded budgets. |
+| `getVersion()` | Reads `VERSION`; missing, unreadable, or non-UTF-8 data returns `undefined`. |
+| `getAgentId()` | Reads manifest `agent_id`; absent identity returns `undefined`, malformed manifest/identity throws. |
+| `supportsEngine(version)` | Tests the manifest semver range; throws when the manifest/range is missing or invalid, or the supplied version is invalid. |
+| `getTitle()` | Reads `app.json.window.navigationBarTitleText`; missing or invalid configuration returns `undefined`. |
+| `getPages()` | Resolves page metadata with the tolerant behavior described below. |
+| `resolveMetadata()` | Returns successfully resolved pages/tools and resource diagnostics. |
+| `getWidgets(locale?)` | Validates Widget entries and optionally overlays `displayName`/`description` from `app.<locale>.json`; invalid configuration, locale files, or missing entries throw. |
+| `getTools()` | Derives OpenAI-compatible function records from the tolerant page list. |
+
+These synchronous methods can surface errors when reading package resources.
+`AIX.From()` validates the archive structure, but does not eagerly read every
+entry or verify a publisher's cryptographic signature. Signature verification
+is available through the Rust reader; it is not a public TypeScript method.
+See the [Specification](/spec) for page, layout, Widget, and tool semantics.
 
 ### Metadata resolution and diagnostics
 
@@ -162,7 +304,7 @@ decoding; page JSON and complete Ink `<script def>` blocks must deserialize.
 A broken `.ink` entry does not fall back to multi-file pages. Optional definitions,
 schemas, and styles may be absent; `.wcss` takes precedence over `.wxss`. Widget
 and title fields are outside this report. This API does not replace source checks
-for full Ink syntax, component references, or JSON Schema validity, and does not
+for Ink structure, component references, or JSON Schema validity, and does not
 validate runtime behavior. Packing validation is unchanged.
 
 Rust uses `AixReader::resolve_metadata() -> MetadataResolution`; direct WASM
@@ -171,107 +313,188 @@ consumers use `reader.resolve_metadata()` with the same report shape.
 ## Type Reference
 
 ~~~typescript
-interface MetadataDiagnostic { path: string; message: string }
-interface MetadataResolution {
-  pages: PageInfo[];
-  tools: Tool[];
-  diagnostics: MetadataDiagnostic[];
+interface AixInputFile {
+    path: string;
+    data: Uint8Array;
 }
 
-interface AixInputFile { path: string; data: Uint8Array }
+interface AixReadLimits {
+    maxEntries?: number;
+    maxEntryBytes?: number;
+    maxTotalBytes?: number;
+}
 
 interface PackOptions {
-  buildId?: string;
-  agentId?: string;
-  engine?: string;
-  optimize?: false | OptimizeOptions;
+    buildId?: string;
+    agentId?: string;
+    engine?: string;
+    optimize?: false | OptimizeOptions;
 }
 
 interface OptimizeOptions {
-  level?: 1 | 2 | 3;
-  json?: boolean;
-  png?: boolean;
-  jpeg?: boolean;
+    level?: 1 | 2 | 3;
+    json?: boolean;
+    png?: boolean;
+    jpeg?: boolean;
 }
 
 interface PackFromSourceOptions extends PackOptions {
-  onProgress?: (event: PackProgressEvent) => void;
+    onProgress?: (event: PackProgressEvent) => void;
 }
 
 interface PackResult {
-  data: Uint8Array;
-  report: OptimizeReport;
-  warnings: string[];
+    data: Uint8Array;
+    report: OptimizeReport;
+    warnings: string[];
 }
 
 interface OptimizeReport {
-  files: FileOptimizeReport[];
-  original_size: number;
-  output_size: number;
-  saved_bytes: number;
+    files: FileOptimizeReport[];
+    original_size: number;
+    output_size: number;
+    saved_bytes: number;
 }
 
 interface FileOptimizeReport {
-  path: string;
-  status: 'optimized' | 'unchanged' | 'skipped';
-  original_size: number;
-  output_size: number;
-  saved_bytes: number;
-  converted_to_utf8: boolean;
+    path: string;
+    status: 'optimized' | 'unchanged' | 'skipped';
+    original_size: number;
+    output_size: number;
+    saved_bytes: number;
+    converted_to_utf8: boolean;
 }
 ~~~
 
 ### PackProgressEvent
 
 ~~~typescript
-type PackProgressEvent =
-  | { type: 'transferring_files_to_wasm' }
-  | { type: 'collecting_source_inputs' }
-  | { type: 'resolving_engine' }
-  | { type: 'preparing_files' }
-  | { type: 'file_finished'; report: FileOptimizeReport }
-  | { type: 'finalizing_archive' };
+type PackProgressEvent = {
+    type: 'transferring_files_to_wasm';
+} | {
+    type: 'collecting_source_inputs';
+} | {
+    type: 'resolving_engine';
+} | {
+    type: 'preparing_files';
+} | {
+    type: 'file_finished';
+    report: FileOptimizeReport;
+} | {
+    type: 'finalizing_archive';
+};
+~~~
+
+Pack callbacks report transfer, source collection, engine resolution, file
+preparation, each completed file, and archive finalization. `file_finished`
+carries that entry's `FileOptimizeReport`, including the generated `VERSION`
+entry. These are synchronous stage notifications, not percentage completion.
+
+### Source check types
+
+~~~typescript
+interface CheckDiagnostic {
+    code: string;
+    severity: 'error' | 'warning';
+    path: string;
+    line: number;
+    column: number;
+    message: string;
+}
+
+interface CheckReport {
+    diagnostics: CheckDiagnostic[];
+}
+
+interface CheckOptions {
+    onProgress?: (event: CheckProgressEvent) => void;
+}
+
+interface CheckResult {
+    id: 'json' | 'structure' | 'syntax' | 'permissions' | 'schemas';
+    label: string;
+    status: 'passed' | 'warning' | 'failed' | 'skipped';
+    errors: number;
+    warnings: number;
+    detail?: string;
+}
+
+type CheckProgressEvent = {
+    type: 'loading_checker';
+} | {
+    type: 'checking_sources';
+    fileCount: number;
+} | {
+    type: 'check_finished';
+    check: CheckResult;
+} | {
+    type: 'collecting_diagnostics';
+};
 ~~~
 
 ### Package and derived models
 
 ~~~typescript
-interface AixEntry { name: string; size: number; compressed_size: number }
-
-type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;
-interface JsonObject { [key: string]: JsonValue }
-type JsonSchema = JsonValue;
-interface PageConstraint { width: number; height: number }
-type ToolTarget = '_current' | '_blank';
-type WidgetPlacement = 'persistent' | 'overlay';
-
-interface PageInfo {
-  name: string;
-  title: string | null;
-  description: string | null;
-  data_schema: JsonSchema;
-  size: PageConstraint;
+interface AixEntry {
+    name: string;
+    size: number;
+    compressed_size: number;
 }
 
+type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;
+
+interface JsonObject {
+    [key: string]: JsonValue;
+}
+
+type JsonSchema = JsonValue;
+
+interface PageConstraint {
+    width: number;
+    height: number;
+}
+
+interface PageInfo {
+    name: string;
+    title: string | null;
+    description: string | null;
+    data_schema: JsonSchema;
+    size: PageConstraint;
+}
+
+interface MetadataDiagnostic {
+    path: string;
+    message: string;
+}
+
+interface MetadataResolution {
+    pages: PageInfo[];
+    tools: Tool[];
+    diagnostics: MetadataDiagnostic[];
+}
+
+type WidgetPlacement = 'persistent' | 'overlay';
+
 interface WidgetInfo {
-  path: string;
-  family: string;
-  placement: WidgetPlacement;
-  displayName: string | null;
-  description: string | null;
+    path: string;
+    family: string;
+    placement: WidgetPlacement;
+    displayName: string | null;
+    description: string | null;
+}
+
+type ToolTarget = '_current' | '_blank';
+
+interface FunctionDefinition {
+    name: string;
+    description: string | null;
+    parameters: JsonSchema;
 }
 
 interface Tool {
-  type: string;
-  target: ToolTarget;
-  layout: PageConstraint;
-  function: FunctionDefinition;
-}
-
-interface FunctionDefinition {
-  name: string;
-  description: string | null;
-  parameters: JsonSchema;
+    type: string;
+    target: ToolTarget;
+    layout: PageConstraint;
+    function: FunctionDefinition;
 }
 ~~~
 
@@ -301,7 +524,7 @@ input.addEventListener('change', async () => {
 });
 ~~~
 
-## Package Lab
+## Play
 
 The official browser lab is available at [/play](/play). It displays an
 artifact's title, version, pages, generated tools, archive entries, and raw
