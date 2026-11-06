@@ -344,6 +344,15 @@ export class AIX {
   }
 
   /**
+   * Get permission names declared in app.json, in declaration order.
+   * Missing declarations return []; invalid configuration throws.
+   * This does not query runtime or device authorization.
+   */
+  getPermissions(): string[] {
+    return this.reader.get_permissions() as string[];
+  }
+
+  /**
    * Get all pages from app.json and pages/*.json.
    */
   getPages(): PageInfo[] {

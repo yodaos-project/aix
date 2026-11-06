@@ -245,6 +245,7 @@ getVersion(): string | undefined
 getAgentId(): string | undefined
 supportsEngine(currentVersion: string): boolean
 getTitle(): string | undefined
+getPermissions(): string[]
 getPages(): PageInfo[]
 resolveMetadata(): MetadataResolution
 getWidgets(locale?: string): WidgetInfo[]
@@ -259,10 +260,18 @@ getTools(): Tool[]
 | `getAgentId()` | Reads manifest `agent_id`; absent identity returns `undefined`, malformed manifest/identity throws. |
 | `supportsEngine(version)` | Tests the manifest semver range; throws when the manifest/range is missing or invalid, or the supplied version is invalid. |
 | `getTitle()` | Reads `app.json.window.navigationBarTitleText`; missing or invalid configuration returns `undefined`. |
+| `getPermissions()` | Reads `app.json.permissions` as a string array, preserving order, duplicates, and custom names. An omitted or empty list returns `[]`; missing/unreadable/invalid `app.json` or a non-string-array value throws. |
 | `getPages()` | Resolves page metadata with the tolerant behavior described below. |
 | `resolveMetadata()` | Returns successfully resolved pages/tools and resource diagnostics. |
 | `getWidgets(locale?)` | Validates Widget entries and optionally overlays `displayName`/`description` from `app.<locale>.json`; invalid configuration, locale files, or missing entries throw. |
 | `getTools()` | Derives OpenAI-compatible function records from the tolerant page list. |
+
+`getPermissions()` returns declarations, not runtime or device authorization state,
+and does not prompt for access. For example:
+
+~~~typescript
+const permissions = aix.getPermissions(); // e.g. ['GEOLOCATION', 'CAMERA']
+~~~
 
 These synchronous methods can surface errors when reading package resources.
 `AIX.From()` validates the archive structure, but does not eagerly read every

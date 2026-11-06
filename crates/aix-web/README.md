@@ -254,6 +254,17 @@ Extracts the navigation bar title from the `app.json`.
 const title = aix.getTitle();
 ```
 
+#### `getPermissions(): string[]`
+Returns the permission names declared in `app.json.permissions`, preserving their
+order, duplicates, and custom names. An omitted or empty list returns `[]`.
+Throws if `app.json` is missing, unreadable, invalid, or `permissions` is not an
+array of strings. This reads declarations without querying authorization or
+prompting for access.
+```typescript
+const permissions = aix.getPermissions();
+// e.g. ['GEOLOCATION', 'CAMERA']
+```
+
 #### `getPages(): PageInfo[]`
 Returns information about all pages defined in the package, including their paths, titles, and data schemas.
 ```typescript

@@ -53,6 +53,7 @@ async function main() {
     assert(!requests.includes('/check/index.js'), 'The check adapter must remain lazy before the first check');
     await require('../tests/reader-split.cjs')(page, metadataFixture, dist, cli);
     await require('../tests/agent-identity.cjs')(page);
+    await require('../tests/permissions.cjs')(page, cli);
     await require('../tests/reader-limits.cjs')(page);
     await require('../tests/metadata-resolution.cjs')(page);
     await metadataContract.checkBrowser(page, metadataFixture);

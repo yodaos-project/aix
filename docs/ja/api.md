@@ -215,6 +215,7 @@ getVersion(): string | undefined
 getAgentId(): string | undefined
 supportsEngine(currentVersion: string): boolean
 getTitle(): string | undefined
+getPermissions(): string[]
 getPages(): PageInfo[]
 resolveMetadata(): MetadataResolution
 getWidgets(locale?: string): WidgetInfo[]
@@ -229,10 +230,18 @@ getTools(): Tool[]
 | `getAgentId()` | Manifest の `agent_id` を読みます。未設定は `undefined`、不正な Manifest/ID は例外です。 |
 | `supportsEngine(version)` | Manifest の semver 範囲を検査します。Manifest/範囲の欠落や不正、不正なバージョンは例外です。 |
 | `getTitle()` | `app.json.window.navigationBarTitleText` を読みます。欠落や不正設定は `undefined` です。 |
+| `getPermissions()` | `app.json.permissions` の文字列配列を宣言順に返します。重複と独自の名前を保持し、省略時や空配列は `[]` です。`app.json` の欠落、読み取り失敗、不正形式、文字列配列以外の値では例外です。 |
 | `getPages()` | 下記の寛容な方針でページメタデータを解決します。 |
 | `resolveMetadata()` | 解決済みのページ/ツールとリソース診断を返します。 |
 | `getWidgets(locale?)` | Widget の入口を検証し、`app.<locale>.json` の表示名と説明を適用します。不正設定/言語ファイルや入口欠落は例外です。 |
 | `getTools()` | 寛容に解決したページから OpenAI 互換の関数レコードを生成します。 |
+
+`getPermissions()` は宣言された権限を返します。実行時やデバイスの許可状態を照会せず、
+許可を求めるダイアログも表示しません。
+
+~~~typescript
+const permissions = aix.getPermissions(); // 例：['GEOLOCATION', 'CAMERA']
+~~~
 
 同期メソッドでもリソース読み取り時に例外が発生します。`AIX.From` は全エントリーを即時に
 読まず、発行者の暗号署名も検証しません。署名検証は Rust reader にあり、TypeScript の

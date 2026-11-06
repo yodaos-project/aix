@@ -27,6 +27,7 @@ type ToolShape = Assert<Equal<Tool, {
   type: string; target: ToolTarget; layout: PageConstraint; function: FunctionDefinition;
 }>>;
 type PagesReturn = Assert<Equal<ReturnType<AIX['getPages']>, PageInfo[]>>;
+type PermissionsReturn = Assert<Equal<ReturnType<AIX['getPermissions']>, string[]>>;
 type ToolsReturn = Assert<Equal<ReturnType<AIX['getTools']>, Tool[]>>;
 type WidgetsReturn = Assert<Equal<ReturnType<AIX['getWidgets']>, WidgetInfo[]>>;
 type MetadataReturn = Assert<Equal<ReturnType<AIX['resolveMetadata']>, MetadataResolution>>;

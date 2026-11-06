@@ -194,6 +194,12 @@ struct AppWidgetsConfig {
 }
 
 #[derive(Deserialize)]
+struct AppPermissionsConfig {
+    #[serde(default)]
+    pub permissions: Vec<String>,
+}
+
+#[derive(Deserialize)]
 struct AppTitleConfig {
     pub window: Option<WindowConfig>,
 }
@@ -548,6 +554,21 @@ impl AixReader {
             return Err(anyhow!("Invalid app.json: expected an object"));
         }
         serde_json::from_slice(&app_json).map_err(|error| anyhow!("Invalid app.json: {}", error))
+    }
+
+    /// Returns the permission names declared in `app.json.permissions`.
+    ///
+    /// Preserves declaration order, duplicates, and unknown permission names.
+    /// An absent `permissions` property is treated as an empty list. These are
+    /// declarations, not the runtime or device authorization state.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `app.json` cannot be read, is not a JSON object, or
+    /// has a `permissions` value other than an array of strings.
+    pub fn get_permissions(&self) -> Result<Vec<String>> {
+        let config: AppPermissionsConfig = self.read_app_config()?;
+        Ok(config.permissions)
     }
 
     /// Reads the package manifest from `META-INF/aix/manifest.json`.
@@ -1944,6 +1965,76 @@ mod tests {
 
         let reader = AixReader::new(data).unwrap();
         assert_eq!(reader.read_file("app.json").unwrap(), br#"{"pages":[]}"#);
+    }
+
+    #[test]
+    fn returns_declared_permissions_in_order_without_filtering() {
+        let reader = archive(vec![(
+            "app.json",
+            br#"{"permissions":["GEOLOCATION","CAMERA","CUSTOM_PERMISSION","CAMERA"],"pages":false,"widgets":42,"window":false}"#.to_vec(),
+        )]);
+        assert_eq!(
+            reader.get_permissions().unwrap(),
+            ["GEOLOCATION", "CAMERA", "CUSTOM_PERMISSION", "CAMERA"]
+        );
+    }
+
+    #[test]
+    fn returns_empty_permissions_when_omitted_or_empty() {
+        for app in [br#"{"pages":[]}"#.as_slice(), br#"{"permissions":[]}"#] {
+            let reader = archive(vec![("app.json", app.to_vec())]);
+            assert!(reader.get_permissions().unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_permissions_instead_of_returning_an_empty_list() {
+        for app in [
+            r#"{"permissions":null}"#,
+            r#"{"permissions":"CAMERA"}"#,
+            r#"{"permissions":{}}"#,
+            r#"{"permissions":["CAMERA",42]}"#,
+            r#"{"permissions":[false]}"#,
+            r#"{"permissions":[null]}"#,
+            r#"{"permissions":[{}]}"#,
+            r#"{"permissions":[[]]}"#,
+            "[]",
+            "null",
+            "{",
+        ] {
+            let reader = archive(vec![("app.json", app.as_bytes().to_vec())]);
+            assert!(
+                reader
+                    .get_permissions()
+                    .unwrap_err()
+                    .to_string()
+                    .starts_with("Invalid app.json:"),
+                "{app}"
+            );
+        }
+    }
+
+    #[test]
+    fn reports_unreadable_permission_declarations() {
+        let reader = archive(vec![("other.json", b"{}".to_vec())]);
+        assert_eq!(
+            reader.get_permissions().unwrap_err().to_string(),
+            "File not found: app.json"
+        );
+
+        let mut data = archive(vec![(
+            "app.json",
+            br#"{"permissions":["CAMERA"]}"#.to_vec(),
+        )])
+        .into_bytes();
+        let offset = central_offset(&data);
+        data[offset + 16] ^= 1;
+        let reader = AixReader::new(data).unwrap();
+        assert!(reader
+            .get_permissions()
+            .unwrap_err()
+            .to_string()
+            .starts_with("Failed to verify app.json:"));
     }
 
     #[test]

@@ -192,6 +192,7 @@ packageInput.addEventListener('change', async () => {
     packageOutput.textContent = JSON.stringify({
       标题: pkg.getTitle() ?? '未设置标题',
       构建标识: pkg.getVersion() ?? '未设置',
+      声明的权限: pkg.getPermissions(),
       页面: pkg.getPages(),
       工具: pkg.getTools(),
     }, null, 2);
@@ -312,6 +313,7 @@ async function optimizePackage(file) {
 | `pkg.getTitle()` | 项目标题。 |
 | `pkg.getVersion()` | 包的构建标识。 |
 | `pkg.getAgentId()` | 项目标识。 |
+| `pkg.getPermissions()` | 包里声明的权限列表，例如 `GEOLOCATION`、`CAMERA`。 |
 | `pkg.getPages()` | 页面列表及页面参数说明。 |
 | `pkg.getWidgets(locale?)` | 小组件列表。传入 `en-US` 等语言名称可读取对应的展示文案。 |
 | `pkg.getTools()` | 提供给 AI 的工具定义，例如工具名称和可接收的参数。 |
@@ -579,6 +581,25 @@ getAgentId(): string | undefined
 **返回：** `string | undefined`。没有设置标识的包返回 `undefined`。
 
 **错误处理：** 已保存的标识或相关包信息无效时，会抛错。
+
+#### pkg.getPermissions()
+
+~~~typescript
+getPermissions(): string[]
+~~~
+
+查看当前包在 `app.json.permissions` 中声明的权限名称。
+
+~~~javascript
+const permissions = pkg.getPermissions();
+// 例如：["GEOLOCATION", "CAMERA"]
+~~~
+
+**返回：** `string[]`。按声明顺序返回，保留重复项和自定义权限名称。未声明权限或声明为空数组时，返回 `[]`。
+
+**错误处理：** `app.json` 缺失、无法读取、格式无效，或 `permissions` 不是字符串数组时，会抛错。
+
+这份列表表示项目声明需要哪些权限，不表示设备已经授权。调用此方法不会弹出授权提示。
 
 #### pkg.getPages()
 

@@ -90,6 +90,14 @@ impl AixReaderWasm {
         self.inner.get_title()
     }
 
+    pub fn get_permissions(&self) -> Result<JsValue, JsValue> {
+        let permissions = self
+            .inner
+            .get_permissions()
+            .map_err(|error| JsValue::from_str(&error.to_string()))?;
+        to_value(&permissions)
+    }
+
     pub fn get_pages(&self) -> Result<JsValue, JsValue> {
         to_metadata_value(&self.inner.get_pages())
     }

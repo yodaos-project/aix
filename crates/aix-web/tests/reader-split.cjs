@@ -30,7 +30,7 @@ module.exports = async function testReaderSplit(page, fixture, dist, cli) {
     ]);
     window.splitReader = reader;
     if (JSON.stringify(reader.getPages()) !== JSON.stringify(bounded.getPages())) throw new Error('Concurrent reader results differ');
-    if (reader.getVersion() !== 'reader-split' || reader.getTitle() !== undefined
+    if (reader.getVersion() !== 'reader-split' || reader.getTitle() !== undefined || reader.getPermissions().length !== 0
       || !reader.supportsEngine('0.18.1') || !reader.list().some((entry) => entry.name === 'app.json')
       || !Array.isArray(JSON.parse(new TextDecoder().decode(reader.readFile('app.json'))).pages)) {
       throw new Error('Reader instance methods failed with tooling blocked');
