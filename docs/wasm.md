@@ -1,19 +1,21 @@
 # Reader and tooling WASM loading
 
-The Web SDK loads an independent reader WASM for `AIX.From()` and instance
+The Web SDK loads an independent reader WASM for default `AIX.From()` calls and instance
 methods. Reading archive entries, resolving page metadata/tools/Widgets, and
 checking engine compatibility do not load the packer, image codecs, Oxc
 parser/minifier, or JSON Schema validator.
 
 The first `pack`, `packFromSource`, `packFromFiles`, `optimize`,
 `checkFromSource`, or `checkFromFiles` call lazily initializes the full module.
+Opting into source checks with `AIX.From(data, limits, true)` also loads this module
+before returning the reader; the default `false` keeps the reader-only path.
 Concurrent tooling calls share initialization. Reader instances keep their own
 module memory and remain usable after tooling initializes. Tooling-only callers
 do not fetch the reader WASM.
 
 ## Compatibility and build choices
 
-The public TypeScript API and method signatures remain unchanged. Builds contain
+Existing one- and two-argument `AIX.From` calls remain compatible. Builds contain
 two web-target artifacts:
 
 | Artifact | Contents | Loading |

@@ -52,15 +52,19 @@ module.exports = async function testReaderLimits(page) {
     let forgedError;
     try { bounded.readFile('payload'); }
     catch (error) { forgedError = String(error); }
+    let checkedForgedError;
+    try { await AIX.From(forged, { maxEntryBytes: 4096, maxTotalBytes: total }, true); }
+    catch (error) { checkedForgedError = String(error); }
     const raw = AixReaderWasm.with_limits(data, limits);
     const rawLength = raw.read_file('payload').length;
     raw.free();
-    return { successes, failures, forgedError, rawLength, legacyLength: legacy.readFile('payload').length,
+    return { successes, failures, forgedError, checkedForgedError, rawLength, legacyLength: legacy.readFile('payload').length,
       emptyPolicyLength: (await AIX.From(data, {})).readFile('payload').length };
   });
   assert.deepEqual(result.successes, [4096, 4096, 4096, 4096]);
   assert(result.failures.every((failure) => failure === 'rejected'), JSON.stringify(result.failures));
   assert.match(result.forgedError, /Failed to extract|Extracted file size limit exceeded/);
+  assert.match(result.checkedForgedError, /Failed to extract|Extracted file size limit exceeded/);
   assert.equal(result.rawLength, 4096);
   assert.equal(result.legacyLength, 4096);
   assert.equal(result.emptyPolicyLength, 4096);

@@ -28,14 +28,37 @@ console.log(aix.getTitle(), aix.getPages(), aix.getTools());
 
 ## API リファレンス
 
-### AIX.From(data, limits?)
+### AIX.From(data, limits?, check?) {#aix-from-data-limits}
 
 ~~~typescript
-static From(data: Uint8Array | File, limits?: AixReadLimits): Promise<AIX>
+static From(data: Uint8Array | File, limits?: AixReadLimits, check?: boolean): Promise<AIX>
 ~~~
 
 完全なアーカイブの `Uint8Array` またはブラウザーの `File` からインスタンスを作成します。
 不正な ZIP、パス、正規化後の重複エントリー、または予算超過では Promise が reject されます。
+
+第 3 引数 `check` の既定値は `false` です。`true` にすると、パッケージの内容に
+`checkFromSource()` と同じソース検査を行ってからインスタンスを返します。警告だけなら
+成功します。`severity: 'error'` がある場合は [AixCheckError](#aix-check-error) をスローし、
+`report` に完全な `CheckReport`、`diagnostics` に警告も含めた全診断を保持します。
+アーカイブの読み取り、展開、検査の読み込みや入力処理に失敗した場合は元の操作エラーを
+スローします。その場合、検査レポートがあるとは限りません。
+
+~~~typescript
+import { AIX, AixCheckError } from '@yodaos-pkg/aix';
+
+async function openCheckedPackage(file: File) {
+  try {
+    return await AIX.From(file, undefined, true);
+  } catch (error) {
+    if (error instanceof AixCheckError) console.table(error.diagnostics);
+    throw error;
+  }
+}
+~~~
+
+検査はプロジェクトのコードを実行せず、実行時の動作は検証しません。検査を有効にすると
+開く処理時間が増えますが、読み取り上限は引き続き適用されます。
 
 ~~~typescript
 const aix = await AIX.From(file, {
@@ -243,9 +266,24 @@ getTools(): Tool[]
 const permissions = aix.getPermissions(); // 例：['GEOLOCATION', 'CAMERA']
 ~~~
 
-同期メソッドでもリソース読み取り時に例外が発生します。`AIX.From` は全エントリーを即時に
-読まず、発行者の暗号署名も検証しません。署名検証は Rust reader にあり、TypeScript の
+同期メソッドでもリソース読み取り時に例外が発生します。既定の `AIX.From` は全エントリーを即時に
+読みません。任意のソース検査を有効にしても、発行者の暗号署名は検証しません。署名検証は Rust reader にあり、TypeScript の
 公開メソッドではありません。[仕様](/spec?lang=ja)も参照してください。
+
+### AixCheckError {#aix-check-error}
+
+`From` の任意の検査がエラーを報告した場合にスローされる、公開された `Error` のサブクラスです。
+`instanceof` で判定するには `import type` ではなく通常の `import` で読み込みます。
+
+| プロパティ | 型 | 意味 |
+| --- | --- | --- |
+| `name` | `string` | `"AixCheckError"`。 |
+| `message` | `string` | 検査失敗の短い説明。 |
+| `report` | `CheckReport` | 完全な検査レポート。 |
+| `diagnostics` | `CheckDiagnostic[]` | `report.diagnostics` と同じ配列。警告とソース位置も保持します。 |
+
+警告だけではスローしません。独立したレポートが必要なら `checkFromSource()` または
+`checkFromFiles()` を使用します。
 
 ### メタデータ解決と診断
 

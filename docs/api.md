@@ -23,8 +23,8 @@ console.log(aix.getTitle(), aix.getPages(), aix.getTools());
 browser File object.
 
 Reading loads an independent reader WASM. Packing, optimization, and source
-checks lazily load the full tooling module; existing methods and direct WASM
-paths remain available. Self-host the complete generated distribution, including
+checks (including `AIX.From(data, limits, true)`) lazily load the full tooling
+module; existing methods and direct WASM paths remain available. Self-host the complete generated distribution, including
 both `pkg-reader/` and `pkg/`. See [WASM loading and measurements](/wasm) for
 the build features, compatibility plan, tradeoffs, and measured costs.
 
@@ -35,14 +35,39 @@ static methods are asynchronous; instance methods are synchronous. Source checks
 use `AIX.checkFromSource()` or `AIX.checkFromFiles()`; there is no `AIX.check()`
 or instance `check()` method.
 
-### AIX.From(data, limits?)
+### AIX.From(data, limits?, check?) {#aix-from-data-limits}
 
 ~~~typescript
-static From(data: Uint8Array | File, limits?: AixReadLimits): Promise<AIX>
+static From(data: Uint8Array | File, limits?: AixReadLimits, check?: boolean): Promise<AIX>
 ~~~
 
 Creates an instance from a complete AIX archive. The promise rejects for an
 invalid ZIP, invalid entry path, duplicate normalized entry, or exceeded budget.
+
+The optional third parameter `check` defaults to `false`. When `true`, the
+package contents go through the same source checks as `checkFromSource()` before
+the instance is returned. Warnings alone pass. Any diagnostic with
+`severity: 'error'` rejects with [AixCheckError](#aix-check-error), whose `report`
+contains the complete `CheckReport` and whose `diagnostics` includes all errors
+and warnings. Archive, extraction, and checker loading/collection failures retain
+their original operation errors; those do not necessarily have a check report.
+
+~~~typescript
+import { AIX, AixCheckError } from '@yodaos-pkg/aix';
+
+async function openCheckedPackage(file: File) {
+  try {
+    return await AIX.From(file, undefined, true);
+  } catch (error) {
+    if (error instanceof AixCheckError) console.table(error.diagnostics);
+    throw error;
+  }
+}
+~~~
+
+Checking does not execute project code or verify runtime behavior. It adds work
+to opening the package and retains extracted check inputs; archive limits still
+apply and do not bound the checker's total memory use.
 
 ~~~typescript
 const aix = await AIX.From(file, {
@@ -274,10 +299,25 @@ const permissions = aix.getPermissions(); // e.g. ['GEOLOCATION', 'CAMERA']
 ~~~
 
 These synchronous methods can surface errors when reading package resources.
-`AIX.From()` validates the archive structure, but does not eagerly read every
-entry or verify a publisher's cryptographic signature. Signature verification
-is available through the Rust reader; it is not a public TypeScript method.
+By default, `AIX.From()` validates the archive structure without eagerly reading
+every entry. The optional source check does not verify a publisher's cryptographic
+signature. Signature verification is available through the Rust reader; it is not a public TypeScript method.
 See the [Specification](/spec) for page, layout, Widget, and tool semantics.
+
+### AixCheckError {#aix-check-error}
+
+An exported `Error` subclass thrown when the optional `From` check reports errors.
+Import it as a value for `instanceof` checks, not with `import type`.
+
+| Property | Type | Meaning |
+| --- | --- | --- |
+| `name` | `string` | `"AixCheckError"`. |
+| `message` | `string` | A brief check-failure summary. |
+| `report` | `CheckReport` | The complete check report. |
+| `diagnostics` | `CheckDiagnostic[]` | The same array as `report.diagnostics`, including warnings and source locations. |
+
+Warnings alone do not throw. To retrieve a report independently, call
+`checkFromSource()` or `checkFromFiles()`.
 
 ### Metadata resolution and diagnostics
 

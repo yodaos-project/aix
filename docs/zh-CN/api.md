@@ -205,6 +205,30 @@ packageInput.addEventListener('change', async () => {
 `AIX.From()` 返回一个可以继续查看内容的 `pkg`。例如，`pkg.getPages()` 查看页面，`pkg.list()` 查看文件列表。
 `getVersion()` 返回这个 `.aix` 文件的构建标识，不是 npm 包的版本号。
 
+### 打开时自动检查
+
+希望检查通过后才使用包，可以把 `AIX.From()` 的第三个参数设为 `true`。
+不需要设置读取上限时，第二个参数传 `undefined`：
+
+~~~javascript
+import { AIX, AixCheckError } from '@yodaos-pkg/aix';
+
+async function openCheckedPackage(file) {
+  try {
+    return await AIX.From(file, undefined, true);
+  } catch (error) {
+    if (error instanceof AixCheckError) {
+      console.table(error.diagnostics);
+    }
+    throw error;
+  }
+}
+~~~
+
+检查没有错误时，正常返回 `pkg`；只有 warning 提醒也能通过。
+检查发现错误时，会抛出 [AixCheckError](#aix-check-error)，其中保留完整的检查结果。
+默认不启用这项检查，原来的调用方式仍然可用。
+
 ### 从网址读取
 
 ~~~javascript
@@ -298,7 +322,7 @@ async function optimizePackage(file) {
 | `AIX.packFromSource(files, options?)` | 打包项目源码，通常选它。 | 含 `data`、`warnings`、`report` 的打包结果。 |
 | `AIX.packFromFiles(files, options?)` | 按浏览器 `File` 自带的相对路径打包。须保证 `app.json` 位于根目录。 | 打包结果。 |
 | `AIX.pack(files, options?)` | 打包已整理好的文件，不应用项目的 `.aixignore`。 | 打包结果。 |
-| `AIX.From(fileOrData, limits?)` | 打开已有的 `.aix` 文件。 | 用于查看包内容的对象。 |
+| `AIX.From(fileOrData, limits?, check?)` | 打开已有的 `.aix` 文件；`check` 为 `true` 时先检查。 | 用于查看包内容的对象。 |
 | `AIX.optimize(fileOrData, options?)` | 优化已有的 `.aix` 文件。 | 优化后的打包结果。 |
 
 目录选择器的完整打包流程见第 2 步，其中已把文件路径整理成项目内路径。
@@ -353,8 +377,10 @@ TypeScript 的类型是否正确，还需要由你项目自己的类型检查工
 
 ### 为什么检查结果有问题，但没有进入 catch？
 
-源码问题通过 `diagnostics` 返回。检查结果里有 `error` 时，应先修复对应文件，再继续打包。
-`catch` 用于处理文件读取失败、输入无法处理等操作失败。
+直接调用 `checkFromSource()` 或 `checkFromFiles()` 时，源码问题通过 `diagnostics` 返回。
+检查结果里有 `error` 时，应先修复对应文件，再继续打包；文件读取失败、输入无法处理等操作失败才进入 `catch`。
+如果使用 `AIX.From(file, undefined, true)`，检查发现错误时会进入 `catch`。
+可用 `error instanceof AixCheckError` 判断，再读取 `error.diagnostics` 查看具体问题。
 
 ### 为什么项目里没有找到 app.json？
 
@@ -368,16 +394,17 @@ TypeScript 的类型是否正确，还需要由你项目自己的类型检查工
 ## API Reference
 
 以下是 v0.11.0 的完整公开 API 参考。`?` 表示参数或字段可省略，`Promise<T>` 表示需要使用 `await` 等待得到 `T`。
-本节的类型名称都可以通过 `import type { 类型名 } from '@yodaos-pkg/aix'` 导入。
+接口和类型别名可以通过 `import type { 类型名 } from '@yodaos-pkg/aix'` 导入。
+[AixCheckError](#aix-check-error) 是错误类，需要使用普通的 `import` 导入，才能用 `instanceof` 判断。
 
 ### 静态方法
 
 这组方法通过导入的 `AIX` 调用。
 
-#### AIX.From(data, limits?)
+#### AIX.From(data, limits?, check?) {#aix-from-data-limits}
 
 ~~~typescript
-static From(data: Uint8Array | File, limits?: AixReadLimits): Promise<AIX>
+static From(data: Uint8Array | File, limits?: AixReadLimits, check?: boolean): Promise<AIX>
 ~~~
 
 打开一个完整的 `.aix` 文件，得到用于查看内容的包对象。
@@ -386,10 +413,16 @@ static From(data: Uint8Array | File, limits?: AixReadLimits): Promise<AIX>
 | --- | --- | --- |
 | `data` | `Uint8Array \| File` | 用户选择的 `.aix` 文件，或已经取得的文件内容；不能直接传网址。 |
 | `limits` | `AixReadLimits` | 可选的读取上限。不填写的项目没有上限。 |
+| `check` | `boolean` | 默认 `false`。传 `true` 时，在返回前检查包内容，检查范围与 `checkFromSource()` 相同。 |
 
 **返回：** `Promise<AIX>`。返回后可调用 `getPages()`、`readFile()` 等实例方法。
 
-**错误处理：** 文件不是有效的 AIX 包、读取上限不合法或文件超出上限时，操作失败并进入 `catch`。打开成功后，读取某个文件时仍可能报错。
+**检查结果：** 启用检查后，没有 `severity: "error"` 的诊断才会返回包对象；只有 warning 时也能通过。检查不会运行项目代码，不验证实际运行效果。
+
+**错误处理：** 检查发现错误时，抛出 [AixCheckError](#aix-check-error)，`error.report` 是完整的 `CheckReport`，`error.diagnostics` 是其中的全部诊断，包含错误和提醒。
+文件不是有效的 AIX 包、读取上限不合法、文件超出上限，或读取和检查操作无法完成时，抛出相应的操作错误；这些错误不一定含有检查结果。未启用检查时，打开成功后，读取某个文件仍可能报错。
+
+启用检查会增加打开所需的时间，读取上限仍然生效。用法见[打开时自动检查](#打开时自动检查)。
 
 #### AIX.checkFromSource(files, options?)
 
@@ -668,6 +701,21 @@ supportsEngine(currentVersion: string): boolean
 **返回：** `boolean`，兼容时为 `true`，不兼容时为 `false`。
 
 **错误处理：** 包缺少有效的兼容版本信息，或传入的版本号无效时，会抛错。
+
+### 检查失败错误：AixCheckError {#aix-check-error}
+
+使用 `import { AixCheckError } from '@yodaos-pkg/aix'` 导入。
+它继承 `Error`；`AIX.From(..., ..., true)` 的检查结果包含错误时会抛出此类型。
+
+| 属性 | 类型 | 说明 |
+| --- | --- | --- |
+| `name` | `string` | 值为 `"AixCheckError"`。 |
+| `message` | `string` | 检查失败的简短说明。 |
+| `report` | `CheckReport` | 完整检查结果。 |
+| `diagnostics` | `CheckDiagnostic[]` | 与 `report.diagnostics` 相同的数组，保留全部诊断及其文件位置。 |
+
+在 `catch` 中用 `error instanceof AixCheckError` 判断，再读取 `error.diagnostics` 展示具体问题。
+只有 warning 时不会抛出此错误；需要单独查看检查报告时，使用 `checkFromSource()` 或 `checkFromFiles()`。
 
 ### 可选参数和默认值
 

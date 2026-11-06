@@ -1,5 +1,5 @@
 import type {
-  AIX, FunctionDefinition, JsonSchema, JsonValue, MetadataResolution,
+  AIX, AixCheckError, AixReadLimits, CheckDiagnostic, CheckReport, FunctionDefinition, JsonSchema, JsonValue, MetadataResolution,
   PageConstraint, PageInfo, Tool, ToolTarget, WidgetInfo, WidgetPlacement,
 } from '../dist/index.js';
 
@@ -33,6 +33,10 @@ type WidgetsReturn = Assert<Equal<ReturnType<AIX['getWidgets']>, WidgetInfo[]>>;
 type MetadataReturn = Assert<Equal<ReturnType<AIX['resolveMetadata']>, MetadataResolution>>;
 type TitleReturn = Assert<Equal<ReturnType<AIX['getTitle']>, string | undefined>>;
 type VersionReturn = Assert<Equal<ReturnType<AIX['getVersion']>, string | undefined>>;
+type FromParameters = Assert<Equal<Parameters<typeof AIX.From>, [Uint8Array | File, AixReadLimits?, boolean?]>>;
+type FromReturn = Assert<Equal<ReturnType<typeof AIX.From>, Promise<AIX>>>;
+type CheckErrorReport = Assert<Equal<AixCheckError['report'], CheckReport>>;
+type CheckErrorDiagnostics = Assert<Equal<AixCheckError['diagnostics'], CheckDiagnostic[]>>;
 
 const schemas: JsonSchema[] = [null, false, true, 42, 'text', [null, { default: null }],
   { type: ['object', 'null'], properties: { value: { enum: [null, true, 1, 'text'] } } }];

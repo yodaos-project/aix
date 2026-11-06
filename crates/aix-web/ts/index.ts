@@ -1,5 +1,5 @@
 import initReader, { AixReaderWasm } from '../dist/pkg-reader/aix_web.js';
-import type { CheckOptions, CheckReport } from './check/types.js';
+import type { CheckDiagnostic, CheckOptions, CheckReport } from './check/types.js';
 
 type Tooling = typeof import('../dist/pkg/aix_web.js');
 let toolingPromise: Promise<Tooling> | undefined;
@@ -25,6 +25,20 @@ function loadTooling(): Promise<Tooling> {
 }
 
 export type { CheckDiagnostic, CheckOptions, CheckProgressEvent, CheckReport, CheckResult } from './check/types.js';
+
+/** A package failed the optional source check in AIX.From(). */
+export class AixCheckError extends Error {
+  constructor(readonly report: CheckReport) {
+    const count = report.diagnostics.filter(diagnostic => diagnostic.severity === 'error').length;
+    super(`AIX check failed with ${count} ${count === 1 ? 'error' : 'errors'}`);
+    this.name = 'AixCheckError';
+  }
+
+  /** All check diagnostics, including warnings. */
+  get diagnostics(): CheckDiagnostic[] {
+    return this.report.diagnostics;
+  }
+}
 
 export interface AixInputFile {
   path: string;
@@ -231,8 +245,10 @@ export class AIX {
    * Values must be non-negative safe integers. Without limits, retains the
    * historical unlimited policy. Input bytes and caller-retained copies are
    * outside these budgets.
+   * @param check Run the source checker before returning; defaults to false.
+   * Error diagnostics reject with AixCheckError; warnings alone are accepted.
    */
-  static async From(data: Uint8Array | File, limits?: AixReadLimits): Promise<AIX> {
+  static async From(data: Uint8Array | File, limits?: AixReadLimits, check = false): Promise<AIX> {
     await initializeReader();
     let buffer: Uint8Array;
     if (data instanceof Uint8Array) {
@@ -244,7 +260,22 @@ export class AIX {
     const reader = limits === undefined
       ? new AixReaderWasm(buffer)
       : AixReaderWasm.with_limits(buffer, limits);
-    return new AIX(reader);
+    try {
+      if (check) {
+        const files = (reader.list() as AixEntry[])
+          .filter(entry => !entry.name.endsWith('/') && entry.name !== 'VERSION'
+            && !entry.name.startsWith('META-INF/aix/'))
+          .map(entry => ({ path: entry.name, data: reader.read_file(entry.name) }));
+        const report = await AIX.checkFromSource(files);
+        if (report.diagnostics.some(diagnostic => diagnostic.severity === 'error')) {
+          throw new AixCheckError(report);
+        }
+      }
+      return new AIX(reader);
+    } catch (error) {
+      reader.free();
+      throw error;
+    }
   }
 
   static async pack(

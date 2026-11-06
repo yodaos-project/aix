@@ -32,8 +32,9 @@ async function fromFile(file: File) {
 
 ## WASM Loading
 
-`AIX.From()` and all instance methods initialize a separate reader-only WASM.
+By default, `AIX.From()` and all instance methods initialize a separate reader-only WASM.
 They do not load image codecs, script minification, or source/schema checking.
+The optional `AIX.From(data, limits, true)` check also loads the full tooling module.
 The first pack, optimize, or source-check call lazily loads the full module;
 concurrent tooling calls share initialization. Existing reader instances remain
 valid after tooling loads, and tooling-only calls do not fetch reader WASM.
@@ -73,6 +74,35 @@ separate budgets. This policy applies to readers, not `AIX.optimize`.
 
 Direct WASM consumers can call `AixReaderWasm.with_limits(data, limits)` using
 the same fields. The existing `new AixReaderWasm(data)` constructor is unchanged.
+
+## Open and Check
+
+Pass `true` as the third `AIX.From` argument to run the source checker before
+receiving the package. The second argument remains the optional read limits;
+pass `undefined` there when no limits are needed.
+
+```typescript
+import { AIX, AixCheckError } from '@yodaos-pkg/aix';
+
+async function openCheckedPackage(file: File) {
+  try {
+    return await AIX.From(file, undefined, true);
+  } catch (error) {
+    if (error instanceof AixCheckError) console.table(error.diagnostics);
+    throw error;
+  }
+}
+```
+
+Warnings alone pass. Error diagnostics reject with the exported `AixCheckError`
+(`name: 'AixCheckError'`), an `Error` subclass with the complete `CheckReport` in
+`report` and the same diagnostic array in `diagnostics`, including warnings.
+The check uses `checkFromSource` on the package's source files without running
+project code. It adds work and retains extracted check inputs; read limits still
+apply but do not bound total checker memory. Archive, extraction, loading, and
+collection failures retain their original operation errors rather than a check
+report. Omitting the third argument or passing `false` preserves the existing
+reader-only behavior.
 
 ## Check Source Files
 
@@ -218,8 +248,10 @@ files and wants to invoke the low-level packer directly.
 
 The main class to interact with an AIX package.
 
-#### `static async From(data: Uint8Array | File): Promise<AIX>`
+#### `static async From(data: Uint8Array | File, limits?: AixReadLimits, check?: boolean): Promise<AIX>`
 Initializes the WASM module and creates an AIX instance from the given `.aix` file content. It supports both `Uint8Array` and the standard Web `File` object.
+`check` defaults to `false`. Set it to `true` to check before returning and reject
+with `AixCheckError` when errors are reported; see [Open and Check](#open-and-check).
 ```typescript
 // From Uint8Array
 const aix = await AIX.From(new Uint8Array(buffer));

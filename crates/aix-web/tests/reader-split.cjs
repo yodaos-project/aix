@@ -45,13 +45,13 @@ module.exports = async function testReaderSplit(page, fixture, dist, cli) {
 
   let toolingFetches = 0;
   await page.route('**/pkg/aix_web_bg.wasm', (route) => ++toolingFetches === 1 ? route.abort() : route.continue());
-  const recovered = await page.evaluate(async () => {
+  const recovered = await page.evaluate(async (bytes) => {
     const files = [
       { path: 'app.json', data: new TextEncoder().encode('{"pages":[]}') },
       { path: 'main.ts', data: new TextEncoder().encode('export const count: number = 1 + 2;') },
     ];
     let failed = false;
-    try { await window.AIX.pack(files, { buildId: 'failed-init' }); }
+    try { await window.AIX.From(new Uint8Array(bytes), undefined, true); }
     catch { failed = true; }
     const [packed, checked] = await Promise.all([
       window.AIX.packFromSource(files, { buildId: 'retried-init', onProgress() {} }),
@@ -69,7 +69,7 @@ module.exports = async function testReaderSplit(page, fixture, dist, cli) {
           widgets: window.splitReader.getWidgets(), metadata: window.splitReader.resolveMetadata() },
         legacyVersion: raw.get_version(), legacyPages: raw.get_pages() };
     } finally { raw.free(); }
-  });
+  }, bytes);
   assert.equal(recovered.failed, true);
   assert.equal(toolingFetches, 2, 'One failed load, then a single shared initialization for concurrent pack/check');
   assert.deepEqual(recovered.diagnostics, []);
