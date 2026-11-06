@@ -5,6 +5,8 @@
 本文适用于在前端项目中接入 AIX 的开发者。示例使用 JavaScript：HTML 放到页面中，JavaScript 放到项目的入口脚本中。
 如果你想先体验功能，可以直接打开 [Play](/play?lang=zh-CN)；如果你想在终端里操作项目，请看 [CLI 使用指南](/cli?lang=zh-CN)。
 
+需要查阅具体参数、返回值和类型时，可直接跳到文末的 [API Reference](#api-reference)。
+
 ## 1. 安装并导入
 
 在已有的前端项目中安装：
@@ -360,3 +362,531 @@ TypeScript 的类型是否正确，还需要由你项目自己的类型检查工
 ### 只想试一试，不想写代码怎么办？
 
 打开 [Play](/play?lang=zh-CN)，可以在网页中选择项目或 `.aix` 文件进行体验。
+
+## API Reference
+
+以下是 v0.11.0 的完整公开 API 参考。`?` 表示参数或字段可省略，`Promise<T>` 表示需要使用 `await` 等待得到 `T`。
+本节的类型名称都可以通过 `import type { 类型名 } from '@yodaos-pkg/aix'` 导入。
+
+### 静态方法
+
+这组方法通过导入的 `AIX` 调用。
+
+#### AIX.From(data, limits?)
+
+~~~typescript
+static From(data: Uint8Array | File, limits?: AixReadLimits): Promise<AIX>
+~~~
+
+打开一个完整的 `.aix` 文件，得到用于查看内容的包对象。
+
+| 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| `data` | `Uint8Array \| File` | 用户选择的 `.aix` 文件，或已经取得的文件内容；不能直接传网址。 |
+| `limits` | `AixReadLimits` | 可选的读取上限。不填写的项目没有上限。 |
+
+**返回：** `Promise<AIX>`。返回后可调用 `getPages()`、`readFile()` 等实例方法。
+
+**错误处理：** 文件不是有效的 AIX 包、读取上限不合法或文件超出上限时，操作失败并进入 `catch`。打开成功后，读取某个文件时仍可能报错。
+
+#### AIX.checkFromSource(files, options?)
+
+~~~typescript
+static checkFromSource(files: AixInputFile[], options?: CheckOptions): Promise<CheckReport>
+~~~
+
+检查以文件列表表示的项目源码。每个文件使用项目内的相对路径，根目录需要包含 `app.json`。检查会应用 `.aixignore`，不会生成包或运行项目代码。
+
+| 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| `files` | `AixInputFile[]` | 要检查的文件，结构为 `{ path, data }`。 |
+| `options` | `CheckOptions` | 可选，通过 `onProgress` 接收检查步骤和分类结果。 |
+
+**返回：** `Promise<CheckReport>`。源码问题放在 `diagnostics` 中；是否继续打包，应检查其中是否有 `severity: "error"`。检查包含项目结构、JS/TS 语法、页面参数说明和可识别的权限使用；不检查 TypeScript 类型和实际运行效果。
+
+**错误处理：** 源码错误和警告会正常返回。路径、忽略规则等输入无法处理，或进度回调抛错时，进入 `catch`。
+
+#### AIX.checkFromFiles(files, options?)
+
+~~~typescript
+static checkFromFiles(files: File[], options?: CheckOptions): Promise<CheckReport>
+~~~
+
+检查浏览器选择的项目文件。优先使用文件的 `webkitRelativePath`，没有时使用 `name`。所有文件来自同一个所选目录时，会去掉这一层目录名。
+
+| 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| `files` | `File[]` | 浏览器文件数组，可通过 `Array.from(input.files ?? [])` 获取。 |
+| `options` | `CheckOptions` | 可选的检查进度回调。 |
+
+**返回：** `Promise<CheckReport>`，问题列表与 `checkFromSource()` 的返回结构相同。
+
+**错误处理：** 源码问题通过 `diagnostics` 返回；文件读取失败或输入无法处理时，进入 `catch`。
+
+#### AIX.packFromSource(files, options?)
+
+~~~typescript
+static packFromSource(
+    files: AixInputFile[],
+    options?: PackFromSourceOptions,
+  ): Promise<PackResult>
+~~~
+
+打包项目源码，通常应选用本方法。它会整理项目内路径，应用 `.aixignore`，并排除规则文件和 `.aix/` 项目缓存。
+
+| 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| `files` | `AixInputFile[]` | 项目内文件列表。根目录必须有 `app.json`；不应包含已有包的生成信息文件。 |
+| `options` | `PackFromSourceOptions` | 可选的打包设置和进度回调，默认值见下文。 |
+
+**返回：** `Promise<PackResult>`。`data` 可以下载或上传，`warnings` 是非致命提醒，`report` 是文件大小变化报告。
+
+**错误处理：** 文件路径重复、必需文件缺失、JSON 或脚本语法有误、打包选项无效等情况会进入 `catch`。进度回调抛错也会使操作失败。打包不会自动执行完整源码检查。
+
+#### AIX.packFromFiles(files, options?)
+
+~~~typescript
+static packFromFiles(files: File[], options?: PackFromSourceOptions): Promise<PackResult>
+~~~
+
+把浏览器的 `File` 数组打包。优先使用 `webkitRelativePath`，没有时使用 `name`，并按这些路径组织文件。
+
+| 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| `files` | `File[]` | 文件相对路径需要保证 `app.json` 位于项目根目录。 |
+| `options` | `PackFromSourceOptions` | 与 `packFromSource()` 相同。 |
+
+**返回：** `Promise<PackResult>`。
+
+**错误处理：** 文件读取失败或打包失败时，进入 `catch`。本方法保留文件路径中的外层目录名；通过目录选择器打包完整项目时，请使用第 2 步的路径整理方式，再调用 `packFromSource()`。
+
+#### AIX.pack(files, options?)
+
+~~~typescript
+static pack(
+    files: AixInputFile[],
+    options?: PackOptions,
+  ): Promise<PackResult>
+~~~
+
+打包已经整理和筛选好的文件列表。本方法不应用 `.aixignore`；普通项目源码推荐使用 `packFromSource()`。
+
+| 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| `files` | `AixInputFile[]` | 已准备好的项目文件，根目录必须有 `app.json`。 |
+| `options` | `PackOptions` | 可选的打包设置，不包含 `onProgress`。 |
+
+**返回：** `Promise<PackResult>`。
+
+**错误处理：** 输入文件不符合打包要求、配置或选项无效时，进入 `catch`。提醒通过结果中的 `warnings` 返回。
+
+#### AIX.optimize(data, options?)
+
+~~~typescript
+static optimize(
+    data: Uint8Array | File,
+    options?: OptimizeOptions,
+  ): Promise<PackResult>
+~~~
+
+优化一个已有的 `.aix` 文件，返回新的文件内容；原文件不会被修改。项目标识和构建标识会保留。已签名的包需要在优化后重新签名。
+
+| 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| `data` | `Uint8Array \| File` | 已有的 `.aix` 文件或文件内容。 |
+| `options` | `OptimizeOptions` | 可选，默认使用 `level: 2` 并启用 JSON、PNG、JPEG 优化。 |
+
+**返回：** `Promise<PackResult>`。保存 `data` 即可取得优化后的包。`report` 的字节数表示文件内容的大小，不是最终下载文件的体积。
+
+**错误处理：** 包无法读取、文件损坏或选项无效时，进入 `catch`。
+
+### 实例方法
+
+下面的 `pkg` 来自 `const pkg = await AIX.From(file)`。实例方法同步返回，不需要 `await`。
+标明“抛错”的情况可以用 `try/catch` 处理。
+
+#### pkg.list()
+
+~~~typescript
+list(): AixEntry[]
+~~~
+
+列出包里的文件。
+
+**返回：** `AixEntry[]`。每项包含 `name`、`size` 和 `compressed_size`，大小单位为字节。
+
+**错误处理：** 本方法只列出文件信息；能列出文件，不代表它的内容一定可以成功读取。
+
+#### pkg.readFile(name)
+
+~~~typescript
+readFile(name: string): Uint8Array
+~~~
+
+读取包内指定文件的内容。
+
+| 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| `name` | `string` | 准确的包内文件名，建议使用 `list()` 返回的 `name`。 |
+
+**返回：** `Uint8Array`。读取文字可用 `new TextDecoder().decode(data)`，读取图片等内容可交给 `Blob`。
+
+**错误处理：** 文件不存在、内容损坏或读取时超出上限，会抛错。
+
+#### pkg.getTitle()
+
+~~~typescript
+getTitle(): string | undefined
+~~~
+
+读取项目在 `app.json.window.navigationBarTitleText` 中填写的标题。
+
+**返回：** `string | undefined`。标题未填写，或相关配置无法读取时，返回 `undefined`。
+
+**错误处理：** 标题缺失或配置无效时，使用 `undefined` 表示没有可用标题。
+
+#### pkg.getVersion()
+
+~~~typescript
+getVersion(): string | undefined
+~~~
+
+读取包的构建标识。它不是 `@yodaos-pkg/aix` 的 npm 版本号。
+
+**返回：** `string | undefined`。构建信息缺失或无法读取时，返回 `undefined`。
+
+**错误处理：** 无法取得有效构建信息时，使用 `undefined` 表示没有可用值。
+
+#### pkg.getAgentId()
+
+~~~typescript
+getAgentId(): string | undefined
+~~~
+
+读取打包时设置的项目标识。
+
+**返回：** `string | undefined`。没有设置标识的包返回 `undefined`。
+
+**错误处理：** 已保存的标识或相关包信息无效时，会抛错。
+
+#### pkg.getPages()
+
+~~~typescript
+getPages(): PageInfo[]
+~~~
+
+查看页面列表。每个页面包含名称、标题、说明、参数说明和显示尺寸。
+
+**返回：** `PageInfo[]`。没有可用的页面列表时返回空数组；页面信息不完整时，部分字段可能采用默认值。
+
+**错误处理：** 需要区分“没有页面”和“页面读取失败”时，使用 `resolveMetadata()` 查看诊断。
+
+#### pkg.getWidgets(locale?)
+
+~~~typescript
+getWidgets(locale?: string): WidgetInfo[]
+~~~
+
+查看小组件列表及其展示文案。
+
+| 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| `locale` | `string` | 可选，例如 `zh-CN`、`en-US`。不传时使用项目默认文案。 |
+
+**返回：** `WidgetInfo[]`。指定语言的文案不存在时，使用默认文案；项目没有小组件时返回空数组。
+
+**错误处理：** 小组件配置、已提供的语言文件无效，或声明的小组件文件不存在时，会抛错。
+
+#### pkg.getTools()
+
+~~~typescript
+getTools(): Tool[]
+~~~
+
+查看提供给 AI 的工具定义。工具定义说明页面名称和可接收的参数，不会直接执行页面。
+
+**返回：** `Tool[]`。每项含 `function`、`target` 和 `layout`。`function.name` 是页面路径，`function.parameters` 是该工具接受的参数说明。
+
+**错误处理：** 页面读取行为与 `getPages()` 一致。需要定位读取问题时，使用 `resolveMetadata()`。
+
+#### pkg.resolveMetadata()
+
+~~~typescript
+resolveMetadata(): MetadataResolution
+~~~
+
+一起读取页面和工具，并报告读取过程中发现的问题。
+
+**返回：** `MetadataResolution`，包含 `pages`、`tools`、`diagnostics`。读取失败的页面会从前两个列表中排除，其余页面按项目中的顺序返回。每个失败页面返回一个问题，包含 `path` 和 `message`。
+
+**错误处理：** 页面配置或文件读取问题通过 `diagnostics` 返回。小组件不在此报告范围内；本方法也不替代 `checkFromSource()` 或 `checkFromFiles()` 的源码检查。
+
+#### pkg.supportsEngine(currentVersion)
+
+~~~typescript
+supportsEngine(currentVersion: string): boolean
+~~~
+
+判断包是否兼容某个运行版本。
+
+| 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| `currentVersion` | `string` | 单个版本号，例如 `0.17.0`，不要传版本范围。 |
+
+**返回：** `boolean`，兼容时为 `true`，不兼容时为 `false`。
+
+**错误处理：** 包缺少有效的兼容版本信息，或传入的版本号无效时，会抛错。
+
+### 可选参数和默认值
+
+#### PackOptions / PackFromSourceOptions
+
+| 字段 | 类型 | 默认值与约束 |
+| --- | --- | --- |
+| `buildId` | `string` | 自动生成。手动填写时不能为空；之后可用 `getVersion()` 取得。 |
+| `agentId` | `string` | 默认不设置。只能包含小写英文字母、数字、`_`、`-`，不能以 `-` 开头或结尾，也不能为空。同一项目可复用相同的值。 |
+| `engine` | `string` | 采用 `app.json.engine`，项目没有配置时使用 `*`。显式传入时覆盖项目配置，格式为版本范围，例如 `>=0.17.0`。 |
+| `optimize` | `false` 或 `OptimizeOptions` | 默认不额外优化 JSON 和图片；传 `{}` 时启用下面的全部默认优化。独立 JS/TS 文件始终会进行代码压缩；这不会将 TypeScript 转为 JavaScript。 |
+| `onProgress` | `(event: PackProgressEvent) => void` | 可选回调，仅 `PackFromSourceOptions` 提供。回调中可读取当前步骤和已处理文件的信息。 |
+
+#### OptimizeOptions
+
+| 字段 | 类型 | 默认值 |
+| --- | --- | --- |
+| `level` | `1`、`2` 或 `3` | `2`，优化级别。 |
+| `json` | `boolean` | `true`，是否优化 JSON。 |
+| `png` | `boolean` | `true`，是否优化 PNG 图片。 |
+| `jpeg` | `boolean` | `true`，是否优化 JPEG 图片。 |
+
+#### CheckOptions
+
+`onProgress?: (event: CheckProgressEvent) => void` 接收检查步骤。
+`check_finished` 事件中的 `check` 包含分类名称、状态、错误数和提醒数。
+`status` 为 `passed`、`warning`、`failed` 或 `skipped`；后者表示这一类没有适用内容，或暂时无法检查。
+这些是步骤提示，不是完成百分比。最终问题列表始终从返回值的 `diagnostics` 读取。
+
+#### AixReadLimits
+
+| 字段 | 类型 | 含义 |
+| --- | --- | --- |
+| `maxEntries` | `number` | 包内项目的数量上限，包含文件、目录等记录。 |
+| `maxEntryBytes` | `number` | 单项内容的最大字节数。 |
+| `maxTotalBytes` | `number` | 所有项内容的总字节数上限，不按重复读取次数累计。 |
+
+不传的字段没有上限。数值必须是非负安全整数；`0` 表示不允许对应数量或大小，等于上限时允许读取。
+无效数值和无法识别的字段会使打开操作失败。这些限制不用于 `AIX.optimize()`。
+
+### 完整类型定义
+
+下面只列出调用 API 时会用到的公开类型。可按需要展开。
+
+<details>
+<summary>文件输入与可选参数</summary>
+
+~~~typescript
+interface AixInputFile {
+    path: string;
+    data: Uint8Array;
+}
+
+interface AixReadLimits {
+    maxEntries?: number;
+    maxEntryBytes?: number;
+    maxTotalBytes?: number;
+}
+
+interface PackOptions {
+    buildId?: string;
+    agentId?: string;
+    engine?: string;
+    optimize?: false | OptimizeOptions;
+}
+
+interface PackFromSourceOptions extends PackOptions {
+    onProgress?: (event: PackProgressEvent) => void;
+}
+
+interface OptimizeOptions {
+    level?: 1 | 2 | 3;
+    json?: boolean;
+    png?: boolean;
+    jpeg?: boolean;
+}
+
+interface CheckOptions {
+    onProgress?: (event: CheckProgressEvent) => void;
+}
+~~~
+
+</details>
+
+<details>
+<summary>检查结果和进度</summary>
+
+~~~typescript
+interface CheckReport {
+    diagnostics: CheckDiagnostic[];
+}
+
+interface CheckDiagnostic {
+    code: string;
+    severity: 'error' | 'warning';
+    path: string;
+    line: number;
+    column: number;
+    message: string;
+}
+
+interface CheckResult {
+    id: 'json' | 'structure' | 'syntax' | 'permissions' | 'schemas';
+    label: string;
+    status: 'passed' | 'warning' | 'failed' | 'skipped';
+    errors: number;
+    warnings: number;
+    detail?: string;
+}
+
+type CheckProgressEvent = {
+    type: 'loading_checker';
+} | {
+    type: 'checking_sources';
+    fileCount: number;
+} | {
+    type: 'check_finished';
+    check: CheckResult;
+} | {
+    type: 'collecting_diagnostics';
+};
+~~~
+
+</details>
+
+<details>
+<summary>打包结果和进度</summary>
+
+~~~typescript
+interface PackResult {
+    data: Uint8Array;
+    report: OptimizeReport;
+    warnings: string[];
+}
+
+interface OptimizeReport {
+    files: FileOptimizeReport[];
+    original_size: number;
+    output_size: number;
+    saved_bytes: number;
+}
+
+interface FileOptimizeReport {
+    path: string;
+    status: 'optimized' | 'unchanged' | 'skipped';
+    original_size: number;
+    output_size: number;
+    saved_bytes: number;
+    converted_to_utf8: boolean;
+}
+
+type PackProgressEvent = {
+    type: 'transferring_files_to_wasm';
+} | {
+    type: 'collecting_source_inputs';
+} | {
+    type: 'resolving_engine';
+} | {
+    type: 'preparing_files';
+} | {
+    type: 'file_finished';
+    report: FileOptimizeReport;
+} | {
+    type: 'finalizing_archive';
+};
+~~~
+
+</details>
+
+<details>
+<summary>包内文件、页面、小组件和工具</summary>
+
+~~~typescript
+interface AixEntry {
+    name: string;
+    size: number;
+    compressed_size: number;
+}
+
+interface PageConstraint {
+    width: number;
+    height: number;
+}
+
+interface PageInfo {
+    name: string;
+    title: string | null;
+    description: string | null;
+    data_schema: JsonSchema;
+    size: PageConstraint;
+}
+
+type WidgetPlacement = 'persistent' | 'overlay';
+
+interface WidgetInfo {
+    path: string;
+    family: string;
+    placement: WidgetPlacement;
+    displayName: string | null;
+    description: string | null;
+}
+
+type ToolTarget = '_current' | '_blank';
+
+interface FunctionDefinition {
+    name: string;
+    description: string | null;
+    parameters: JsonSchema;
+}
+
+interface Tool {
+    type: string;
+    target: ToolTarget;
+    layout: PageConstraint;
+    function: FunctionDefinition;
+}
+
+interface MetadataDiagnostic {
+    path: string;
+    message: string;
+}
+
+interface MetadataResolution {
+    pages: PageInfo[];
+    tools: Tool[];
+    diagnostics: MetadataDiagnostic[];
+}
+~~~
+
+</details>
+
+<details>
+<summary>JSON 和页面参数说明</summary>
+
+~~~typescript
+type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;
+
+interface JsonObject {
+    [key: string]: JsonValue;
+}
+
+type JsonSchema = JsonValue;
+~~~
+
+</details>
+
+字段补充说明：
+
+- `PageInfo.name` 是页面路径；`data_schema` 是页面接受的参数说明；`size` 是显示宽高。
+- `WidgetInfo.path` 是小组件路径，`family` 是项目声明的尺寸类型，`placement` 表示常驻或浮层展示。
+- `Tool.function` 是提供给 AI 的函数定义；`target` 是展示位置提示，`layout` 是显示宽高。
+- `OptimizeReport` 和 `FileOptimizeReport` 的大小字段以字节为单位，`saved_bytes` 表示减少的大小；`converted_to_utf8` 表示是否调整过文本编码。
+- 页面、小组件和工具的可空字段使用 `null`。这与 `getTitle()`、`getVersion()`、`getAgentId()` 在没有可用值时返回 `undefined` 不同。
+- `JsonSchema` 保留读取到的 JSON 值。需要验证页面参数说明是否合法时，使用源码检查方法。
