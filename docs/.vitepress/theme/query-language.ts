@@ -1,5 +1,6 @@
 import { markRaw, nextTick } from "vue";
 import type { Router } from "vitepress";
+import { restoreApiReferenceTarget } from "./api-reference-navigation";
 
 // Markdown remains the single source of truth. Both languages are compiled
 // by VitePress; query navigation selects a module, never another public route.
@@ -53,6 +54,7 @@ export function installQueryLanguage(router: Router) {
     }
     history.replaceState(history.state, "", canonical(url));
     await nextTick();
+    restoreApiReferenceTarget();
     rewriteLinks();
     rewriteLocaleLabels();
   };

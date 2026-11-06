@@ -500,9 +500,20 @@ static optimize(
 
 **错误处理：** 包无法读取、文件损坏或选项无效时，进入 `catch`。
 
-### 实例方法
+<span id="实例方法"></span>
 
-下面的 `pkg` 来自 `const pkg = await AIX.From(file)`。实例方法同步返回，不需要 `await`。
+### AIX 实例方法（pkg） {#aix-instance}
+
+`AIX.From()` 返回的 `Promise<AIX>` 表示：等待操作完成后，得到一个 `AIX` 类型的包对象。
+下面把这个对象命名为 `pkg`；`pkg` 是变量名，`AIX` 是它的类型，二者对应同一个包对象。
+
+~~~javascript
+const pkg = await AIX.From(file);
+pkg.list();     // 列出这个包里的文件
+pkg.getPages(); // 查看这个包里的页面
+~~~
+
+因此，`pkg.list()`、`pkg.readFile()` 等都是返回的 `AIX` 对象上的方法。实例方法同步返回，不需要 `await`。
 标明“抛错”的情况可以用 `try/catch` 处理。
 
 #### pkg.list()

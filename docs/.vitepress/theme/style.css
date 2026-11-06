@@ -115,6 +115,38 @@ body {
   margin-top: 12px;
 }
 
+.vp-doc .api-reference-link,
+.vp-doc .api-reference-link code {
+  color: var(--vp-c-brand-1);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+}
+
+.vp-doc .api-reference-link:hover,
+.vp-doc .api-reference-link:focus-visible {
+  text-decoration-style: solid;
+}
+
+.vp-doc .api-reference-link:focus-visible {
+  outline: 2px solid var(--vp-c-brand-1);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.vp-doc pre .api-reference-link {
+  scroll-margin-top: 134px;
+  scroll-margin-right: 64px;
+}
+
+.vp-doc [class*="language-"] code:has(.api-reference-link) {
+  padding-right: 64px;
+}
+
+.vp-doc [id^="type-"] {
+  scroll-margin-top: 134px;
+}
+
 .VPContent.is-home {
   background: transparent;
 }

@@ -2,6 +2,7 @@ import { defineConfig } from "vitepress";
 import { searchForWorkspaceRoot } from "vite";
 import wasm from "vite-plugin-wasm";
 import topLevelAwait from "vite-plugin-top-level-await";
+import { apiReferenceLinks } from "./api-reference-links";
 
 function normalizeBasePath(input: string | undefined): string {
   if (!input || input === "/") {
@@ -45,6 +46,7 @@ export default defineConfig({
   title: "AIX",
   description: "Official documentation and package lab for the AIX file format.",
   base,
+  markdown: { config: apiReferenceLinks },
   vite: {
     plugins: [wasm(), topLevelAwait()],
     server: {

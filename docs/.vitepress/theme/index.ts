@@ -7,6 +7,7 @@ import HomeExperienceJa from "./components/HomeExperienceJa.vue";
 import "@fontsource/klee-one/400.css";
 import "@fontsource/klee-one/600.css";
 import { installQueryLanguage } from "./query-language";
+import { installApiReferenceNavigation } from "./api-reference-navigation";
 import "./style.css";
 
 const theme: Theme = {
@@ -19,6 +20,7 @@ const theme: Theme = {
 
     if (typeof window === "undefined") return;
 
+    installApiReferenceNavigation();
     installQueryLanguage(router);
   }
 };
