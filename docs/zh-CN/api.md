@@ -393,7 +393,7 @@ TypeScript 的类型是否正确，还需要由你项目自己的类型检查工
 
 ## API Reference
 
-以下是 v0.11.0 的完整公开 API 参考。`?` 表示参数或字段可省略，`Promise<T>` 表示需要使用 `await` 等待得到 `T`。
+以下是 v0.12.0 的完整公开 API 参考。`?` 表示参数或字段可省略，`Promise<T>` 表示需要使用 `await` 等待得到 `T`。
 接口和类型别名可以通过 `import type { 类型名 } from '@yodaos-pkg/aix'` 导入。
 [AixCheckError](#aix-check-error) 是错误类，需要使用普通的 `import` 导入，才能用 `instanceof` 判断。
 

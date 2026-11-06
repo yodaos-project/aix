@@ -30,7 +30,7 @@ the build features, compatibility plan, tradeoffs, and measured costs.
 
 ## API Reference
 
-This reference covers the public TypeScript exports in v0.11.0. The seven
+This reference covers the public TypeScript exports in v0.12.0. The seven
 static methods are asynchronous; instance methods are synchronous. Source checks
 use `AIX.checkFromSource()` or `AIX.checkFromFiles()`; there is no `AIX.check()`
 or instance `check()` method.

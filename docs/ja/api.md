@@ -1,7 +1,7 @@
 # @yodaos-pkg/aix
 
 `@yodaos-pkg/aix` は、AIX 成果物の読み取り、作成、最適化、検査を行うブラウザー向け
-WebAssembly / TypeScript パッケージです。このリファレンスは v0.11.0 の公開 API に対応します。
+WebAssembly / TypeScript パッケージです。このリファレンスは v0.12.0 の公開 API に対応します。
 7 つの静的メソッドは非同期、10 のインスタンスメソッドは同期です。
 高水準 SDK は ES モジュール、fetch、WebAssembly を備えた最新ブラウザーと Web Worker 向けです。
 npm CLI は独立した Node.js WASM ビルドを使用します。
