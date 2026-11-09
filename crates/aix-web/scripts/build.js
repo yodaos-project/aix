@@ -56,7 +56,7 @@ console.log('Fixing import paths in dist/index.js...');
 const distIndexJs = path.join(distDir, 'index.js');
 const distIndexDts = path.join(distDir, 'index.d.ts');
 
-[distIndexJs, distIndexDts].forEach((file) => {
+[distIndexJs, distIndexDts, path.join(distDir, 'progressive-worker.js')].forEach((file) => {
   if (fs.existsSync(file)) {
     let content = fs.readFileSync(file, 'utf-8');
     content = content.replace(/\.\.\/dist\/pkg\//g, './pkg/');

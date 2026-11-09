@@ -72,9 +72,79 @@ export interface PackResult {
   data: Uint8Array;
   report: OptimizeReport;
   warnings: string[];
+  progressiveAssets: ProgressiveAssetReport[];
+}
+
+export type AssetRef = `aix-asset:${string}`;
+export type ProgressiveAssetKind = 'audio' | 'video';
+
+export interface ProgressiveAssetCandidate {
+  id: string;
+  kind: ProgressiveAssetKind;
+  sourcePath: string;
+  sourceSha256: string;
+  sourceSize: number;
+  references: { path: string; line: number; column: number }[];
+  format: string;
+  dependencies: string[];
+  progressiveSupport: {
+    supported: boolean;
+    profile?: string;
+    requiredCapabilities: string[];
+    features: string[];
+    reason?: string;
+  };
+}
+
+export interface ProgressiveAssetObject {
+  id: string;
+  size: number;
+  sha256: string;
+}
+
+export interface ProgressiveAssetPlan {
+  id: string;
+  assetVersion: string;
+  profile: string;
+  localMetadata: Record<string, Omit<ProgressiveAssetObject, 'id'>>;
+  layout: {
+    init: string;
+    tracks: Record<string, { kind: ProgressiveAssetKind; timescale: number }>;
+    fragments: { object: string; ranges: Record<string, { start: number; end: number; presentation_start: number; presentation_end: number }> }[];
+  };
+  remoteObjects: (ProgressiveAssetObject & { bytes: Uint8Array })[];
+}
+
+export interface ProgressiveAssetUploadReceipt {
+  uploadId: string;
+  assetVersion: string;
+  objects: (ProgressiveAssetObject & { url: string })[];
+}
+
+export type ProgressiveAssetDecision =
+  | { delivery: 'embedded' }
+  | { delivery: 'progressive'; planId: string; receipt: ProgressiveAssetUploadReceipt };
+
+export interface ProgressiveAssetPackContext {
+  signal: AbortSignal;
+  prepare(): Promise<ProgressiveAssetPlan>;
+}
+
+export interface ProgressiveAssetReport {
+  id: string;
+  kind: ProgressiveAssetKind;
+  sourcePath: string;
+  delivery: 'embedded' | 'progressive';
+  assetVersion?: string;
+  retainedSourceBytes: number;
 }
 
 export interface PackOptions {
+  onProgressiveAsset?: (
+    candidate: ProgressiveAssetCandidate,
+    context: ProgressiveAssetPackContext,
+  ) => ProgressiveAssetDecision | Promise<ProgressiveAssetDecision>;
+  signal?: AbortSignal;
   buildId?: string;
   /** Stable normalized project ID; reuse across builds. */
   agentId?: string;
@@ -100,7 +170,7 @@ type PackFromSourceFn = (
   engine: string | undefined,
   optimize: false | OptimizeOptions | undefined,
   agentId?: string,
-) => { data: Uint8Array; report: unknown; warnings?: string[] };
+) => { data: Uint8Array; report: unknown; warnings?: string[]; progressiveAssets?: ProgressiveAssetReport[] };
 
 type PackFromSourceWithProgressFn = (
   files: AixInputFile[],
@@ -109,7 +179,7 @@ type PackFromSourceWithProgressFn = (
   optimize: false | OptimizeOptions | undefined,
   progress: (event: PackProgressEvent) => void,
   agentId?: string,
-) => { data: Uint8Array; report: unknown; warnings?: string[] };
+) => { data: Uint8Array; report: unknown; warnings?: string[]; progressiveAssets?: ProgressiveAssetReport[] };
 
 function generateBuildId(): string {
   const cryptoApi = globalThis.crypto;
@@ -282,11 +352,14 @@ export class AIX {
     files: AixInputFile[],
     options?: PackOptions,
   ): Promise<PackResult> {
+    if (options?.onProgressiveAsset || options?.signal) {
+      return stagedPack(files, options, false);
+    }
     const tooling = await loadTooling();
     const buildId = options?.buildId ?? generateBuildId();
     const optimize = options?.optimize === false ? undefined : options?.optimize;
     const result = tooling.pack_aix(files, buildId, options?.engine, optimize, options?.agentId);
-    return { data: result.data, report: result.report as OptimizeReport, warnings: result.warnings ?? [] };
+    return packResult(result);
   }
 
   /**
@@ -300,6 +373,9 @@ export class AIX {
     files: AixInputFile[],
     options?: PackFromSourceOptions,
   ): Promise<PackResult> {
+    if (options?.onProgressiveAsset || options?.signal) {
+      return stagedPack(files, options, true);
+    }
     const tooling = await loadTooling();
     const buildId = options?.buildId ?? generateBuildId();
     const optimize = options?.optimize === false ? undefined : options?.optimize;
@@ -313,7 +389,7 @@ export class AIX {
           options.agentId,
         )
       : getPackFromSource(tooling)(files, buildId, options?.engine, optimize, options?.agentId);
-    return { data: result.data, report: result.report as OptimizeReport, warnings: result.warnings ?? [] };
+    return packResult(result);
   }
 
   static async packFromFiles(files: File[], options?: PackFromSourceOptions): Promise<PackResult> {
@@ -333,7 +409,7 @@ export class AIX {
       ? data
       : new Uint8Array(await data.arrayBuffer());
     const result = tooling.optimize_aix(buffer, options);
-    return { data: result.data, report: result.report as OptimizeReport, warnings: result.warnings ?? [] };
+    return packResult(result);
   }
 
   /**
@@ -434,4 +510,176 @@ function getPackFromSourceWithProgress(tooling: Tooling): PackFromSourceWithProg
     throw new Error('pack_aix_from_source_with_progress is not available in the current WASM bundle');
   }
   return packFromSourceWithProgress;
+}
+
+type NativePackResult = {
+  data: Uint8Array;
+  report: unknown;
+  warnings?: string[];
+  progressiveAssets?: ProgressiveAssetReport[];
+  free?: () => void;
+};
+
+function packResult(result: NativePackResult): PackResult {
+  try {
+    return {
+      data: result.data,
+      report: result.report as OptimizeReport,
+      warnings: result.warnings ?? [],
+      progressiveAssets: result.progressiveAssets ?? [],
+    };
+  } finally {
+    result.free?.();
+  }
+}
+
+interface PackSession {
+  candidates: ProgressiveAssetCandidate[];
+  prepare(id: string): Promise<ProgressiveAssetPlan>;
+  finalize(
+    decisions: Record<string, ProgressiveAssetDecision>,
+    buildId: string,
+    engine?: string,
+    optimize?: OptimizeOptions,
+    agentId?: string,
+  ): Promise<PackResult>;
+  close(): void;
+}
+
+async function openPackSession(
+  files: AixInputFile[],
+  fromSource: boolean,
+  signal: AbortSignal,
+  progress: (event: PackProgressEvent) => void,
+): Promise<PackSession> {
+  let worker: Worker | undefined;
+  if (typeof Worker !== 'undefined' && typeof document !== 'undefined') {
+    try {
+      worker = new Worker(new URL('./progressive-worker.js', import.meta.url), { type: 'module' });
+    } catch {
+      // A host can forbid workers. Use its existing WASM event loop.
+    }
+  }
+  if (!worker) {
+    const tooling = await loadTooling();
+    signal.throwIfAborted();
+    const session = new tooling.ProgressivePackWasm(files, fromSource);
+    try {
+      return {
+        candidates: session.candidates() as ProgressiveAssetCandidate[],
+        prepare: async (id) => session.prepare(id) as ProgressiveAssetPlan,
+        finalize: async (decisions, buildId, engine, optimize, agentId) =>
+          packResult(session.finalize(decisions, buildId, engine, optimize, agentId, progress)),
+        close: () => session.free(),
+      };
+    } catch (error) {
+      session.free();
+      throw error;
+    }
+  }
+
+  const port = worker;
+  const call = <T>(request: unknown, transfer: Transferable[] = []) =>
+    untilAborted(signal, () => new Promise<T>((resolve, reject) => {
+      port.onmessage = ({ data }) => {
+        if (data.progress) {
+          try {
+            progress(data.progress);
+          } catch (error) {
+            reject(error);
+            port.terminate();
+          }
+        } else if (data.error !== undefined) {
+          reject(new Error(data.error));
+        } else {
+          resolve(data.result as T);
+        }
+      };
+      port.onerror = (event) => reject(new Error(event.message || 'Progressive Asset worker failed'));
+      port.onmessageerror = () => reject(new Error('Invalid Progressive Asset worker reply'));
+      port.postMessage(request, transfer);
+    }));
+  try {
+    const candidates = await call<ProgressiveAssetCandidate[]>({ type: 'open', files, fromSource }, files.map((file) => file.data.buffer as ArrayBuffer));
+    return {
+      candidates,
+      prepare: (id) => call({ type: 'prepare', id }),
+      finalize: (decisions, buildId, engine, optimize, agentId) =>
+        call({ type: 'finalize', decisions, buildId, engine, optimize, agentId }),
+      close: () => port.terminate(),
+    };
+  } catch (error) {
+    port.terminate();
+    throw error;
+  }
+}
+
+async function stagedPack(
+  files: AixInputFile[],
+  options: PackFromSourceOptions,
+  fromSource: boolean,
+): Promise<PackResult> {
+  const { onProgress, onProgressiveAsset, engine, agentId } = options;
+  const buildId = options.buildId ?? generateBuildId();
+  const optimize = options.optimize ? { ...options.optimize } : undefined;
+  const signal = options.signal ?? new AbortController().signal;
+  signal.throwIfAborted();
+  const snapshot = files.map(({ path, data }) => ({ path, data: Uint8Array.from(data) }));
+  const progress = (event: PackProgressEvent) => {
+    signal.throwIfAborted();
+    onProgress?.(event);
+    signal.throwIfAborted();
+  };
+  progress({ type: 'transferring_files_to_wasm' });
+  if (fromSource) progress({ type: 'collecting_source_inputs' });
+  const session = await openPackSession(snapshot, fromSource, signal, progress);
+  try {
+    const decisions: Record<string, ProgressiveAssetDecision> = Object.create(null);
+    if (onProgressiveAsset) {
+      for (const candidate of session.candidates) {
+        signal.throwIfAborted();
+        const id = candidate.id;
+        let active = true;
+        let plan: Promise<ProgressiveAssetPlan> | undefined;
+        const prepare = async () => {
+          signal.throwIfAborted();
+          if (!active) throw new Error('Progressive Asset callback has finished');
+          plan ??= session.prepare(id);
+          void plan.catch(() => {});
+          // The upload may mutate or transfer the caller's copy. The pack
+          // session and subsequent prepare calls keep the original bytes.
+          return structuredClone(await plan);
+        };
+        try {
+          const decision = await untilAborted(signal, () => onProgressiveAsset(candidate, { signal, prepare }));
+          if (!decision || !['embedded', 'progressive'].includes(decision.delivery)) {
+            throw new Error('Invalid Progressive Asset delivery decision');
+          }
+          if (plan) await plan;
+          decisions[id] = structuredClone(decision);
+        } finally {
+          active = false;
+        }
+      }
+    }
+    signal.throwIfAborted();
+    return await session.finalize(decisions, buildId, engine, optimize, agentId);
+  } finally {
+    session.close();
+  }
+}
+
+function untilAborted<T>(signal: AbortSignal, work: () => T | Promise<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener('abort', onAbort, { once: true });
+    Promise.resolve().then(() => {
+      signal.throwIfAborted();
+      return work();
+    }).then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort));
+  });
 }

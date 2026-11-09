@@ -111,6 +111,8 @@ pub struct PackageManifest {
     pub key_id: String,
     pub package_id: String,
     pub entries: Vec<ManifestEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progressive_assets: Option<crate::progressive_assets::ManifestExtension>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

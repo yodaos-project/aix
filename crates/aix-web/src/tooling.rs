@@ -14,6 +14,7 @@ pub struct AixPackResultWasm {
     data: Vec<u8>,
     report: aix_pack::OptimizeReport,
     warnings: Vec<String>,
+    progressive_assets: Vec<aix_pack::progressive::DeliveryReport>,
 }
 
 #[wasm_bindgen]
@@ -37,6 +38,11 @@ impl AixPackResultWasm {
     #[wasm_bindgen(getter)]
     pub fn report(&self) -> Result<JsValue, JsValue> {
         to_value(&self.report)
+    }
+
+    #[wasm_bindgen(getter, js_name = progressiveAssets)]
+    pub fn progressive_assets(&self) -> Result<JsValue, JsValue> {
+        to_value(&self.progressive_assets)
     }
 
     #[wasm_bindgen(getter)]
@@ -86,6 +92,7 @@ impl AixSourcePackBuilderWasm {
             data: output.data,
             report: output.report,
             warnings: output.warnings,
+            progressive_assets: output.progressive_assets,
         })
     }
 }
@@ -107,6 +114,7 @@ pub fn pack_aix(
         data: output.data,
         report: output.report,
         warnings: output.warnings,
+        progressive_assets: output.progressive_assets,
     })
 }
 
@@ -127,6 +135,7 @@ pub fn pack_aix_from_source(
         data: output.data,
         report: output.report,
         warnings: output.warnings,
+        progressive_assets: output.progressive_assets,
     })
 }
 
@@ -195,6 +204,7 @@ pub fn pack_aix_from_source_with_progress(
         data: output.data,
         report: output.report,
         warnings: output.warnings,
+        progressive_assets: output.progressive_assets,
     })
 }
 
@@ -223,6 +233,7 @@ pub fn optimize_aix(data: Vec<u8>, options: JsValue) -> Result<AixPackResultWasm
         data: output.data,
         report: output.report,
         warnings: output.warnings,
+        progressive_assets: output.progressive_assets,
     })
 }
 
@@ -385,4 +396,98 @@ mod tests {
             .unwrap();
         assert_eq!(file_report.status, aix_pack::OptimizeStatus::Optimized);
     }
+}
+
+/// Uploads are performed outside this session. Only validated receipts and
+/// choices cross back into the Rust packer.
+#[wasm_bindgen]
+pub struct ProgressivePackWasm {
+    session: Option<aix_pack::progressive::ProgressivePack>,
+}
+
+#[wasm_bindgen]
+impl ProgressivePackWasm {
+    #[wasm_bindgen(constructor)]
+    pub fn new(files: JsValue, from_source: bool) -> Result<ProgressivePackWasm, JsValue> {
+        let files: Vec<InputFile> = serde_wasm_bindgen::from_value(files).map_err(js_error)?;
+        let files = if from_source {
+            aix_pack::collector::collect_inputs(files, &CollectOptions::default())
+                .map_err(js_error)?
+        } else {
+            files
+        };
+        let session = aix_pack::progressive::ProgressivePack::discover(files)
+            .map_err(|e| js_error(format!("{e:#}")))?;
+        Ok(Self {
+            session: Some(session),
+        })
+    }
+
+    pub fn candidates(&self) -> Result<JsValue, JsValue> {
+        to_value(
+            &self
+                .session
+                .as_ref()
+                .ok_or_else(|| js_error("pack session finalized"))?
+                .candidates(),
+        )
+    }
+
+    pub fn prepare(&mut self, id: String) -> Result<JsValue, JsValue> {
+        let session = self
+            .session
+            .as_mut()
+            .ok_or_else(|| js_error("pack session finalized"))?;
+        to_value(
+            session
+                .prepare(&id)
+                .map_err(|e| js_error(format!("{e:#}")))?,
+        )
+    }
+
+    pub fn finalize(
+        &mut self,
+        decisions: JsValue,
+        build_id: String,
+        engine: Option<String>,
+        optimize_options: JsValue,
+        agent_id: Option<String>,
+        progress: Option<Function>,
+    ) -> Result<AixPackResultWasm, JsValue> {
+        let optimize = parse_optimize_options(optimize_options)?;
+        let decisions = serde_wasm_bindgen::from_value(decisions).map_err(js_error)?;
+        let session = self
+            .session
+            .take()
+            .ok_or_else(|| js_error("pack session finalized"))?;
+        let output = session
+            .finalize(
+                decisions,
+                PackOptions {
+                    build_id,
+                    engine,
+                    optimize,
+                    agent_id,
+                    signing_key: None,
+                },
+                |event| {
+                    if let Some(progress) = &progress {
+                        emit_progress_event(progress, &event)
+                            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+                    }
+                    Ok(())
+                },
+            )
+            .map_err(|e| js_error(format!("{e:#}")))?;
+        Ok(AixPackResultWasm {
+            data: output.data,
+            report: output.report,
+            warnings: output.warnings,
+            progressive_assets: output.progressive_assets,
+        })
+    }
+}
+
+fn js_error(error: impl std::fmt::Display) -> JsValue {
+    JsValue::from_str(&error.to_string())
 }
