@@ -290,9 +290,12 @@ receipt before writing the package. An upload error, invalid receipt, or
 abort rejects the build. Use `packed.progressiveAssets` to see the selected
 delivery mode and any retained source bytes.
 
-[Try the mock upload in Play](/play?demo=progressive). The demo prepares real
-fragments and builds an inspectable package with placeholder URLs. It
-simulates the uploader entirely in the browser.
+To try the callback, open [Build in Play](/play?mode=build), choose a project
+directory containing a progressive media declaration, and click **Build and
+download**. Build prepares fragments for supported media and simulates the
+upload receipt in the browser. It embeds media whose profile is unsupported.
+The downloaded package uses placeholder URLs for simulated uploads, which you
+can view in Inspect.
 
 ### AIX.optimize(data, options?)
 

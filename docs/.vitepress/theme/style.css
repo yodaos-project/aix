@@ -1867,7 +1867,7 @@ html[lang="ja"] kbd {
 
 .lab-mode-switch {
   display: grid;
-  grid-template-columns: repeat(2, minmax(76px, 1fr)) max-content;
+  grid-template-columns: repeat(2, minmax(76px, 1fr));
   padding: 4px;
   border: 1px solid rgba(23, 29, 40, 0.1);
   border-radius: 12px;
@@ -2074,6 +2074,29 @@ html[lang="ja"] kbd {
 .lab-build-button:disabled {
   cursor: wait;
   opacity: 0.62;
+}
+
+.lab-build-assets {
+  padding: 14px 24px;
+  border-top: 1px solid var(--vp-c-divider);
+  color: var(--aix-muted);
+}
+
+.lab-build-assets p {
+  margin: 0;
+}
+
+.lab-build-assets ul {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lab-build-assets li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  overflow-wrap: anywhere;
 }
 
 .lab-build-result {
@@ -2502,11 +2525,6 @@ html[lang="ja"] kbd {
 
   .lab-topbar-copy {
     grid-column: 1 / -1;
-  }
-
-  .lab-mode-switch {
-    grid-column: 1 / -1;
-    grid-template-columns: repeat(2, minmax(0, 1fr)) max-content;
   }
 
   .lab-topbar-hint {

@@ -504,9 +504,11 @@ object bytes over HTTP PUT, verifies length and SHA-256 on disk, and issues
 receipts only after the entire inventory is present. Set `INK_WEB_DIST` to a
 built Ink Web SDK to also test browser playback and offline reopening through the same object server.
 
-[Play's mock upload](https://yodaos-project.github.io/aix/play?demo=progressive)
-prepares sample MP4 fragments and simulates the receipt inside the browser.
-The resulting package can be inspected in Play.
+In [Play's Build view](https://yodaos-project.github.io/aix/play?mode=build),
+select a project directory and choose **Build and download**. Play calls
+`onProgressiveAsset` for each declared asset and simulates the upload for
+supported media. The downloaded package contains placeholder URLs you can
+view in Inspect.
 
 ```sh
 npm run build

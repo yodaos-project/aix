@@ -307,7 +307,9 @@ import clip from './assets/clip.mp4' with { type: 'video', progressive: 'prefer'
 
 在 `AIX.packFromSource()` 的 `onProgressiveAsset` 回调中调用 `prepare()` 获取分片。上传由调用方完成，回调返回 `{ delivery: 'progressive', planId, receipt }`。AIX 校验回执中的对象标识、大小、SHA-256 和固定 HTTPS 地址后生成包。可以返回 `{ delivery: 'embedded' }` 保留源文件。上传失败、回执无效或取消时，打包会失败。
 
-打开 [Play 的模拟上传演示](/zh-CN/play?demo=progressive)。浏览器会生成真实分片并模拟回执，生成的包使用占位地址，可直接检查包内的渐进资源索引。
+打开 [Play 的构建页](/zh-CN/play?mode=build)，选择包含渐进媒体声明的项目目录，再点击**构建并下载**。
+构建会为符合条件的媒体准备分片，并在浏览器中模拟上传回执。格式不符合条件的媒体会内嵌在包里。
+下载的包使用占位地址，可以在「检查」页查看渐进资源索引。
 
 ## 5. 优化已有的包
 

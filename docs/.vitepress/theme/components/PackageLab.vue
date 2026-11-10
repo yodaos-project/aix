@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import { computed, ref, shallowRef } from "vue";
 import type { AIX as AixClass, AixEntry, AixInputFile, OptimizeReport, PageInfo, Tool } from "@yodaos-pkg/aix";
-import ProgressiveAssetDemo from "./ProgressiveAssetDemo.vue";
 
 type SecondaryTab = "meta" | "pages" | "tools";
-type LabMode = "inspect" | "build" | "progressive";
+type LabMode = "inspect" | "build";
+type BuildAsset = { id: string; sourcePath: string } & (
+  | { status: "preparing" }
+  | { status: "embedded"; reason?: string }
+  | { status: "mocked"; count: number; size: number }
+);
 
 function formatBytes(value: number): string {
   if (value < 1024) {
@@ -35,18 +39,20 @@ const directoryName = ref("");
 const building = ref(false);
 const buildError = ref<string | null>(null);
 const buildReport = ref<OptimizeReport | null>(null);
+const buildAssets = ref<BuildAsset[]>([]);
 const optimizeBuild = ref(true);
 const optimizeLevel = ref<1 | 2 | 3>(2);
 const locale = ref<"en" | "zh-CN" | "ja">("en");
 
 const text = computed(() => locale.value === "ja" ? {
   play: "プレイ", hint: "ブラウザーで AIX パッケージを検査、作成します。", inspect: "検査", build: "作成",
-  progressive: "段階配信",
   reading: "パッケージを読み込み中…", replacePackage: "パッケージを置換", uploadPackage: "パッケージをアップロード",
   replaceDirectory: "ディレクトリを置換", chooseDirectory: "ディレクトリを選択", error: "エラー：",
   noDirectory: "ディレクトリが選択されていません", directory: "ディレクトリ", files: "ファイル", sourceSize: "ソースサイズ",
   optimize: "リソースを最適化", level: "レベル", building: "パッケージを作成中…", buildDownload: "作成してダウンロード",
   downloaded: "パッケージをダウンロードしました", saved: "削減", noPackage: "パッケージが読み込まれていません",
+  mockHint: "段階配信アセットのアップロードは模擬処理です。生成された URL は検査用です。",
+  preparingAsset: "分割データを準備中", embeddedAsset: "同梱", mockedAsset: "模擬アップロード完了", fragments: "フラグメント",
   compressed: "圧縮後", preview: "プレビュー", notPreviewable: "このファイルは UTF-8 テキストとしてプレビューできません。",
   noPreview: "プレビュー可能なファイルが選択されていません。", details: "パッケージ詳細", meta: "メタデータ",
   pages: "ページ", tools: "ツール", untitled: "無題のページ", schema: "Schema", noSchema: "Schema なし",
@@ -57,7 +63,6 @@ const text = computed(() => locale.value === "ja" ? {
   hint: "在浏览器中检查和构建 AIX 包。",
   inspect: "检查",
   build: "构建",
-  progressive: "渐进资源",
   reading: "正在读取包…",
   replacePackage: "替换包",
   uploadPackage: "上传包",
@@ -73,6 +78,11 @@ const text = computed(() => locale.value === "ja" ? {
   building: "正在构建包…",
   buildDownload: "构建并下载",
   downloaded: "包已下载",
+  mockHint: "渐进资源会模拟上传，生成的远程地址仅供检查。",
+  preparingAsset: "正在准备分片",
+  embeddedAsset: "已内嵌",
+  mockedAsset: "模拟上传完成",
+  fragments: "个分片",
   saved: "已节省",
   noPackage: "尚未加载包",
   compressed: "压缩后",
@@ -97,7 +107,6 @@ const text = computed(() => locale.value === "ja" ? {
   hint: "Inspect and build AIX packages in the browser.",
   inspect: "Inspect",
   build: "Build",
-  progressive: "Progressive Assets",
   reading: "Reading package…",
   replacePackage: "Replace package",
   uploadPackage: "Upload package",
@@ -113,6 +122,11 @@ const text = computed(() => locale.value === "ja" ? {
   building: "Building package…",
   buildDownload: "Build and download",
   downloaded: "Package downloaded",
+  mockHint: "Build simulates uploads for progressive assets. Their generated URLs are for inspection.",
+  preparingAsset: "Preparing fragments",
+  embeddedAsset: "Embedded",
+  mockedAsset: "Mock upload complete",
+  fragments: "fragments",
   saved: "saved",
   noPackage: "No package loaded",
   compressed: "compressed",
@@ -161,7 +175,7 @@ if (typeof window !== "undefined") {
   const routeLocale = query.get("lang");
   locale.value = routeLocale === "zh-CN" || window.location.pathname.includes("/zh-CN/")
     ? "zh-CN" : routeLocale === "ja" || window.location.pathname.includes("/ja/") ? "ja" : "en";
-  if (query.get("demo") === "progressive") mode.value = "progressive";
+  if (query.get("mode") === "build" || query.get("demo") === "progressive") mode.value = "build";
 }
 
 function resetState() {
@@ -216,21 +230,12 @@ async function handleFileUpload(event: Event) {
     return;
   }
 
-  try {
-    await inspectPackage(file);
-  } finally {
-    if (input) input.value = "";
-  }
-}
-
-async function inspectPackage(data: File | Uint8Array, entryName?: string) {
-  mode.value = "inspect";
   loading.value = true;
   resetState();
 
   try {
     const { AIX } = await loadAixModule();
-    const aix = await AIX.From(data);
+    const aix = await AIX.From(file);
     const nextEntries = aix.list();
 
     aixInstance.value = aix;
@@ -240,13 +245,16 @@ async function inspectPackage(data: File | Uint8Array, entryName?: string) {
     pages.value = aix.getPages();
     tools.value = aix.getTools();
     currentTab.value = "meta";
-    if (entryName) viewFile(entryName);
-    else selectInitialFile(aix, nextEntries);
+    selectInitialFile(aix, nextEntries);
   } catch (err) {
     console.error("Error parsing AIX:", err);
     error.value = err instanceof Error ? err.message : String(err);
   } finally {
     loading.value = false;
+
+    if (input) {
+      input.value = "";
+    }
   }
 }
 
@@ -256,6 +264,7 @@ function handleDirectorySelection(event: Event) {
 
   buildError.value = null;
   buildReport.value = null;
+  buildAssets.value = [];
   directoryFiles.value = files;
   directoryName.value = files[0]?.webkitRelativePath.split("/")[0] || "package";
 }
@@ -287,6 +296,7 @@ async function buildAndDownload() {
   building.value = true;
   buildError.value = null;
   buildReport.value = null;
+  buildAssets.value = [];
 
   try {
     const { AIX } = await loadAixModule();
@@ -306,7 +316,30 @@ async function buildAndDownload() {
             png: true,
             jpeg: true
           }
-        : false
+        : false,
+      async onProgressiveAsset({ id, sourcePath, progressiveSupport }, { prepare }) {
+        if (!progressiveSupport.supported) {
+          buildAssets.value.push({ id, sourcePath, status: "embedded", reason: progressiveSupport.reason });
+          return { delivery: "embedded" };
+        }
+
+        const row = buildAssets.value.push({ id, sourcePath, status: "preparing" }) - 1;
+        const plan = await prepare();
+        // Use the prepared inventory to simulate a receipt for the package inspector.
+        const objects = plan.remoteObjects.map(({ id, size, sha256 }) => ({
+          id, size, sha256, url: `https://playground.invalid/objects/${id}`,
+        }));
+        buildAssets.value[row] = {
+          id, sourcePath, status: "mocked",
+          count: objects.length,
+          size: objects.reduce((total, object) => total + object.size, 0),
+        };
+        return {
+          delivery: "progressive",
+          planId: plan.id,
+          receipt: { uploadId: plan.id, assetVersion: plan.assetVersion, objects },
+        };
+      },
     });
     const safeName = directoryName.value.replace(/[^a-zA-Z0-9._-]+/g, "-") || "bundle";
     downloadPackage(result.data, `${safeName}.aix`);
@@ -314,6 +347,7 @@ async function buildAndDownload() {
   } catch (err) {
     console.error("Error building AIX:", err);
     buildError.value = err instanceof Error ? err.message : String(err);
+    buildAssets.value = [];
   } finally {
     building.value = false;
   }
@@ -356,14 +390,11 @@ function formatTool(tool: Tool): string {
       </div>
 
       <div class="lab-mode-switch">
-        <button type="button" :aria-pressed="mode === 'inspect'" :class="{ 'is-active': mode === 'inspect' }" @click="mode = 'inspect'">
+        <button type="button" :class="{ 'is-active': mode === 'inspect' }" @click="mode = 'inspect'">
           {{ text.inspect }}
         </button>
-        <button type="button" :aria-pressed="mode === 'build'" :class="{ 'is-active': mode === 'build' }" @click="mode = 'build'">
+        <button type="button" :class="{ 'is-active': mode === 'build' }" @click="mode = 'build'">
           {{ text.build }}
-        </button>
-        <button type="button" :aria-pressed="mode === 'progressive'" :class="{ 'is-active': mode === 'progressive' }" @click="mode = 'progressive'">
-          {{ text.progressive }}
         </button>
       </div>
 
@@ -378,12 +409,13 @@ function formatTool(tool: Tool): string {
         <span>{{ loading ? text.reading : hasPackage ? text.replacePackage : text.uploadPackage }}</span>
       </label>
 
-      <label v-else-if="mode === 'build'" class="lab-upload-button" for="directory-input">
+      <label v-else class="lab-upload-button" for="directory-input">
         <input
           id="directory-input"
           type="file"
           webkitdirectory
           multiple
+          :disabled="building"
           class="lab-hidden-input"
           @change="handleDirectorySelection"
         />
@@ -436,6 +468,20 @@ function formatTool(tool: Tool): string {
           </button>
         </div>
 
+        <div class="lab-build-assets">
+          <p>{{ text.mockHint }}</p>
+          <ul v-if="buildAssets.length" aria-live="polite">
+            <li v-for="asset in buildAssets" :key="asset.id">
+              <code>{{ asset.sourcePath }}</code>
+              <span v-if="asset.status === 'preparing'">{{ text.preparingAsset }}</span>
+              <span v-else-if="asset.status === 'mocked'">
+                {{ text.mockedAsset }} · {{ asset.count }} {{ text.fragments }} · {{ formatBytes(asset.size) }}
+              </span>
+              <span v-else>{{ text.embeddedAsset }}<template v-if="asset.reason"> · {{ asset.reason }}</template></span>
+            </li>
+          </ul>
+        </div>
+
         <div v-if="buildReport" class="lab-build-result" role="status">
           <strong>{{ text.downloaded }}</strong>
           <span>{{ formatBytes(buildReport.output_size) }}</span>
@@ -443,8 +489,6 @@ function formatTool(tool: Tool): string {
         </div>
       </section>
     </template>
-
-    <ProgressiveAssetDemo v-else-if="mode === 'progressive'" :locale="locale" @inspect="inspectPackage" />
 
     <template v-else>
     <div v-if="error" class="lab-error"><strong>{{ text.error }}</strong> {{ error }}</div>
