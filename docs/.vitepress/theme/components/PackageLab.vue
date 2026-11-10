@@ -1,14 +1,14 @@
 <script setup lang="ts">
-import { computed, ref, shallowRef } from "vue";
-import type { AIX as AixClass, AixEntry, AixInputFile, OptimizeReport, PageInfo, Tool } from "@yodaos-pkg/aix";
+import { computed, onBeforeUnmount, ref, shallowRef } from "vue";
+import type { AIX as AixClass, AixEntry, AixInputFile, OptimizeReport, PageInfo, ProgressiveAssetCandidate, Tool } from "@yodaos-pkg/aix";
 
 type SecondaryTab = "meta" | "pages" | "tools";
 type LabMode = "inspect" | "build";
-type BuildAsset = { id: string; sourcePath: string } & (
+type BuildAssetResult =
   | { status: "preparing" }
-  | { status: "embedded"; reason?: string }
-  | { status: "mocked"; count: number; size: number }
-);
+  | { status: "embedded" }
+  | { status: "mocked"; count: number; size: number };
+type BuildAsset = ProgressiveAssetCandidate & { result?: BuildAssetResult };
 
 function formatBytes(value: number): string {
   if (value < 1024) {
@@ -40,9 +40,13 @@ const building = ref(false);
 const buildError = ref<string | null>(null);
 const buildReport = ref<OptimizeReport | null>(null);
 const buildAssets = ref<BuildAsset[]>([]);
+const assetScan = shallowRef<AbortController | null>(null);
+const assetScanError = ref<string | null>(null);
 const optimizeBuild = ref(true);
 const optimizeLevel = ref<1 | 2 | 3>(2);
 const locale = ref<"en" | "zh-CN" | "ja">("en");
+
+onBeforeUnmount(() => assetScan.value?.abort());
 
 const text = computed(() => locale.value === "ja" ? {
   play: "プレイ", hint: "ブラウザーで AIX パッケージを検査、作成します。", inspect: "検査", build: "作成",
@@ -52,6 +56,9 @@ const text = computed(() => locale.value === "ja" ? {
   optimize: "リソースを最適化", level: "レベル", building: "パッケージを作成中…", buildDownload: "作成してダウンロード",
   downloaded: "パッケージをダウンロードしました", saved: "削減", noPackage: "パッケージが読み込まれていません",
   mockHint: "段階配信アセットのアップロードは模擬処理です。生成された URL は検査用です。",
+  progressiveAssets: "段階配信アセット", scanningAssets: "アセットを検索中…", noAssets: "段階配信アセットはありません。",
+  assetPath: "ファイルパス", assetType: "種類", assetStatus: "状態", audio: "音声", video: "映像",
+  mockOnBuild: "模擬アップロード予定", embedOnBuild: "同梱予定",
   preparingAsset: "分割データを準備中", embeddedAsset: "同梱", mockedAsset: "模擬アップロード完了", fragments: "フラグメント",
   compressed: "圧縮後", preview: "プレビュー", notPreviewable: "このファイルは UTF-8 テキストとしてプレビューできません。",
   noPreview: "プレビュー可能なファイルが選択されていません。", details: "パッケージ詳細", meta: "メタデータ",
@@ -79,6 +86,16 @@ const text = computed(() => locale.value === "ja" ? {
   buildDownload: "构建并下载",
   downloaded: "包已下载",
   mockHint: "渐进资源会模拟上传，生成的远程地址仅供检查。",
+  progressiveAssets: "渐进资源",
+  scanningAssets: "正在扫描资源…",
+  noAssets: "项目没有声明渐进资源。",
+  assetPath: "文件路径",
+  assetType: "类型",
+  assetStatus: "状态",
+  audio: "音频",
+  video: "视频",
+  mockOnBuild: "待模拟上传",
+  embedOnBuild: "构建时内嵌",
   preparingAsset: "正在准备分片",
   embeddedAsset: "已内嵌",
   mockedAsset: "模拟上传完成",
@@ -123,6 +140,16 @@ const text = computed(() => locale.value === "ja" ? {
   buildDownload: "Build and download",
   downloaded: "Package downloaded",
   mockHint: "Build simulates uploads for progressive assets. Their generated URLs are for inspection.",
+  progressiveAssets: "Progressive assets",
+  scanningAssets: "Scanning for progressive assets…",
+  noAssets: "This project declares no progressive assets.",
+  assetPath: "File path",
+  assetType: "Type",
+  assetStatus: "Status",
+  audio: "Audio",
+  video: "Video",
+  mockOnBuild: "Pending mock upload",
+  embedOnBuild: "Embed on build",
   preparingAsset: "Preparing fragments",
   embeddedAsset: "Embedded",
   mockedAsset: "Mock upload complete",
@@ -258,21 +285,58 @@ async function handleFileUpload(event: Event) {
   }
 }
 
-function handleDirectorySelection(event: Event) {
+async function handleDirectorySelection(event: Event) {
   const input = event.target as HTMLInputElement | null;
   const files = Array.from(input?.files ?? []);
 
   buildError.value = null;
   buildReport.value = null;
   buildAssets.value = [];
+  assetScanError.value = null;
   directoryFiles.value = files;
   directoryName.value = files[0]?.webkitRelativePath.split("/")[0] || "package";
+
+  assetScan.value?.abort();
+  assetScan.value = null;
+  if (!files.length) return;
+
+  const scan = new AbortController();
+  assetScan.value = scan;
+  try {
+    const [{ AIX }, inputs] = await Promise.all([loadAixModule(), readBuildFiles(files)]);
+    const assets = await AIX.listProgressiveAssets(inputs, { signal: scan.signal });
+    if (assetScan.value === scan) {
+      buildAssets.value = assets.sort((a, b) => a.sourcePath.localeCompare(b.sourcePath));
+    }
+  } catch (err) {
+    if (!scan.signal.aborted) {
+      assetScanError.value = err instanceof Error ? err.message : String(err);
+    }
+  } finally {
+    if (assetScan.value === scan) assetScan.value = null;
+  }
 }
 
 function packagePath(file: File): string {
   const sourcePath = file.webkitRelativePath || file.name;
   const parts = sourcePath.split("/").filter(Boolean);
   return parts.length > 1 ? parts.slice(1).join("/") : sourcePath;
+}
+
+function readBuildFiles(files: File[]): Promise<AixInputFile[]> {
+  return Promise.all(files
+    .filter((file) => packagePath(file) !== "VERSION")
+    .map(async (file) => ({
+      path: packagePath(file),
+      data: new Uint8Array(await file.arrayBuffer()),
+    })));
+}
+
+function recordBuildAsset(candidate: ProgressiveAssetCandidate, result: BuildAssetResult) {
+  const row = buildAssets.value.findIndex((asset) => asset.id === candidate.id);
+  const asset = { ...candidate, result };
+  if (row === -1) buildAssets.value.push(asset);
+  else buildAssets.value[row] = asset;
 }
 
 function downloadPackage(data: Uint8Array, fileName: string) {
@@ -289,25 +353,18 @@ function downloadPackage(data: Uint8Array, fileName: string) {
 }
 
 async function buildAndDownload() {
-  if (!hasDirectory.value || building.value) {
+  if (!hasDirectory.value || building.value || assetScan.value) {
     return;
   }
 
   building.value = true;
   buildError.value = null;
   buildReport.value = null;
-  buildAssets.value = [];
+  for (const asset of buildAssets.value) delete asset.result;
 
   try {
     const { AIX } = await loadAixModule();
-    const files = await Promise.all(
-      directoryFiles.value
-        .filter((file) => packagePath(file) !== "VERSION")
-        .map(async (file): Promise<AixInputFile> => ({
-          path: packagePath(file),
-          data: new Uint8Array(await file.arrayBuffer())
-        }))
-    );
+    const files = await readBuildFiles(directoryFiles.value);
     const result = await AIX.pack(files, {
       optimize: optimizeBuild.value
         ? {
@@ -317,23 +374,23 @@ async function buildAndDownload() {
             jpeg: true
           }
         : false,
-      async onProgressiveAsset({ id, sourcePath, progressiveSupport }, { prepare }) {
-        if (!progressiveSupport.supported) {
-          buildAssets.value.push({ id, sourcePath, status: "embedded", reason: progressiveSupport.reason });
+      async onProgressiveAsset(candidate, { prepare }) {
+        if (!candidate.progressiveSupport.supported) {
+          recordBuildAsset(candidate, { status: "embedded" });
           return { delivery: "embedded" };
         }
 
-        const row = buildAssets.value.push({ id, sourcePath, status: "preparing" }) - 1;
+        recordBuildAsset(candidate, { status: "preparing" });
         const plan = await prepare();
         // Use the prepared inventory to simulate a receipt for the package inspector.
         const objects = plan.remoteObjects.map(({ id, size, sha256 }) => ({
           id, size, sha256, url: `https://playground.invalid/objects/${id}`,
         }));
-        buildAssets.value[row] = {
-          id, sourcePath, status: "mocked",
+        recordBuildAsset(candidate, {
+          status: "mocked",
           count: objects.length,
           size: objects.reduce((total, object) => total + object.size, 0),
-        };
+        });
         return {
           delivery: "progressive",
           planId: plan.id,
@@ -344,10 +401,11 @@ async function buildAndDownload() {
     const safeName = directoryName.value.replace(/[^a-zA-Z0-9._-]+/g, "-") || "bundle";
     downloadPackage(result.data, `${safeName}.aix`);
     buildReport.value = result.report;
+    assetScanError.value = null;
   } catch (err) {
     console.error("Error building AIX:", err);
     buildError.value = err instanceof Error ? err.message : String(err);
-    buildAssets.value = [];
+    for (const asset of buildAssets.value) delete asset.result;
   } finally {
     building.value = false;
   }
@@ -463,23 +521,49 @@ function formatTool(tool: Tool): string {
             </select>
           </label>
 
-          <button class="lab-build-button" type="button" :disabled="building" @click="buildAndDownload">
+          <button class="lab-build-button" type="button" :disabled="building || !!assetScan" @click="buildAndDownload">
             {{ building ? text.building : text.buildDownload }}
           </button>
         </div>
 
         <div class="lab-build-assets">
-          <p>{{ text.mockHint }}</p>
-          <ul v-if="buildAssets.length" aria-live="polite">
-            <li v-for="asset in buildAssets" :key="asset.id">
-              <code>{{ asset.sourcePath }}</code>
-              <span v-if="asset.status === 'preparing'">{{ text.preparingAsset }}</span>
-              <span v-else-if="asset.status === 'mocked'">
-                {{ text.mockedAsset }} · {{ asset.count }} {{ text.fragments }} · {{ formatBytes(asset.size) }}
-              </span>
-              <span v-else>{{ text.embeddedAsset }}<template v-if="asset.reason"> · {{ asset.reason }}</template></span>
-            </li>
-          </ul>
+          <h2 id="lab-build-assets-title">{{ text.progressiveAssets }}</h2>
+          <p v-if="assetScan" role="status">{{ text.scanningAssets }}</p>
+          <p v-else-if="assetScanError" role="alert">{{ text.error }} {{ assetScanError }}</p>
+          <p v-else-if="!buildAssets.length">{{ text.noAssets }}</p>
+          <template v-if="buildAssets.length">
+            <div class="lab-build-assets-scroll">
+              <table aria-labelledby="lab-build-assets-title">
+                <thead>
+                  <tr>
+                    <th scope="col">{{ text.assetPath }}</th>
+                    <th scope="col">{{ text.assetType }}</th>
+                    <th scope="col">{{ text.sourceSize }}</th>
+                    <th scope="col">{{ text.assetStatus }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="asset in buildAssets" :key="asset.id">
+                    <td><code>{{ asset.sourcePath }}</code></td>
+                    <td>{{ text[asset.kind] }}</td>
+                    <td>{{ formatBytes(asset.sourceSize) }}</td>
+                    <td>
+                      <span v-if="asset.result?.status === 'preparing'">{{ text.preparingAsset }}</span>
+                      <span v-else-if="asset.result?.status === 'mocked'">
+                        {{ text.mockedAsset }} · {{ asset.result.count }} {{ text.fragments }} · {{ formatBytes(asset.result.size) }}
+                      </span>
+                      <template v-else-if="!asset.progressiveSupport.supported">
+                        {{ asset.result?.status === "embedded" ? text.embeddedAsset : text.embedOnBuild }}
+                        <small v-if="asset.progressiveSupport.reason">{{ asset.progressiveSupport.reason }}</small>
+                      </template>
+                      <span v-else>{{ text.mockOnBuild }}</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p>{{ text.mockHint }}</p>
+          </template>
         </div>
 
         <div v-if="buildReport" class="lab-build-result" role="status">

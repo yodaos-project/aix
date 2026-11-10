@@ -290,10 +290,16 @@ receipt before writing the package. An upload error, invalid receipt, or
 abort rejects the build. Use `packed.progressiveAssets` to see the selected
 delivery mode and any retained source bytes.
 
+Use `AIX.listProgressiveAssets(files, { signal })` to list declared assets
+before packing. It takes the same normalized entries as `AIX.pack` and returns
+each candidate's `sourcePath`, `kind`, `sourceSize` in bytes, and profile support.
+Listing does not prepare fragments or invoke an upload callback.
+
 To try the callback, open [Build in Play](/play?mode=build), choose a project
-directory containing a progressive media declaration, and click **Build and
-download**. Build prepares fragments for supported media and simulates the
-upload receipt in the browser. It embeds media whose profile is unsupported.
+directory containing a progressive media declaration, and review the resource
+table. Click **Build and download** to prepare fragments for supported media
+and simulate the upload receipt in the browser. Build embeds media whose
+profile is unsupported.
 The downloaded package uses placeholder URLs for simulated uploads, which you
 can view in Inspect.
 

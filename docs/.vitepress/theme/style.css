@@ -2086,16 +2086,44 @@ html[lang="ja"] kbd {
   margin: 0;
 }
 
-.lab-build-assets ul {
-  margin: 10px 0 0;
+.lab-build-assets h2 {
+  margin: 0 0 8px;
   padding: 0;
-  list-style: none;
+  border: 0;
+  color: var(--aix-ink);
+  font-size: 1.05rem;
 }
 
-.lab-build-assets li {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 12px;
+.lab-build-assets-scroll {
+  margin: 0 0 10px;
+  overflow-x: auto;
+}
+
+.lab-build-assets table {
+  display: table;
+  width: 100%;
+  min-width: 34rem;
+  margin: 0;
+}
+
+.lab-build-assets th,
+.lab-build-assets td {
+  text-align: left;
+  vertical-align: top;
+}
+
+.lab-build-assets td:nth-child(3) {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.lab-build-assets code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.lab-build-assets small {
+  display: block;
   overflow-wrap: anywhere;
 }
 

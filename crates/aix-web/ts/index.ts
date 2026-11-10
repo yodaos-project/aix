@@ -348,6 +348,22 @@ export class AIX {
     }
   }
 
+  /** Lists the Progressive Assets declared in the same normalized inputs as {@link pack}. */
+  static async listProgressiveAssets(
+    files: AixInputFile[],
+    options?: { signal?: AbortSignal },
+  ): Promise<ProgressiveAssetCandidate[]> {
+    const signal = options?.signal ?? new AbortController().signal;
+    signal.throwIfAborted();
+    const session = await openPackSession(snapshotFiles(files), false, signal, () => {});
+    try {
+      signal.throwIfAborted();
+      return session.candidates;
+    } finally {
+      session.close();
+    }
+  }
+
   static async pack(
     files: AixInputFile[],
     options?: PackOptions,
@@ -614,6 +630,10 @@ async function openPackSession(
   }
 }
 
+function snapshotFiles(files: AixInputFile[]): AixInputFile[] {
+  return files.map(({ path, data }) => ({ path, data: Uint8Array.from(data) }));
+}
+
 async function stagedPack(
   files: AixInputFile[],
   options: PackFromSourceOptions,
@@ -624,7 +644,7 @@ async function stagedPack(
   const optimize = options.optimize ? { ...options.optimize } : undefined;
   const signal = options.signal ?? new AbortController().signal;
   signal.throwIfAborted();
-  const snapshot = files.map(({ path, data }) => ({ path, data: Uint8Array.from(data) }));
+  const snapshot = snapshotFiles(files);
   const progress = (event: PackProgressEvent) => {
     signal.throwIfAborted();
     onProgress?.(event);
