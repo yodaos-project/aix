@@ -1,61 +1,110 @@
-# Web API 使用指南
+---
+outline: [2, 4]
+---
 
-`@yodaos-pkg/aix` 让你在网页中检查 AIX 项目、生成 `.aix` 文件，并读取包里的页面、工具和其他文件。
+# AIX Web SDK {#yodaos-pkg-aix}
 
-本文适用于在前端项目中接入 AIX 的开发者。示例使用 JavaScript：HTML 放到页面中，JavaScript 放到项目的入口脚本中。
-如果你想先体验功能，可以直接打开 [Play](/play?lang=zh-CN)；如果你想在终端里操作项目，请看 [CLI 使用指南](/cli?lang=zh-CN)。
+在网页中使用 `@yodaos-pkg/aix`，可以检查 AI agent 项目、生成 `.aix` 文件，或读取已有的包。AIX 包是一个 ZIP 归档，里面包含 agent 的文件和元数据。
 
-需要查阅具体参数、返回值和类型时，可直接跳到文末的 [API Reference](#api-reference)。
+想直接体验，可以打开 [Play](/zh-CN/play)。想在终端操作，可以看 [CLI 指南](/zh-CN/cli)。查询方法签名和类型时，可跳到 [API Reference](#api-reference)。
 
-## 1. 安装并导入
+<div id="_1-安装并导入"></div>
 
-在已有的前端项目中安装：
+## 快速开始 {#quick-start}
+
+### 安装 SDK {#installation}
+
+在你的前端项目中运行以下命令。
 
 ~~~bash
 npm install @yodaos-pkg/aix
 ~~~
 
-在需要使用的脚本中导入：
+### 打包并打开第一个 AIX 文件 {#build-and-open-your-first-package}
+
+把下面的 JavaScript 放进应用的模块脚本。示例会创建一个最小项目，检查源码、打包，再打开生成的包。
 
 ~~~javascript
 import { AIX } from '@yodaos-pkg/aix';
+
+const files = [{
+  path: 'app.json',
+  data: new TextEncoder().encode(JSON.stringify({
+    pages: [],
+    window: { navigationBarTitleText: 'My first agent' },
+  })),
+}];
+
+const report = await AIX.checkFromSource(files);
+if (report.diagnostics.some(item => item.severity === 'error')) {
+  console.table(report.diagnostics);
+  throw new Error('Fix the source errors before packing.');
+}
+
+const result = await AIX.packFromSource(files);
+const pkg = await AIX.From(result.data);
+
+console.log(pkg.getTitle()); // My first agent
+console.table(pkg.list());
 ~~~
 
-检查、打包、读取和优化文件时，需要等待操作完成，所以示例会使用 `async` 和 `await`。
-导入后直接调用 `AIX` 上的方法即可。
+每个源文件有两个字段。`path` 是相对于项目根目录的路径，`data` 是 `Uint8Array` 字节。用 `TextEncoder` 可以把文本转成字节。打包后的字节在 `result.data` 中。用 `AIX.From()` 打开之后，`pkg.getTitle()` 和 `pkg.list()` 等方法会直接返回结果。
 
-## 2. 检查项目并下载打包结果
+<div id="_2-检查项目并下载打包结果"></div>
 
-准备好你的 AIX 项目，选择包含 `app.json` 的那一层目录。例如：
+## 检查并打包项目 {#check-and-build-a-project}
 
-~~~text
-my-agent/
-├── app.json
-└── pages/
-    └── home.ink
-~~~
+### 检查源文件 {#aix-checkfromsource-files-options}
 
-下面做一个“检查并打包”按钮：先找出源码中的问题，检查没有错误后，再生成可以下载的 `.aix` 文件。
+代码已经拿到项目文件的路径和字节时，调用 `AIX.checkFromSource(files)`。文件列表的根目录应包含 `app.json`。
 
-### 添加文件选择框和按钮
+返回的 `diagnostics` 列出了发现的问题。每一项包含级别（`error` 或 `warning`）、说明、文件路径、行和列。空数组表示本次检查没有发现问题。文件读取、收集、检查器加载或进度回调失败时，Promise 会拒绝。
+
+::: details 检查范围
+检查包括 JSON 和文本编码、应用、页面和小组件的结构、组件引用、JavaScript 和 TypeScript 语法、可识别的权限用法，以及页面数据的 Schema 声明。TypeScript 检查支持 `.mts`、`.cts` 和带 `lang="ts"` 的 `.ink` 脚本块。
+
+Schema 检查默认使用 JSON Schema 2020-12，并解析本地引用。类型问题要单独用 TypeScript 检查，运行效果要在 AIUI 中验证。各阶段的通知见[检查进度回调](#check-progress-and-browser-responsiveness)。
+:::
+
+### 检查浏览器中选择的文件夹 {#aix-checkfromfiles-files-options}
+
+如果项目由用户提供，可以使用文件夹选择框。
 
 ~~~html
-<input id="project-directory" type="file" webkitdirectory multiple>
-<button id="build-package" type="button">检查并打包</button>
-<pre id="build-result">请选择 AIX 项目目录。</pre>
+<input id="project-folder" type="file" webkitdirectory multiple>
 ~~~
-
-### 添加处理代码
 
 ~~~javascript
 import { AIX } from '@yodaos-pkg/aix';
 
-// 将生成的文件下载到电脑。后面的优化示例也可以复用这个函数。
+const input = document.querySelector('#project-folder');
+input.addEventListener('change', async () => {
+  if (!input.files.length) return;
+  const report = await AIX.checkFromFiles(Array.from(input.files));
+  console.table(report.diagnostics);
+});
+~~~
+
+请选择包含 `app.json` 的文件夹。`checkFromFiles()` 读取浏览器提供的相对路径，并移除这些文件共有的外层目录。浏览器没有提供相对路径时，SDK 使用文件名。
+
+### 从源码打包 {#aix-packfromsource-files-options}
+
+用 `AIX.packFromSource(files)` 打包项目。SDK 会规范化路径，应用根目录和子目录的 `.aixignore`，并排除规则文件与 `.aix/` 缓存目录。路径无效、规范化后重复或忽略规则无效都会使打包失败。
+
+打包时会检查生成归档所需的文件。要取得完整的源码检查报告，请像快速开始中的示例一样，先调用 `checkFromSource()`。
+
+| 结果字段 | 含义 |
+| --- | --- |
+| `data` | 新 `.aix` 文件的字节。 |
+| `warnings` | 未阻止打包的提醒。 |
+| `report` | 处理前后的文件字节数，按 ZIP 压缩前的大小计算。 |
+| `progressiveAssets` | 每个媒体资源的交付方式和留在包里的源文件字节数。 |
+
+要在浏览器中下载结果，可以调用 `downloadPackage(result.data, 'my-agent.aix')`。
+
+~~~javascript
 function downloadPackage(data, filename) {
-  const blob = new Blob([new Uint8Array(data)], {
-    type: 'application/octet-stream',
-  });
-  const url = URL.createObjectURL(blob);
+  const url = URL.createObjectURL(new Blob([data], { type: 'application/zip' }));
   const link = document.createElement('a');
   link.href = url;
   link.download = filename;
@@ -64,151 +113,96 @@ function downloadPackage(data, filename) {
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-
-const directoryInput = document.getElementById('project-directory');
-const buildButton = document.getElementById('build-package');
-const buildOutput = document.getElementById('build-result');
-
-buildButton.addEventListener('click', async () => {
-  const selectedFiles = Array.from(directoryInput.files ?? []);
-  if (selectedFiles.length === 0) {
-    buildOutput.textContent = '请先选择项目目录。';
-    return;
-  }
-
-  buildButton.disabled = true;
-  buildOutput.textContent = '正在检查项目…';
-
-  try {
-    const report = await AIX.checkFromFiles(selectedFiles);
-    const errors = report.diagnostics.filter(item => item.severity === 'error');
-
-    if (errors.length > 0) {
-      buildOutput.textContent = errors.map(item =>
-        `${item.path} 第 ${item.line} 行：${item.message}`
-      ).join('\n');
-      return;
-    }
-
-    // 路径从项目内部开始，例如 app.json、pages/home.ink。
-    const files = await Promise.all(selectedFiles.map(async file => ({
-      path: file.webkitRelativePath.split('/').slice(1).join('/'),
-      data: new Uint8Array(await file.arrayBuffer()),
-    })));
-
-    buildOutput.textContent = '检查通过，正在打包…';
-    const result = await AIX.packFromSource(files);
-    downloadPackage(result.data, 'my-agent.aix');
-
-    const warnings = [
-      ...report.diagnostics.filter(item => item.severity === 'warning')
-        .map(item => item.message),
-      ...result.warnings,
-    ];
-    buildOutput.textContent = warnings.length > 0
-      ? `已生成 my-agent.aix。请留意：\n${warnings.join('\n')}`
-      : '已生成 my-agent.aix，可以在下载目录中找到它。';
-  } catch (error) {
-    buildOutput.textContent = `操作失败：${String(error)}`;
-  } finally {
-    buildButton.disabled = false;
-  }
-});
 ~~~
 
-选择目录并点击按钮后，浏览器会下载 `my-agent.aix`。你也可以把生成的文件放到 [Play](/play?lang=zh-CN) 中，查看里面的页面和文件。
+### 打包浏览器文件 {#aix-packfromfiles-files-options}
 
-### 检查结果怎么看
+如果浏览器文件的路径已经从项目根目录开始，可以调用 `AIX.packFromFiles(files)`。方法优先使用 `webkitRelativePath`，否则使用 `name`。
 
-`checkFromFiles()` 返回的 `diagnostics` 是问题列表。列表为空，表示本次检查没有发现问题。
-
-| 字段 | 含义 |
-| --- | --- |
-| `severity` | `error` 表示需要修复的错误，`warning` 表示需要留意的提醒。 |
-| `path` | 问题所在的项目文件。 |
-| `line` / `column` | 问题所在的行和列。 |
-| `message` | 问题说明。 |
-| `code` | 问题编号，方便查找和记录。 |
-
-检查能帮助你发现配置错误、缺失页面、组件引用问题、脚本语法错误，以及部分权限和页面参数配置问题。
-检查通过后，仍需在实际运行环境中验证项目效果。
-
-源码里有错误时，检查通常会正常返回问题列表，所以要像示例一样查看 `severity`。
-文件无法读取或操作本身失败时，会进入 `catch`。
-
-### 文件已经在代码中时
-
-如果你的应用自己生成文件内容，可以用 `checkFromSource()` 检查。每个文件包含两个字段：
-
-| 字段 | 怎么填写 |
-| --- | --- |
-| `path` | 项目内的相对路径，例如 `app.json`。 |
-| `data` | 文件内容，使用 `Uint8Array`。文字内容可以按下面的方式转换。 |
+文件夹选择框通常会返回 `my-agent/app.json` 这样的路径。`packFromFiles()` 会保留外层目录。这时可先去掉目录前缀，再将结果传给 `packFromSource()`。
 
 ~~~javascript
-import { AIX } from '@yodaos-pkg/aix';
-
-async function checkExample() {
-  const files = [
-    {
-      path: 'app.json',
-      data: new TextEncoder().encode('{"pages":[]}'),
-    },
-  ];
-
-  const report = await AIX.checkFromSource(files);
-  console.table(report.diagnostics);
-  return report;
-}
-
-checkExample().catch(console.error);
+// Call after the user selects the project folder.
+const files = await Promise.all(Array.from(input.files, async file => ({
+  path: file.webkitRelativePath.split('/').slice(1).join('/'),
+  data: new Uint8Array(await file.arrayBuffer()),
+})));
+const result = await AIX.packFromSource(files);
+downloadPackage(result.data, 'my-agent.aix');
 ~~~
 
-同样的 `files` 数组可以传给 `AIX.packFromSource(files)` 来打包。
+### 打包已准备好的文件列表 {#aix-pack-files-options}
 
-## 3. 读取一个已有的 AIX 文件
+如果代码已经筛选好文件并规范化路径，可以用 `AIX.pack(files)` 直接打包。需要 AIX 应用项目的忽略规则时，用 `packFromSource()`。
 
-如果你已经有 `.aix` 文件，可以让用户选择文件，然后显示它的基本信息。
+所有打包方法都要求根目录包含 `app.json`。AIX 会生成 `VERSION` 和 `META-INF/aix/` 下的元数据，这些条目应从输入中排除。
+
+<div id="_4-按需设置打包选项"></div>
+
+### 设置打包选项 {#set-build-options}
+
+将选项作为打包方法的第二个参数。例如，`AIX.packFromSource(files, { agentId: 'my-agent', optimize: {} })` 会设置项目标识并开启优化。
+
+| 选项 | 用途 |
+| --- | --- |
+| `agentId` | 写入清单的稳定项目标识。同一项目多次打包时复用它。 |
+| `buildId` | 本次构建的 `VERSION`，默认生成新的 UUID。 |
+| `engine` | 兼容的 AIUI 版本范围。默认使用 `app.json.engine`，再回退到表示任意版本的 `*`。 |
+| `optimize` | 传入 `{}` 以级别 2 优化 JSON、PNG 和 JPEG。可将 `level` 设为 1、2 或 3，也可以单独关闭某种格式。 |
+| `onProgress` | 接收 `packFromSource()` 和 `packFromFiles()` 的打包阶段通知。 |
+| `onProgressiveAsset` | 决定每个[渐进资源](#progressive-assets)的交付方式。 |
+| `signal` | 通过 `AbortSignal` 取消打包。 |
+
+`agentId` 必须是非空字符串，只能包含小写 ASCII 字母、数字、`_` 或 `-`，且不能以 `-` 开头或结尾。需要长期保留项目标识时，请自行提供这个值。
+
+省略 `optimize` 或设为 `false` 时，JSON 和图片的可选优化关闭。打包仍会校验 JSON、将支持的文本转为 UTF-8，并压缩独立的 JavaScript 和 TypeScript 文件。TypeScript 文件仍是 TypeScript。
+
+<div id="_3-读取一个已有的-aix-文件"></div>
+
+## 打开已有的包 {#aix-from-data-limits}
+
+`AIX.From()` 接受浏览器 `File` 或包含完整包内容的 `Uint8Array`。方法名中的 **F** 是大写。
+
+### 打开本地文件 {#browser-example}
 
 ~~~html
-<input id="package-file" type="file" accept=".aix">
-<pre id="package-info">请选择一个 .aix 文件。</pre>
+<input id="aix-file" type="file" accept=".aix">
 ~~~
 
 ~~~javascript
 import { AIX } from '@yodaos-pkg/aix';
 
-const packageInput = document.getElementById('package-file');
-const packageOutput = document.getElementById('package-info');
-
-packageInput.addEventListener('change', async () => {
-  const file = packageInput.files?.[0];
+const input = document.querySelector('#aix-file');
+input.addEventListener('change', async () => {
+  const file = input.files[0];
   if (!file) return;
 
-  packageOutput.textContent = '正在读取…';
-
-  try {
-    const pkg = await AIX.From(file);
-    packageOutput.textContent = JSON.stringify({
-      标题: pkg.getTitle() ?? '未设置标题',
-      构建标识: pkg.getVersion() ?? '未设置',
-      声明的权限: pkg.getPermissions(),
-      页面: pkg.getPages(),
-      工具: pkg.getTools(),
-    }, null, 2);
-  } catch (error) {
-    packageOutput.textContent = `读取失败：${String(error)}`;
-  }
+  const pkg = await AIX.From(file);
+  console.log(pkg.getTitle(), pkg.getVersion());
+  console.table(pkg.list());
 });
 ~~~
 
-`AIX.From()` 返回一个可以继续查看内容的 `pkg`。例如，`pkg.getPages()` 查看页面，`pkg.list()` 查看文件列表。
-`getVersion()` 返回这个 `.aix` 文件的构建标识，不是 npm 包的版本号。
+<div id="从网址读取"></div>
 
-### 打开时自动检查
+### 从网址打开包 {#open-a-package-from-a-url}
 
-希望检查通过后才使用包，可以把 `AIX.From()` 的第三个参数设为 `true`。
-不需要设置读取上限时，第二个参数传 `undefined`：
+~~~javascript
+const response = await fetch('/agents/example.aix');
+if (!response.ok) throw new Error(`Download failed (${response.status})`);
+
+const pkg = await AIX.From(new Uint8Array(await response.arrayBuffer()));
+const text = new TextDecoder().decode(pkg.readFile('app.json'));
+console.log(JSON.parse(text));
+~~~
+
+`pkg.readFile()` 返回一个条目的字节。JSON 或脚本可以解码为文本，图片等二进制文件可以直接使用这些字节。
+
+<div id="打开时自动检查"></div>
+
+### 打开时检查源码 {#aix-check-error}
+
+将第三个参数设为 `true`，就会在打开包时检查源码。只有提醒时可以打开。发现错误时会得到 `AixCheckError`，其中包含完整的 `report` 和 `diagnostics` 数组。
 
 ~~~javascript
 import { AIX, AixCheckError } from '@yodaos-pkg/aix';
@@ -217,571 +211,583 @@ async function openCheckedPackage(file) {
   try {
     return await AIX.From(file, undefined, true);
   } catch (error) {
-    if (error instanceof AixCheckError) {
-      console.table(error.diagnostics);
-    }
+    if (error instanceof AixCheckError) console.table(error.diagnostics);
     throw error;
   }
 }
 ~~~
 
-检查没有错误时，正常返回 `pkg`；只有 warning 提醒也能通过。
-检查发现错误时，会抛出 [AixCheckError](#aix-check-error)，其中保留完整的检查结果。
-默认不启用这项检查，原来的调用方式仍然可用。
+默认的 `AIX.From(file)` 会校验归档结构，并按需读取各个文件。无效归档和解包失败会各自报错。Rust 读取器提供发布者签名验证。
 
-### 从网址读取
+### 读取页面和工具详情 {#metadata-resolution-and-diagnostics}
 
-~~~javascript
-import { AIX } from '@yodaos-pkg/aix';
+`pkg.getPages()` 读取页面元数据，`pkg.getTools()` 返回根据页面生成的 OpenAI 兼容工具定义。页面信息不完整时，这两个方法可能使用默认值。
 
-async function loadPackage(url) {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`下载失败：${response.status}`);
-  }
-  const data = new Uint8Array(await response.arrayBuffer());
-  return AIX.From(data);
-}
+要确认哪些页面成功读取，可以用 `pkg.resolveMetadata()`。它返回 `pages`、`tools` 和 `diagnostics`。解析失败的页面会产生诊断，并从页面和工具列表中排除。
 
-loadPackage('/agents/my-agent.aix')
-  .then(pkg => console.log(pkg.getTitle(), pkg.getPages()))
-  .catch(console.error);
-~~~
+::: details 页面解析规则
+页面需要一个可读取的 `.ink` 文件，或者同时提供 `.json` 和 `.wxml`。损坏的 `.ink` 文件会使该页面报错。可选的定义、Schema 和样式可以省略。如果两种样式表同时存在，优先读取 `.wcss`。
 
-把示例地址替换成你实际存放 `.aix` 文件的网址。
+`app.json.pages` 缺失或无效时，诊断会指向 `app.json`。空页面列表有效。成功解析的页面保持声明顺序，并沿用常规的工具目标规则。组件与标题的元数据会单独读取。
+:::
 
-### 查看包里的文件
+## Progressive Assets（渐进资源） {#progressive-assets}
 
-拿到 `pkg` 后，先用 `list()` 找到文件名，再用 `readFile()` 读取。例如，读取项目配置：
+渐进资源允许 AIUI 分片播放媒体。选择远程交付后，包内保留启动播放所需的信息，AIUI 按需下载分片。
 
-~~~javascript
-function readAppConfig(pkg) {
-  const data = pkg.readFile('app.json');
-  const text = new TextDecoder().decode(data);
-  return JSON.parse(text);
-}
-~~~
-
-图片等文件可以把 `readFile()` 返回的内容交给 `Blob`，按普通浏览器文件的方式使用。
-
-## 4. 按需设置打包选项
-
-刚开始可以直接使用 `AIX.packFromSource(files)`。需要固定项目标识、指定运行版本或优化图片时，再传入第二个参数：
-
-~~~javascript
-import { AIX } from '@yodaos-pkg/aix';
-
-async function packProject(files) {
-  return AIX.packFromSource(files, {
-    agentId: 'my-agent',
-    engine: '>=0.17.0',
-    optimize: { level: 2 },
-  });
-}
-~~~
-
-| 选项 | 用途 |
-| --- | --- |
-| `agentId` | 项目标识。同一项目多次打包时复用相同的值。 |
-| `engine` | 指定兼容的运行版本。不传时采用 `app.json` 中的 `engine`；项目也没配置时不限制版本。 |
-| `optimize` | 传入 `{ level: 2 }` 可开启 JSON 和图片优化；`level` 可以是 `1`、`2`、`3`。 |
-| `buildId` | 本次构建的标识。不传会自动生成，一般不用手动设置。 |
-| `onProgress` | 接收打包步骤提示，可用于展示当前操作。适用于 `packFromSource()` 和 `packFromFiles()`。 |
-| `onProgressiveAsset` | 为每个渐进资源选择内嵌或远程交付。 |
-| `signal` | 使用 `AbortSignal` 取消打包，也可以把同一个信号传给上传函数。 |
-
-`agentId` 使用小写英文字母、数字、`_` 或 `-`，不能以 `-` 开头或结尾，也不能为空。
-省略 `optimize` 或设为 `false` 时，不额外优化 JSON 和图片；独立的 JS/TS 文件仍会进行代码压缩。
-
-打包结果中，`data` 是生成的文件内容，`warnings` 是提醒列表，`report` 是文件大小变化报告，`progressiveAssets` 记录每个渐进资源的交付方式和仍留在包内的源文件大小。
-
-### 渐进资源 {#progressive-assets}
-
-在 ECMAScript 模块或 Ink 脚本中声明媒体资源，并把导入得到的 `AssetRef` 传给 Ink 的视频或音频组件。
+在 JavaScript 模块或 `.ink` 脚本中声明媒体。导入得到的 `AssetRef` 形如 `aix-asset:<id>`，可以直接交给 AIUI 的视频或音频组件。
 
 ~~~javascript
 import clip from './assets/clip.mp4' with { type: 'video', progressive: 'prefer' };
 ~~~
 
-音频使用 `type: 'audio'`。AIX 默认内嵌源媒体。选择远程交付时，打包器可将符合条件的普通 H.264 MP4 和 AAC-LC M4A 重封装为 fMP4，无需重新编码。
+音频使用 `type: 'audio'`。目前支持 H.264 MP4 和 AAC-LC M4A。对于符合条件的普通媒体文件，AIX 可以将其分片封装为 MP4，无需重新编码。
 
-在 `AIX.packFromSource()` 的 `onProgressiveAsset` 回调中调用 `prepare()` 获取分片。上传由调用方完成，回调返回 `{ delivery: 'progressive', planId, receipt }`。AIX 校验回执中的对象标识、大小、SHA-256 和固定 HTTPS 地址后生成包。可以返回 `{ delivery: 'embedded' }` 保留源文件。上传失败、回执无效或取消时，打包会失败。
+### 选择分片的存放位置 {#choose-where-the-pieces-are-stored}
 
-用 `AIX.listProgressiveAssets(files, { signal })` 可以在打包前查看声明的资源、类型、源文件字节数和格式支持情况。
-打开 [Play 的构建页](/zh-CN/play?mode=build)，选择项目目录后会显示资源清单，再点击**构建并下载**。
-构建会为符合条件的媒体准备分片，并在浏览器中模拟上传回执。格式不符合条件的媒体会内嵌在包里。
-下载的包使用占位地址，可以在「检查」页查看渐进资源索引。
+默认将原始媒体放在包内。要远程交付，请给 `packFromSource()` 提供 `onProgressiveAsset` 回调。
 
-## 5. 优化已有的包
-
-`AIX.optimize()` 尝试缩小已有包的体积。下面的函数接收用户选择的 `.aix` 文件，下载优化后的结果：
+1. 返回 `{ delivery: 'embedded' }` 可将媒体保留在包内。
+2. 要远程交付，调用 `prepare()`，再用自己的存储服务上传 `plan.remoteObjects`。
+3. 返回计划 ID 和上传回执。AIX 会先校验回执，再生成包。
 
 ~~~javascript
-import { AIX } from '@yodaos-pkg/aix';
+const result = await AIX.packFromSource(files, {
+  async onProgressiveAsset(candidate, { prepare, signal }) {
+    if (!candidate.progressiveSupport.supported) {
+      return { delivery: 'embedded' };
+    }
 
-async function optimizePackage(file) {
-  const result = await AIX.optimize(file, { level: 2 });
-  downloadPackage(result.data, 'my-agent-optimized.aix');
+    const plan = await prepare();
+    // Implement this function with your storage service.
+    const receipt = await uploadToStorage(plan, signal);
+    return { delivery: 'progressive', planId: plan.id, receipt };
+  },
+});
+~~~
+
+`uploadToStorage(plan, signal)` 由调用方实现。所有对象上传成功后，该函数返回 `ProgressiveAssetUploadReceipt`。例如，可以按下面的方式组织回执，并根据自己的存储服务实现 `uploadObject`，让它上传字节并返回可以访问的 HTTPS 地址。
+
+~~~javascript
+async function uploadToStorage(plan, signal) {
+  const objects = await Promise.all(plan.remoteObjects.map(async object => {
+    // Implement uploadObject to upload the bytes and return their HTTPS URL.
+    const url = await uploadObject(object.bytes, { id: object.id, signal });
+    return { id: object.id, size: object.size, sha256: object.sha256, url };
+  }));
+
+  return {
+    uploadId: crypto.randomUUID(),
+    assetVersion: plan.assetVersion,
+    objects,
+  };
 }
 ~~~
 
-这里的 `downloadPackage()` 复用第 2 步中的下载函数。
-如果想单独选择优化哪些内容，可以传入 `json`、`png`、`jpeg`，例如 `{ level: 2, png: false }`。
-
-## 6. 常用方法速查
-
-### 检查、打包和读取入口
-
-以下方法直接通过导入的 `AIX` 调用，操作时需要 `await`：
-
-| 方法 | 什么时候用 | 返回什么 |
-| --- | --- | --- |
-| `AIX.checkFromFiles(files, options?)` | 检查用户选择的项目文件。 | 含 `diagnostics` 的检查结果。 |
-| `AIX.checkFromSource(files, options?)` | 检查已经组织为 `path`、`data` 的文件。 | 含 `diagnostics` 的检查结果。 |
-| `AIX.packFromSource(files, options?)` | 打包项目源码，通常选它。 | 含 `data`、`warnings`、`report` 的打包结果。 |
-| `AIX.packFromFiles(files, options?)` | 按浏览器 `File` 自带的相对路径打包。须保证 `app.json` 位于根目录。 | 打包结果。 |
-| `AIX.pack(files, options?)` | 打包已整理好的文件，不应用项目的 `.aixignore`。 | 打包结果。 |
-| `AIX.From(fileOrData, limits?, check?)` | 打开已有的 `.aix` 文件；`check` 为 `true` 时先检查。 | 用于查看包内容的对象。 |
-| `AIX.optimize(fileOrData, options?)` | 优化已有的 `.aix` 文件。 | 优化后的打包结果。 |
-
-目录选择器的完整打包流程见第 2 步，其中已把文件路径整理成项目内路径。
-检查方法也接受 `options.onProgress` 回调，用来接收检查步骤提示。
-
-### 打开包后查看内容
-
-下表的 `pkg` 是 `await AIX.From(...)` 返回的结果。这些方法直接返回结果，不需要再写 `await`：
-
-| 方法 | 可以查看什么 |
+| 回执字段 | 填写内容 |
 | --- | --- |
-| `pkg.getTitle()` | 项目标题。 |
-| `pkg.getVersion()` | 包的构建标识。 |
-| `pkg.getAgentId()` | 项目标识。 |
-| `pkg.getPermissions()` | 包里声明的权限列表，例如 `GEOLOCATION`、`CAMERA`。 |
-| `pkg.getPages()` | 页面列表及页面参数说明。 |
-| `pkg.getWidgets(locale?)` | 小组件列表。传入 `en-US` 等语言名称可读取对应的展示文案。 |
-| `pkg.getTools()` | 提供给 AI 的工具定义，例如工具名称和可接收的参数。 |
-| `pkg.list()` | 包里的文件名称和大小。 |
-| `pkg.readFile(name)` | 指定文件的内容。文件名使用 `list()` 中的名称。 |
-| `pkg.resolveMetadata()` | 页面、工具及它们的读取问题。页面列表不符合预期时，可以用它排查。 |
-| `pkg.supportsEngine(version)` | 是否兼容指定运行版本，例如 `0.17.0`。 |
+| `uploadId` | 本次上传的非空标识。示例在本地生成，也可以使用服务端提供的标识。 |
+| `assetVersion` | 原样使用 `prepare()` 返回的 `plan.assetVersion`。 |
+| `objects` | `plan.remoteObjects` 中每个对象对应一项，不能重复或遗漏。 |
+| `objects[].id`、`size`、`sha256` | 原样使用对应待上传对象的字段，`size` 的单位是字节。 |
+| `objects[].url` | 对应对象上传后的完整、稳定 HTTPS 地址，不能包含凭据、查询参数或片段标识。 |
 
-没有填写的标题或标识可能为空，展示时可以像示例一样提供默认文字。
-读取损坏文件、查询不存在的文件或检查无效的版本信息时，方法可能报错，可使用 `try/catch` 处理。
+将 `signal` 传给上传函数，使上传可以响应取消操作。AIX 在写入包前校验回执中的标识、大小、哈希和 URL 格式。上传失败、回执无效或取消操作都会终止打包。
 
-### 限制读取大小
+### 在包内查看分片地址 {#find-the-urls-in-the-package}
 
-读取外部用户上传的包时，可以按你的业务需要设置文件数量和大小上限：
+选择远程交付时，AIX 将资源索引存入 `META-INF/assets/progressive_assets/index.json`。索引将 `aix-asset:<id>` 中的 ID 映射到 `asset.json` 描述文件。每个分片的完整 HTTPS 地址都保存在描述文件的 `locators` 中。
+
+播放时，AIUI 从 `layout.fragments[n].object` 取得对象 ID，再读取 `locators[objectId].url`。AIUI 按需下载并核对大小和 SHA-256。初始化文件 `init.mp4` 从包内读取。参见[包格式规范](/zh-CN/spec#_7-1-渐进媒体元数据)。
+
+### 在 Play 中试用打包 {#play}
+
+打包前，可用 `AIX.listProgressiveAssets(files)` 查看媒体路径、类型、源文件大小和格式支持情况。传入与 `AIX.pack()` 相同的已筛选文件列表。
+
+在 [Play 的构建页](/zh-CN/play?mode=build) 选择项目文件夹，即可看到媒体列表。点击**构建并下载**会为支持的文件生成分片，并模拟上传。在**检查**页打开下载的包，可以查看保存的占位地址。
+
+<div id="_5-优化已有的包"></div>
+
+## 优化已有的包 {#aix-optimize-data-options}
+
+将浏览器 `File` 或包字节传给 `AIX.optimize()`，即可生成优化副本。这里可以复用打包示例里的下载函数。
 
 ~~~javascript
-import { AIX } from '@yodaos-pkg/aix';
-
-async function openUploadedPackage(file) {
-  return AIX.From(file, {
-    maxEntries: 1000,
-    maxEntryBytes: 8 * 1024 * 1024,
-    maxTotalBytes: 32 * 1024 * 1024,
-  });
-}
+const result = await AIX.optimize(file, { level: 2 });
+downloadPackage(result.data, 'my-agent-optimized.aix');
 ~~~
 
-这组示例允许最多 1000 个条目，单个条目最大 8 MiB，全部条目的大小合计最大 32 MiB。
-不填写的项目没有上限；超过设置的上限会报错。
+省略选项会启用默认的 JSON、PNG 和 JPEG 优化。副本会保留 `VERSION` 和 `agent_id`。由于包内容可能变化，AIX 会移除已有签名。
 
-## 常见问题
+<div id="_6-常用方法速查"></div>
 
-### 检查通过，是否代表一定能正常运行？
+## API Reference {#api-reference}
 
-检查用于提前发现源码和配置问题。页面交互、设备能力和实际效果仍需要运行项目后验证。
-TypeScript 的类型是否正确，还需要由你项目自己的类型检查工具确认。
+[静态方法](#static-methods) · [实例方法](#instance-methods) ·
+[选项和回调](#options-and-callbacks) · [类型](#type-reference)
 
-### 为什么检查结果有问题，但没有进入 catch？
+`?` 表示可选参数，空括号表示无需传参。返回 `Promise` 的方法可以用 `await` 等待结果。
 
-直接调用 `checkFromSource()` 或 `checkFromFiles()` 时，源码问题通过 `diagnostics` 返回。
-检查结果里有 `error` 时，应先修复对应文件，再继续打包；文件读取失败、输入无法处理等操作失败才进入 `catch`。
-如果使用 `AIX.From(file, undefined, true)`，检查发现错误时会进入 `catch`。
-可用 `error instanceof AixCheckError` 判断，再读取 `error.diagnostics` 查看具体问题。
+### 静态方法 {#static-methods}
 
-### 为什么项目里没有找到 app.json？
+通过导入的 `AIX` 类调用这些方法。
 
-请选择包含 `app.json` 的项目根目录。自己提供文件列表时，路径应写成 `app.json`，
-而不是 `my-agent/app.json`，也不是电脑上的绝对路径。
+| 方法 | Promise 结果 |
+| --- | --- |
+| [`AIX.From(data, limits?, check?)`](#aix-from) | 打开的 `AIX` 包 |
+| [`AIX.checkFromSource(files, options?)`](#aix-check-from-source) | `CheckReport` |
+| [`AIX.checkFromFiles(files, options?)`](#aix-check-from-files) | `CheckReport` |
+| [`AIX.packFromSource(files, options?)`](#aix-pack-from-source) | `PackResult` |
+| [`AIX.packFromFiles(files, options?)`](#aix-pack-from-files) | `PackResult` |
+| [`AIX.pack(files, options?)`](#aix-pack) | `PackResult` |
+| [`AIX.listProgressiveAssets(files, options?)`](#aix-list-progressive-assets) | `ProgressiveAssetCandidate[]` |
+| [`AIX.optimize(data, options?)`](#aix-optimize) | `PackResult` |
 
-### 只想试一试，不想写代码怎么办？
-
-打开 [Play](/play?lang=zh-CN)，可以在网页中选择项目或 `.aix` 文件进行体验。
-
-## API Reference
-
-以下是 v0.12.0 的完整公开 API 参考。`?` 表示参数或字段可省略，`Promise<T>` 表示需要使用 `await` 等待得到 `T`。
-接口和类型别名可以通过 `import type { 类型名 } from '@yodaos-pkg/aix'` 导入。
-[AixCheckError](#aix-check-error) 是错误类，需要使用普通的 `import` 导入，才能用 `instanceof` 判断。
-
-### 静态方法
-
-这组方法通过导入的 `AIX` 调用。
-
-#### AIX.From(data, limits?, check?) {#aix-from-data-limits}
+#### AIX.From(data, limits?, check?) {#aix-from}
 
 ~~~typescript
 static From(data: Uint8Array | File, limits?: AixReadLimits, check?: boolean): Promise<AIX>
 ~~~
 
-打开一个完整的 `.aix` 文件，得到用于查看内容的包对象。
-
 | 参数 | 类型 | 说明 |
 | --- | --- | --- |
-| `data` | `Uint8Array \| File` | 用户选择的 `.aix` 文件，或已经取得的文件内容；不能直接传网址。 |
-| `limits` | `AixReadLimits` | 可选的读取上限。不填写的项目没有上限。 |
-| `check` | `boolean` | 默认 `false`。传 `true` 时，在返回前检查包内容，检查范围与 `checkFromSource()` 相同。 |
+| `data` | `Uint8Array \| File` | 完整的 `.aix` 字节或浏览器文件。要打开网址，请先下载文件字节。 |
+| `limits` | `AixReadLimits` | 可选的[归档读取上限](#limit-archive-reads)。 |
+| `check` | `boolean` | 默认为 `false`。传入 `true` 会先检查解包后的源码，再返回包对象。 |
 
-**返回：** `Promise<AIX>`。返回后可调用 `getPages()`、`readFile()` 等实例方法。
+**返回** 一个 Promise，结果是带有[实例方法](#instance-methods)的包对象。
 
-**检查结果：** 启用检查后，没有 `severity: "error"` 的诊断才会返回包对象；只有 warning 时也能通过。检查不会运行项目代码，不验证实际运行效果。
+**错误**包括归档无效、超出上限或读取失败。`check` 为 `true` 时，源码错误会使 Promise 以 [`AixCheckError`](#reference-aix-check-error) 拒绝。只有提醒时仍可打开。
 
-**错误处理：** 检查发现错误时，抛出 [AixCheckError](#aix-check-error)，`error.report` 是完整的 `CheckReport`，`error.diagnostics` 是其中的全部诊断，包含错误和提醒。
-文件不是有效的 AIX 包、读取上限不合法、文件超出上限，或读取和检查操作无法完成时，抛出相应的操作错误；这些错误不一定含有检查结果。未启用检查时，打开成功后，读取某个文件仍可能报错。
-
-启用检查会增加打开所需的时间，读取上限仍然生效。用法见[打开时自动检查](#打开时自动检查)。
-
-#### AIX.checkFromSource(files, options?)
+#### AIX.checkFromSource(files, options?) {#aix-check-from-source}
 
 ~~~typescript
 static checkFromSource(files: AixInputFile[], options?: CheckOptions): Promise<CheckReport>
 ~~~
 
-检查以文件列表表示的项目源码。每个文件使用项目内的相对路径，根目录需要包含 `app.json`。检查会应用 `.aixignore`，不会生成包或运行项目代码。
-
 | 参数 | 类型 | 说明 |
 | --- | --- | --- |
-| `files` | `AixInputFile[]` | 要检查的文件，结构为 `{ path, data }`。 |
-| `options` | `CheckOptions` | 可选，通过 `onProgress` 接收检查步骤和分类结果。 |
+| `files` | `AixInputFile[]` | 每项包含项目相对路径 `path` 和 `Uint8Array` 类型的 `data`。根目录应包含 `app.json`。 |
+| `options` | `CheckOptions` | 可选的进度设置。 |
+| `options.onProgress` | `(event: CheckProgressEvent) => void` | 接收[检查阶段和结果](#check-progress-and-browser-responsiveness)。 |
 
-**返回：** `Promise<CheckReport>`。源码问题放在 `diagnostics` 中；是否继续打包，应检查其中是否有 `severity: "error"`。检查包含项目结构、JS/TS 语法、页面参数说明和可识别的权限使用；不检查 TypeScript 类型和实际运行效果。
+SDK 会应用项目的 `.aixignore`，检查剩下的源文件。
 
-**错误处理：** 源码错误和警告会正常返回。路径、忽略规则等输入无法处理，或进度回调抛错时，进入 `catch`。
+**返回** 一个 Promise，结果为 [`CheckReport`](#source-check-types)。源码的错误和提醒都放在 `diagnostics` 数组中。本次检查未发现问题时，该数组为空。
 
-#### AIX.checkFromFiles(files, options?)
+**错误**如收集输入、加载检查器或执行回调失败，会使 Promise 拒绝。
+
+#### AIX.checkFromFiles(files, options?) {#aix-check-from-files}
 
 ~~~typescript
 static checkFromFiles(files: File[], options?: CheckOptions): Promise<CheckReport>
 ~~~
 
-检查浏览器选择的项目文件。优先使用文件的 `webkitRelativePath`，没有时使用 `name`。所有文件来自同一个所选目录时，会去掉这一层目录名。
-
 | 参数 | 类型 | 说明 |
 | --- | --- | --- |
-| `files` | `File[]` | 浏览器文件数组，可通过 `Array.from(input.files ?? [])` 获取。 |
-| `options` | `CheckOptions` | 可选的检查进度回调。 |
+| `files` | `File[]` | 浏览器文件。优先使用 `webkitRelativePath`，否则使用 `name`。选择文件夹时会移除文件共有的外层目录。 |
+| `options` | `CheckOptions` | 可选的进度设置。 |
+| `options.onProgress` | `(event: CheckProgressEvent) => void` | 接收[检查阶段和结果](#check-progress-and-browser-responsiveness)。 |
 
-**返回：** `Promise<CheckReport>`，问题列表与 `checkFromSource()` 的返回结构相同。
+**返回** 一个 Promise，结果为 [`CheckReport`](#source-check-types)。`diagnostics` 包含源码错误和提醒。
 
-**错误处理：** 源码问题通过 `diagnostics` 返回；文件读取失败或输入无法处理时，进入 `catch`。
+**错误**如文件无法读取或回调抛出异常，会使 Promise 拒绝。
 
-#### AIX.packFromSource(files, options?)
+#### AIX.packFromSource(files, options?) {#aix-pack-from-source}
 
 ~~~typescript
-static packFromSource(
-    files: AixInputFile[],
-    options?: PackFromSourceOptions,
-  ): Promise<PackResult>
+static packFromSource(files: AixInputFile[], options?: PackFromSourceOptions): Promise<PackResult>
 ~~~
-
-打包项目源码，通常应选用本方法。它会整理项目内路径，应用 `.aixignore`，并排除规则文件和 `.aix/` 项目缓存。
 
 | 参数 | 类型 | 说明 |
 | --- | --- | --- |
-| `files` | `AixInputFile[]` | 项目内文件列表。根目录必须有 `app.json`；不应包含已有包的生成信息文件。 |
-| `options` | `PackFromSourceOptions` | 可选的打包设置和进度回调，默认值见下文。 |
+| `files` | `AixInputFile[]` | 项目文件的路径和字节，根目录包含 `app.json`。SDK 会规范化路径，应用根目录和子目录的 `.aixignore`，并排除规则文件和 `.aix/` 缓存。 |
+| `options` | `PackFromSourceOptions` | 可选的[打包设置](#pack-options)。 |
+| `options.onProgress` | `(event: PackProgressEvent) => void` | 接收[打包阶段和文件报告](#build-progress-callback)。 |
+| `options.onProgressiveAsset` | [渐进资源回调](#progressive-asset-callback) | 接收 `ProgressiveAssetCandidate` 和 `ProgressiveAssetPackContext`，返回 `ProgressiveAssetDecision` 或解析为该类型的 Promise。 |
 
-**返回：** `Promise<PackResult>`。`data` 可以下载或上传，`warnings` 是非致命提醒，`report` 是文件大小变化报告。
+**返回** 一个 Promise，结果为 [`PackResult`](#pack-result)。`data` 是包字节，`report` 是文件大小报告，`warnings` 是打包提醒，`progressiveAssets` 是媒体交付结果。
 
-**错误处理：** 文件路径重复、必需文件缺失、JSON 或脚本语法有误、打包选项无效等情况会进入 `catch`。进度回调抛错也会使操作失败。打包不会自动执行完整源码检查。
+**错误**如路径或忽略规则无效、规范化后路径重复、回调失败或取消，会使 Promise 拒绝。
 
-#### AIX.packFromFiles(files, options?)
+#### AIX.packFromFiles(files, options?) {#aix-pack-from-files}
 
 ~~~typescript
 static packFromFiles(files: File[], options?: PackFromSourceOptions): Promise<PackResult>
 ~~~
 
-把浏览器的 `File` 数组打包。优先使用 `webkitRelativePath`，没有时使用 `name`，并按这些路径组织文件。
-
 | 参数 | 类型 | 说明 |
 | --- | --- | --- |
-| `files` | `File[]` | 文件相对路径需要保证 `app.json` 位于项目根目录。 |
-| `options` | `PackFromSourceOptions` | 与 `packFromSource()` 相同。 |
+| `files` | `File[]` | 浏览器文件。优先使用 `webkitRelativePath`，否则使用 `name`。按这些路径打包时，`app.json` 必须在根目录。 |
+| `options` | `PackFromSourceOptions` | 可选的[打包设置](#pack-options)。 |
+| `options.onProgress` | `(event: PackProgressEvent) => void` | 接收[打包阶段和文件报告](#build-progress-callback)。 |
+| `options.onProgressiveAsset` | [渐进资源回调](#progressive-asset-callback) | 接收 `ProgressiveAssetCandidate` 和 `ProgressiveAssetPackContext`，返回 `ProgressiveAssetDecision` 或解析为该类型的 Promise。 |
 
-**返回：** `Promise<PackResult>`。
+此方法保留浏览器路径中的外层目录。需要移除前缀时，可参考[文件夹选择示例](#aix-packfromfiles-files-options)，处理完再调用 `packFromSource()`。
 
-**错误处理：** 文件读取失败或打包失败时，进入 `catch`。本方法保留文件路径中的外层目录名；通过目录选择器打包完整项目时，请使用第 2 步的路径整理方式，再调用 `packFromSource()`。
+**返回** 一个 Promise，结果为 [`PackResult`](#pack-result)，包含包字节、文件大小报告、提醒和媒体交付结果。
 
-#### AIX.pack(files, options?)
+**错误**如文件无法读取或打包失败，会使 Promise 拒绝。
+
+#### AIX.pack(files, options?) {#aix-pack}
 
 ~~~typescript
-static pack(
-    files: AixInputFile[],
-    options?: PackOptions,
-  ): Promise<PackResult>
+static pack(files: AixInputFile[], options?: PackOptions): Promise<PackResult>
 ~~~
-
-打包已经整理和筛选好的文件列表。本方法不应用 `.aixignore`；普通项目源码推荐使用 `packFromSource()`。
 
 | 参数 | 类型 | 说明 |
 | --- | --- | --- |
-| `files` | `AixInputFile[]` | 已准备好的项目文件，根目录必须有 `app.json`。 |
-| `options` | `PackOptions` | 可选的打包设置，不包含 `onProgress`。 |
+| `files` | `AixInputFile[]` | 已筛选的文件列表，路径已规范化，`app.json` 在根目录。调用前自行应用忽略规则。 |
+| `options` | `PackOptions` | 可选的[打包设置](#pack-options)。 |
+| `options.onProgressiveAsset` | [渐进资源回调](#progressive-asset-callback) | 接收 `ProgressiveAssetCandidate` 和 `ProgressiveAssetPackContext`，返回 `ProgressiveAssetDecision` 或解析为该类型的 Promise。 |
 
-**返回：** `Promise<PackResult>`。
+AIX 会生成 `VERSION` 和包清单。请从输入列表中排除 `VERSION` 与保留的元数据路径。
 
-**错误处理：** 输入文件不符合打包要求、配置或选项无效时，进入 `catch`。提醒通过结果中的 `warnings` 返回。
+**返回** 一个 Promise，结果为 [`PackResult`](#pack-result)，包含包字节、文件大小报告、提醒和媒体交付结果。
 
-#### AIX.optimize(data, options?)
+**错误**如输入无效、回调失败或取消，会使 Promise 拒绝。
+
+#### AIX.listProgressiveAssets(files, options?) {#aix-list-progressive-assets}
 
 ~~~typescript
-static optimize(
-    data: Uint8Array | File,
-    options?: OptimizeOptions,
-  ): Promise<PackResult>
+static listProgressiveAssets(
+  files: AixInputFile[],
+  options?: { signal?: AbortSignal },
+): Promise<ProgressiveAssetCandidate[]>
 ~~~
-
-优化一个已有的 `.aix` 文件，返回新的文件内容；原文件不会被修改。项目标识和构建标识会保留。已签名的包需要在优化后重新签名。
 
 | 参数 | 类型 | 说明 |
 | --- | --- | --- |
-| `data` | `Uint8Array \| File` | 已有的 `.aix` 文件或文件内容。 |
-| `options` | `OptimizeOptions` | 可选，默认使用 `level: 2` 并启用 JSON、PNG、JPEG 优化。 |
+| `files` | `AixInputFile[]` | 已筛选并规范化的文件列表，格式与 `pack()` 相同。 |
+| `options` | `{ signal?: AbortSignal }` | 可选的发现设置。 |
+| `options.signal` | `AbortSignal` | 取消查找资源。 |
 
-**返回：** `Promise<PackResult>`。保存 `data` 即可取得优化后的包。`report` 的字节数表示文件内容的大小，不是最终下载文件的体积。
+**返回** 一个 Promise，结果为 [`ProgressiveAssetCandidate`](#progressive-asset-types) 对象数组。每项包含源路径、媒体类型、字节数、引用位置和当前格式是否支持远程交付。没有资源声明时返回空数组。
 
-**错误处理：** 包无法读取、文件损坏或选项无效时，进入 `catch`。
+**错误**如声明无效、源文件缺失或取消，会使 Promise 拒绝。
 
-<span id="实例方法"></span>
+#### AIX.optimize(data, options?) {#aix-optimize}
 
-### AIX 实例方法（pkg） {#aix-instance}
-
-`AIX.From()` 返回的 `Promise<AIX>` 表示：等待操作完成后，得到一个 `AIX` 类型的包对象。
-下面把这个对象命名为 `pkg`；`pkg` 是变量名，`AIX` 是它的类型，二者对应同一个包对象。
-
-~~~javascript
-const pkg = await AIX.From(file);
-pkg.list();     // 列出这个包里的文件
-pkg.getPages(); // 查看这个包里的页面
+~~~typescript
+static optimize(data: Uint8Array | File, options?: OptimizeOptions): Promise<PackResult>
 ~~~
 
-因此，`pkg.list()`、`pkg.readFile()` 等都是返回的 `AIX` 对象上的方法。实例方法同步返回，不需要 `await`。
-标明“抛错”的情况可以用 `try/catch` 处理。
+| 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| `data` | `Uint8Array \| File` | 已有的 `.aix` 包。 |
+| `options` | `OptimizeOptions` | 可选的[优化设置](#optimize-options)。省略时使用默认值。 |
 
-#### pkg.list()
+**返回** 一个 Promise，结果为优化副本的 [`PackResult`](#pack-result)。`data` 是新包，`report` 用于比较大小，`progressiveAssets` 为空。副本保留 `VERSION` 和 `agent_id`，并移除已有签名。
+
+**错误**如归档无效、读取失败或优化失败，会使 Promise 拒绝。
+
+<div id="aix-instance"></div>
+<div id="打开包后查看内容"></div>
+
+### 实例方法 {#instance-methods}
+
+在 `AIX.From()` 返回的包对象上调用这些方法。它们同步返回。
+
+| 用途 | 方法 |
+| --- | --- |
+| 归档文件 | [`list()`](#pkg-list)、[`readFile()`](#pkg-read-file) |
+| 标识和兼容性 | [`getVersion()`](#pkg-get-version)、[`getAgentId()`](#pkg-get-agent-id)、[`supportsEngine()`](#pkg-supports-engine) |
+| 应用设置 | [`getTitle()`](#pkg-get-title)、[`getPermissions()`](#pkg-get-permissions) |
+| 页面、小组件和工具 | [`getPages()`](#pkg-get-pages)、[`resolveMetadata()`](#pkg-resolve-metadata)、[`getWidgets()`](#pkg-get-widgets)、[`getTools()`](#pkg-get-tools) |
+
+#### list() {#pkg-list}
 
 ~~~typescript
 list(): AixEntry[]
 ~~~
 
-列出包里的文件。
+**参数** 无。
 
-**返回：** `AixEntry[]`。每项包含 `name`、`size` 和 `compressed_size`，大小单位为字节。
+**返回** 归档条目的 `AixEntry[]`。条目包含规范化的 `name`、未压缩字节数 `size` 和压缩后字节数 `compressed_size`。
 
-**错误处理：** 本方法只列出文件信息；能列出文件，不代表它的内容一定可以成功读取。
+<div id="pkg-readfile-name"></div>
 
-#### pkg.readFile(name)
+#### readFile(name) {#pkg-read-file}
 
 ~~~typescript
 readFile(name: string): Uint8Array
 ~~~
 
-读取包内指定文件的内容。
-
 | 参数 | 类型 | 说明 |
 | --- | --- | --- |
-| `name` | `string` | 准确的包内文件名，建议使用 `list()` 返回的 `name`。 |
+| `name` | `string` | 精确的规范化条目名称，例如 `app.json`。可以通过 [`list()`](#pkg-list) 查询。 |
 
-**返回：** `Uint8Array`。读取文字可用 `new TextDecoder().decode(data)`，读取图片等内容可交给 `Blob`。
+**返回** 条目解压后的字节，类型为 `Uint8Array`。
 
-**错误处理：** 文件不存在、内容损坏或读取时超出上限，会抛错。
+**错误**包括条目缺失或损坏、压缩方式不受支持以及超过读取上限。
 
-#### pkg.getTitle()
+<div id="pkg-getversion"></div>
 
-~~~typescript
-getTitle(): string | undefined
-~~~
-
-读取项目在 `app.json.window.navigationBarTitleText` 中填写的标题。
-
-**返回：** `string | undefined`。标题未填写，或相关配置无法读取时，返回 `undefined`。
-
-**错误处理：** 标题缺失或配置无效时，使用 `undefined` 表示没有可用标题。
-
-#### pkg.getVersion()
+#### getVersion() {#pkg-get-version}
 
 ~~~typescript
 getVersion(): string | undefined
 ~~~
 
-读取包的构建标识。它不是 `@yodaos-pkg/aix` 的 npm 版本号。
+**参数** 无。
 
-**返回：** `string | undefined`。构建信息缺失或无法读取时，返回 `undefined`。
+**返回** `VERSION` 中的构建标识。条目缺失、无法读取或不是有效 UTF-8 时返回 `undefined`。
 
-**错误处理：** 无法取得有效构建信息时，使用 `undefined` 表示没有可用值。
+<div id="pkg-getagentid"></div>
 
-#### pkg.getAgentId()
+#### getAgentId() {#pkg-get-agent-id}
 
 ~~~typescript
 getAgentId(): string | undefined
 ~~~
 
-读取打包时设置的项目标识。
+**参数** 无。
 
-**返回：** `string | undefined`。没有设置标识的包返回 `undefined`。
+**返回** 清单中的稳定项目标识 `agent_id`。没有标识时返回 `undefined`。
 
-**错误处理：** 已保存的标识或相关包信息无效时，会抛错。
+**错误**包括清单无法读取、清单格式无效或标识无效。
 
-#### pkg.getPermissions()
+<div id="pkg-supportsengine-currentversion"></div>
 
-~~~typescript
-getPermissions(): string[]
-~~~
-
-查看当前包在 `app.json.permissions` 中声明的权限名称。
-
-~~~javascript
-const permissions = pkg.getPermissions();
-// 例如：["GEOLOCATION", "CAMERA"]
-~~~
-
-**返回：** `string[]`。按声明顺序返回，保留重复项和自定义权限名称。未声明权限或声明为空数组时，返回 `[]`。
-
-**错误处理：** `app.json` 缺失、无法读取、格式无效，或 `permissions` 不是字符串数组时，会抛错。
-
-这份列表表示项目声明需要哪些权限，不表示设备已经授权。调用此方法不会弹出授权提示。
-
-#### pkg.getPages()
-
-~~~typescript
-getPages(): PageInfo[]
-~~~
-
-查看页面列表。每个页面包含名称、标题、说明、参数说明和显示尺寸。
-
-**返回：** `PageInfo[]`。没有可用的页面列表时返回空数组；页面信息不完整时，部分字段可能采用默认值。
-
-**错误处理：** 需要区分“没有页面”和“页面读取失败”时，使用 `resolveMetadata()` 查看诊断。
-
-#### pkg.getWidgets(locale?)
-
-~~~typescript
-getWidgets(locale?: string): WidgetInfo[]
-~~~
-
-查看小组件列表及其展示文案。
-
-| 参数 | 类型 | 说明 |
-| --- | --- | --- |
-| `locale` | `string` | 可选，例如 `zh-CN`、`en-US`。不传时使用项目默认文案。 |
-
-**返回：** `WidgetInfo[]`。指定语言的文案不存在时，使用默认文案；项目没有小组件时返回空数组。
-
-**错误处理：** 小组件配置、已提供的语言文件无效，或声明的小组件文件不存在时，会抛错。
-
-#### pkg.getTools()
-
-~~~typescript
-getTools(): Tool[]
-~~~
-
-查看提供给 AI 的工具定义。工具定义说明页面名称和可接收的参数，不会直接执行页面。
-
-**返回：** `Tool[]`。每项含 `function`、`target` 和 `layout`。`function.name` 是页面路径，`function.parameters` 是该工具接受的参数说明。
-
-**错误处理：** 页面读取行为与 `getPages()` 一致。需要定位读取问题时，使用 `resolveMetadata()`。
-
-#### pkg.resolveMetadata()
-
-~~~typescript
-resolveMetadata(): MetadataResolution
-~~~
-
-一起读取页面和工具，并报告读取过程中发现的问题。
-
-**返回：** `MetadataResolution`，包含 `pages`、`tools`、`diagnostics`。读取失败的页面会从前两个列表中排除，其余页面按项目中的顺序返回。每个失败页面返回一个问题，包含 `path` 和 `message`。
-
-**错误处理：** 页面配置或文件读取问题通过 `diagnostics` 返回。小组件不在此报告范围内；本方法也不替代 `checkFromSource()` 或 `checkFromFiles()` 的源码检查。
-
-#### pkg.supportsEngine(currentVersion)
+#### supportsEngine(currentVersion) {#pkg-supports-engine}
 
 ~~~typescript
 supportsEngine(currentVersion: string): boolean
 ~~~
 
-判断包是否兼容某个运行版本。
+| 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| `currentVersion` | `string` | 具体的 AIUI 版本号，例如 `0.18.0`。 |
+
+**返回** 版本符合清单的 `engine` 范围时为 `true`，超出范围时为 `false`。
+
+**错误**包括清单缺失或无效、版本范围无效和版本号无效。
+
+<div id="pkg-gettitle"></div>
+
+#### getTitle() {#pkg-get-title}
+
+~~~typescript
+getTitle(): string | undefined
+~~~
+
+**参数** 无。
+
+**返回** `app.json.window.navigationBarTitleText` 字符串。标题缺失或配置无法读取时返回 `undefined`。
+
+<div id="pkg-getpermissions"></div>
+
+#### getPermissions() {#pkg-get-permissions}
+
+~~~typescript
+getPermissions(): string[]
+~~~
+
+**参数** 无。
+
+**返回** 项目声明的权限列表，保留原有顺序、重复项和自定义名称。列表未声明或为空时返回 `[]`。
+
+**错误**包括 `app.json` 无法读取或无效，以及 `permissions` 不是字符串数组。
+
+<div id="pkg-getpages"></div>
+
+#### getPages() {#pkg-get-pages}
+
+~~~typescript
+getPages(): PageInfo[]
+~~~
+
+**参数** 无。
+
+**返回** 按声明顺序排列的页面。页面资源缺失或无效时可能使用默认值。页面列表无法读取或无效时返回 `[]`。如需页面诊断，使用 [`resolveMetadata()`](#pkg-resolve-metadata)。
+
+<div id="pkg-resolvemetadata"></div>
+
+#### resolveMetadata() {#pkg-resolve-metadata}
+
+~~~typescript
+resolveMetadata(): MetadataResolution
+~~~
+
+**参数** 无。
+
+**返回** `{ pages, tools, diagnostics }`。页面和工具列表只包含成功解析的页面。解析失败的页面会产生带资源路径和说明的诊断。页面列表无法读取或无效时，诊断会指向 `app.json`。
+
+<div id="pkg-getwidgets-locale"></div>
+
+#### getWidgets(locale?) {#pkg-get-widgets}
+
+~~~typescript
+getWidgets(locale?: string): WidgetInfo[]
+~~~
 
 | 参数 | 类型 | 说明 |
 | --- | --- | --- |
-| `currentVersion` | `string` | 单个版本号，例如 `0.17.0`，不要传版本范围。 |
+| `locale` | `string` | 可选的语言区域，例如 `en-US`。匹配的 `app.<locale>.json` 可以覆盖小组件的名称和说明。没有覆盖项时使用 `app.json` 的值。 |
 
-**返回：** `boolean`，兼容时为 `true`，不兼容时为 `false`。
+**返回** 项目声明的小组件列表。没有声明时返回 `[]`。
 
-**错误处理：** 包缺少有效的兼容版本信息，或传入的版本号无效时，会抛错。
+**错误**包括配置无效、匹配的语言文件无效或小组件入口缺失。
 
-### 检查失败错误：AixCheckError {#aix-check-error}
+<div id="pkg-gettools"></div>
 
-使用 `import { AixCheckError } from '@yodaos-pkg/aix'` 导入。
-它继承 `Error`；`AIX.From(..., ..., true)` 的检查结果包含错误时会抛出此类型。
+#### getTools() {#pkg-get-tools}
 
-| 属性 | 类型 | 说明 |
-| --- | --- | --- |
-| `name` | `string` | 值为 `"AixCheckError"`。 |
-| `message` | `string` | 检查失败的简短说明。 |
-| `report` | `CheckReport` | 完整检查结果。 |
-| `diagnostics` | `CheckDiagnostic[]` | 与 `report.diagnostics` 相同的数组，保留全部诊断及其文件位置。 |
+~~~typescript
+getTools(): Tool[]
+~~~
 
-在 `catch` 中用 `error instanceof AixCheckError` 判断，再读取 `error.diagnostics` 展示具体问题。
-只有 warning 时不会抛出此错误；需要单独查看检查报告时，使用 `checkFromSource()` 或 `checkFromFiles()`。
+**参数** 无。
 
-### 可选参数和默认值
+**返回** 根据页面列表生成的 OpenAI 兼容工具定义。页面默认值与 `getPages()` 相同。仅查看成功解析的页面所对应的工具时，读取 `resolveMetadata().tools`。
 
-#### PackOptions / PackFromSourceOptions
+### 选项和回调 {#options-and-callbacks}
 
-| 字段 | 类型 | 默认值与约束 |
-| --- | --- | --- |
-| `buildId` | `string` | 自动生成。手动填写时不能为空；之后可用 `getVersion()` 取得。 |
-| `agentId` | `string` | 默认不设置。只能包含小写英文字母、数字、`_`、`-`，不能以 `-` 开头或结尾，也不能为空。同一项目可复用相同的值。 |
-| `engine` | `string` | 采用 `app.json.engine`，项目没有配置时使用 `*`。显式传入时覆盖项目配置，格式为版本范围，例如 `>=0.17.0`。 |
-| `optimize` | `false` 或 `OptimizeOptions` | 默认不额外优化 JSON 和图片；传 `{}` 时启用下面的全部默认优化。独立 JS/TS 文件始终会进行代码压缩；这不会将 TypeScript 转为 JavaScript。 |
-| `onProgress` | `(event: PackProgressEvent) => void` | 可选回调，仅 `PackFromSourceOptions` 提供。回调中可读取当前步骤和已处理文件的信息。 |
+<div id="限制读取大小"></div>
+<div id="aixreadlimits"></div>
 
-#### OptimizeOptions
+#### 归档读取上限 {#limit-archive-reads}
 
-| 字段 | 类型 | 默认值 |
-| --- | --- | --- |
-| `level` | `1`、`2` 或 `3` | `2`，优化级别。 |
-| `json` | `boolean` | `true`，是否优化 JSON。 |
-| `png` | `boolean` | `true`，是否优化 PNG 图片。 |
-| `jpeg` | `boolean` | `true`，是否优化 JPEG 图片。 |
-
-#### CheckOptions
-
-`onProgress?: (event: CheckProgressEvent) => void` 接收检查步骤。
-`check_finished` 事件中的 `check` 包含分类名称、状态、错误数和提醒数。
-`status` 为 `passed`、`warning`、`failed` 或 `skipped`；后者表示这一类没有适用内容，或暂时无法检查。
-这些是步骤提示，不是完成百分比。最终问题列表始终从返回值的 `diagnostics` 读取。
-
-#### AixReadLimits
+`AixReadLimits` 的字段均可省略。每个值必须是非负安全整数。允许达到上限，`0` 表示不允许对应的条目或字节。省略的字段没有上限。未知字段会使 `AIX.From()` 拒绝。
 
 | 字段 | 类型 | 含义 |
 | --- | --- | --- |
-| `maxEntries` | `number` | 包内项目的数量上限，包含文件、目录等记录。 |
-| `maxEntryBytes` | `number` | 单项内容的最大字节数。 |
-| `maxTotalBytes` | `number` | 所有项内容的总字节数上限，不按重复读取次数累计。 |
+| `maxEntries` | `number` | 最大条目数，包括目录和签名条目。 |
+| `maxEntryBytes` | `number` | 单个条目解压后的最大字节数。 |
+| `maxTotalBytes` | `number` | 所有条目声明的未压缩字节数之和的上限。重复读取不累加。 |
 
-不传的字段没有上限。数值必须是非负安全整数；`0` 表示不允许对应数量或大小，等于上限时允许读取。
-无效数值和无法识别的字段会使打开操作失败。这些限制不用于 `AIX.optimize()`。
+~~~javascript
+const pkg = await AIX.From(file, {
+  maxEntries: 1024,
+  maxEntryBytes: 8 * 1024 * 1024,
+  maxTotalBytes: 32 * 1024 * 1024,
+});
+~~~
 
-### 完整类型定义
+::: details 上限与内存
+上限适用于归档条目。原始输入缓冲区、解析出的对象、调用方保留的副本，以及源码检查和优化使用的内存，均不计入这些上限。
 
-下面只列出调用 API 时会用到的公开类型。可按需要展开。
+Rust 使用 `AixReader::new_with_limits()`。直接调用 WASM 读取器时使用 `AixReaderWasm.with_limits(data, limits)`。
+:::
 
-<details>
-<summary>文件输入与可选参数</summary>
+<div id="checkoptions"></div>
 
+#### 检查进度回调 {#check-progress-and-browser-responsiveness}
+
+~~~typescript
+onProgress?: (event: CheckProgressEvent) => void
+~~~
+
+通过 `CheckOptions` 将回调传给 `checkFromSource()` 或 `checkFromFiles()`。SDK 同步调用回调并传入一个事件。返回值会被忽略，抛出异常会使检查拒绝。
+
+| `event.type` | 附加字段 | 触发时机 |
+| --- | --- | --- |
+| `loading_checker` | 无 | SDK 开始加载检查器。 |
+| `checking_sources` | `fileCount: number` | 开始检查。数量为应用忽略规则前的输入文件数。 |
+| `check_finished` | `check: CheckResult` | 一类检查结束，返回 ID、名称、状态、错误与提醒数量，以及可选的详情。 |
+| `collecting_diagnostics` | 无 | 即将返回诊断报告。 |
+
+检查 ID 包括 `json`、`structure`、`syntax`、`permissions` 和 `schemas`。状态可以是 `passed`、`warning`、`failed` 或 `skipped`。加载完成后，源码检查同步执行。需要让页面在检查期间保持响应时，可以在 Web Worker 中执行。
+
+<div id="packoptions-packfromsourceoptions"></div>
+
+#### 打包选项 {#pack-options}
+
+`PackOptions` 的字段均可省略。
+
+| 字段 | 类型 | 含义 |
+| --- | --- | --- |
+| `buildId` | `string` | 写入 `VERSION` 的构建标识。默认生成 UUID v4。 |
+| `agentId` | `string` | 写入 `agent_id` 的稳定项目标识。使用小写 ASCII 字母、数字、`_` 或 `-`，不能为空，且首尾不能是 `-`。省略时不设置标识。 |
+| `engine` | `string` | AIUI 版本范围。默认采用 `app.json.engine`，再回退到 `*`。 |
+| `optimize` | `false \| OptimizeOptions` | 省略或传 `false` 时关闭可选的 JSON 和图片优化。传入对象会开启[优化设置](#optimize-options)。 |
+| `signal` | `AbortSignal` | 取消打包，也可用于取消使用同一信号的上传。 |
+| `onProgressiveAsset` | `(candidate, context) => ProgressiveAssetDecision \| Promise<ProgressiveAssetDecision>` | [决定每个资源的交付方式](#progressive-asset-callback)。 |
+
+`PackFromSourceOptions` 还提供 `onProgress?: (event: PackProgressEvent) => void`，供 `packFromSource()` 和 `packFromFiles()` 使用。
+
+#### 打包进度回调 {#build-progress-callback}
+
+~~~typescript
+onProgress?: (event: PackProgressEvent) => void
+~~~
+
+SDK 每次报告打包阶段时都会传入一个事件。返回值会被忽略，抛出异常会使打包拒绝。提前结束的打包可能不会发出最后一个事件。
+
+| `event.type` | 附加字段 | 触发时机 |
+| --- | --- | --- |
+| `transferring_files_to_wasm` | 无 | SDK 开始向打包器传入文件。 |
+| `collecting_source_inputs` | 无 | 开始收集源文件。 |
+| `resolving_engine` | 无 | 打包器确定兼容版本范围。 |
+| `preparing_files` | 无 | 开始处理选定文件。 |
+| `file_finished` | `report: FileOptimizeReport` | 一个条目处理完成，也包括生成的 `VERSION`。 |
+| `finalizing_archive` | 无 | 开始写入最终归档和清单。 |
+
+#### 渐进资源回调 {#progressive-asset-callback}
+
+~~~typescript
+onProgressiveAsset?: (
+  candidate: ProgressiveAssetCandidate,
+  context: ProgressiveAssetPackContext,
+) => ProgressiveAssetDecision | Promise<ProgressiveAssetDecision>
+~~~
+
+SDK 为每个声明的资源调用一次回调，等待当前资源的交付决定，再处理下一个。
+
+| 参数 | 类型 | 回调收到的内容 |
+| --- | --- | --- |
+| `candidate` | `ProgressiveAssetCandidate` | 资源的源路径、大小、媒体类型、引用位置和格式支持情况。 |
+| `context.signal` | `AbortSignal` | 可传给上传函数的构建取消信号。 |
+| `context.prepare` | `() => Promise<ProgressiveAssetPlan>` | 在回调内调用，准备远程交付。计划包含 `id`、`assetVersion`、时间线元数据和 `remoteObjects` 中的字节。媒体不受支持时，Promise 会拒绝。 |
+
+直接返回下列任一决定，或返回解析为该决定的 Promise。
+
+| 决定 | 效果 |
+| --- | --- |
+| `{ delivery: 'embedded' }` | 把源媒体保留在包内。省略回调时默认采用此方式。 |
+| `{ delivery: 'progressive', planId, receipt }` | 远程交付准备好的分片。用 `prepare()` 返回的 `id` 作为 `planId`，并提供上传回执。 |
+
+回执包含非空的 `uploadId`、计划的 `assetVersion`，以及 `plan.remoteObjects` 中每个对象的对应条目。每项包括匹配的 `id`、`size`、`sha256` 和稳定的 HTTPS `url`。URL 不能带凭据、查询参数或片段标识。回调出错、回执无效或取消都会使打包拒绝。参见[上传示例](#progressive-assets)和[类型定义](#progressive-asset-types)。
+
+<div id="optimizeoptions"></div>
+
+#### 优化选项 {#optimize-options}
+
+| 字段 | 类型 | 默认值 |
+| --- | --- | --- |
+| `level` | `1 \| 2 \| 3` | `2` |
+| `json` | `boolean` | `true`，优化 JSON。 |
+| `png` | `boolean` | `true`，优化 PNG 图片。 |
+| `jpeg` | `boolean` | `true`，优化 JPEG 图片。 |
+
+打包时传入选项对象即可开启优化。`AIX.optimize()` 即使省略选项，也会使用这些默认值。
+
+#### 打包和优化结果 {#pack-result}
+
+| 字段 | 类型 | 含义 |
+| --- | --- | --- |
+| `data` | `Uint8Array` | 新归档的字节。 |
+| `report` | `OptimizeReport` | 各条目及总字节数，按 ZIP 压缩前的大小统计。 |
+| `warnings` | `string[]` | 操作期间的提醒。 |
+| `progressiveAssets` | `ProgressiveAssetReport[]` | 声明资源的交付结果，包括交付方式和保留的源文件字节数。优化已有包时返回空数组。 |
+
+#### AixCheckError {#reference-aix-check-error}
+
+~~~typescript
+constructor(report: CheckReport)
+~~~
+
+`AIX.From()` 的可选源码检查发现错误时，Promise 会以这个 `Error` 子类拒绝。构造函数接收完整检查报告。实例的 `name` 为 `'AixCheckError'`，`message` 是摘要，`report` 是传入的报告，`diagnostics` 返回 `report.diagnostics`，其中也包括提醒。
+
+<div id="完整类型定义"></div>
+
+## 类型参考 {#type-reference}
+
+展开相应分组即可查看 TypeScript 定义。
+
+### 文件输入和打包结果 {#file-and-build-types}
+
+::: details 文件、读取上限和打包选项
 ~~~typescript
 interface AixInputFile {
     path: string;
@@ -806,10 +812,6 @@ interface PackOptions {
     ) => ProgressiveAssetDecision | Promise<ProgressiveAssetDecision>;
 }
 
-interface PackFromSourceOptions extends PackOptions {
-    onProgress?: (event: PackProgressEvent) => void;
-}
-
 interface OptimizeOptions {
     level?: 1 | 2 | 3;
     json?: boolean;
@@ -817,21 +819,132 @@ interface OptimizeOptions {
     jpeg?: boolean;
 }
 
-interface CheckOptions {
-    onProgress?: (event: CheckProgressEvent) => void;
+interface PackFromSourceOptions extends PackOptions {
+    onProgress?: (event: PackProgressEvent) => void;
+}
+
+interface PackResult {
+    data: Uint8Array;
+    report: OptimizeReport;
+    warnings: string[];
+    progressiveAssets: ProgressiveAssetReport[];
+}
+
+interface OptimizeReport {
+    files: FileOptimizeReport[];
+    original_size: number;
+    output_size: number;
+    saved_bytes: number;
+}
+
+interface FileOptimizeReport {
+    path: string;
+    status: 'optimized' | 'unchanged' | 'skipped';
+    original_size: number;
+    output_size: number;
+    saved_bytes: number;
+    converted_to_utf8: boolean;
 }
 ~~~
+:::
 
-</details>
+### 渐进资源类型 {#progressive-asset-types}
 
-<details>
-<summary>检查结果和进度</summary>
-
+::: details Progressive Asset 类型
 ~~~typescript
-interface CheckReport {
-    diagnostics: CheckDiagnostic[];
+type AssetRef = `aix-asset:${string}`;
+type ProgressiveAssetKind = 'audio' | 'video';
+
+interface ProgressiveAssetCandidate {
+  id: string;
+  kind: ProgressiveAssetKind;
+  sourcePath: string;
+  sourceSha256: string;
+  sourceSize: number;
+  references: { path: string; line: number; column: number }[];
+  format: string;
+  dependencies: string[];
+  progressiveSupport: {
+    supported: boolean;
+    profile?: string;
+    requiredCapabilities: string[];
+    features: string[];
+    reason?: string;
+  };
 }
 
+interface ProgressiveAssetObject {
+  id: string;
+  size: number;
+  sha256: string;
+}
+
+interface ProgressiveAssetPlan {
+  id: string;
+  assetVersion: string;
+  profile: string;
+  localMetadata: Record<string, Omit<ProgressiveAssetObject, 'id'>>;
+  layout: {
+    init: string;
+    tracks: Record<string, { kind: ProgressiveAssetKind; timescale: number }>;
+    fragments: { object: string; ranges: Record<string, { start: number; end: number; presentation_start: number; presentation_end: number }> }[];
+  };
+  remoteObjects: (ProgressiveAssetObject & { bytes: Uint8Array })[];
+}
+
+interface ProgressiveAssetUploadReceipt {
+  uploadId: string;
+  assetVersion: string;
+  objects: (ProgressiveAssetObject & { url: string })[];
+}
+
+type ProgressiveAssetDecision =
+  | { delivery: 'embedded' }
+  | { delivery: 'progressive'; planId: string; receipt: ProgressiveAssetUploadReceipt };
+
+interface ProgressiveAssetPackContext {
+  signal: AbortSignal;
+  prepare(): Promise<ProgressiveAssetPlan>;
+}
+
+interface ProgressiveAssetReport {
+  id: string;
+  kind: ProgressiveAssetKind;
+  sourcePath: string;
+  delivery: 'embedded' | 'progressive';
+  assetVersion?: string;
+  retainedSourceBytes: number;
+}
+~~~
+:::
+
+### 打包进度事件 {#packprogressevent}
+
+::: details PackProgressEvent
+~~~typescript
+type PackProgressEvent = {
+    type: 'transferring_files_to_wasm';
+} | {
+    type: 'collecting_source_inputs';
+} | {
+    type: 'resolving_engine';
+} | {
+    type: 'preparing_files';
+} | {
+    type: 'file_finished';
+    report: FileOptimizeReport;
+} | {
+    type: 'finalizing_archive';
+};
+~~~
+
+`file_finished` 包含刚处理完的条目报告，其中也包括生成的 `VERSION`。
+:::
+
+### 源码检查类型 {#source-check-types}
+
+::: details 检查报告和进度事件
+~~~typescript
 interface CheckDiagnostic {
     code: string;
     severity: 'error' | 'warning';
@@ -839,6 +952,14 @@ interface CheckDiagnostic {
     line: number;
     column: number;
     message: string;
+}
+
+interface CheckReport {
+    diagnostics: CheckDiagnostic[];
+}
+
+interface CheckOptions {
+    onProgress?: (event: CheckProgressEvent) => void;
 }
 
 interface CheckResult {
@@ -862,63 +983,25 @@ type CheckProgressEvent = {
     type: 'collecting_diagnostics';
 };
 ~~~
+:::
 
-</details>
+### 包和派生模型 {#package-and-derived-models}
 
-<details>
-<summary>打包结果和进度</summary>
-
-~~~typescript
-interface PackResult {
-    data: Uint8Array;
-    report: OptimizeReport;
-    warnings: string[];
-    progressiveAssets: ProgressiveAssetReport[];
-}
-
-interface OptimizeReport {
-    files: FileOptimizeReport[];
-    original_size: number;
-    output_size: number;
-    saved_bytes: number;
-}
-
-interface FileOptimizeReport {
-    path: string;
-    status: 'optimized' | 'unchanged' | 'skipped';
-    original_size: number;
-    output_size: number;
-    saved_bytes: number;
-    converted_to_utf8: boolean;
-}
-
-type PackProgressEvent = {
-    type: 'transferring_files_to_wasm';
-} | {
-    type: 'collecting_source_inputs';
-} | {
-    type: 'resolving_engine';
-} | {
-    type: 'preparing_files';
-} | {
-    type: 'file_finished';
-    report: FileOptimizeReport;
-} | {
-    type: 'finalizing_archive';
-};
-~~~
-
-</details>
-
-<details>
-<summary>包内文件、页面、小组件和工具</summary>
-
+::: details 归档条目、页面、小组件和工具
 ~~~typescript
 interface AixEntry {
     name: string;
     size: number;
     compressed_size: number;
 }
+
+type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;
+
+interface JsonObject {
+    [key: string]: JsonValue;
+}
+
+type JsonSchema = JsonValue;
 
 interface PageConstraint {
     width: number;
@@ -931,6 +1014,17 @@ interface PageInfo {
     description: string | null;
     data_schema: JsonSchema;
     size: PageConstraint;
+}
+
+interface MetadataDiagnostic {
+    path: string;
+    message: string;
+}
+
+interface MetadataResolution {
+    pages: PageInfo[];
+    tools: Tool[];
+    diagnostics: MetadataDiagnostic[];
 }
 
 type WidgetPlacement = 'persistent' | 'overlay';
@@ -957,41 +1051,19 @@ interface Tool {
     layout: PageConstraint;
     function: FunctionDefinition;
 }
-
-interface MetadataDiagnostic {
-    path: string;
-    message: string;
-}
-
-interface MetadataResolution {
-    pages: PageInfo[];
-    tools: Tool[];
-    diagnostics: MetadataDiagnostic[];
-}
 ~~~
 
-</details>
+页面的 `size` 和工具的 `layout` 包含宽高约束。工具的 `type` 为 `'function'`，目标是 `'_current'` 或 `'_blank'`。`JsonSchema` 可以是任意 JSON 值，使用前可以通过源码检查验证 Schema 声明。
 
-<details>
-<summary>JSON 和页面参数说明</summary>
+这些元数据对象中缺失的字符串为 `null`，包括 WASM 的原始输出。`getTitle()` 和 `getVersion()` 等独立方法在缺少相应值时返回 `undefined`。
+:::
 
-~~~typescript
-type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;
+## 本地构建 SDK {#build-from-source}
 
-interface JsonObject {
-    [key: string]: JsonValue;
-}
-
-type JsonSchema = JsonValue;
+~~~bash
+cd crates/aix-web
+npm install
+npm run build
 ~~~
 
-</details>
-
-字段补充说明：
-
-- `PageInfo.name` 是页面路径；`data_schema` 是页面接受的参数说明；`size` 是显示宽高。
-- `WidgetInfo.path` 是小组件路径，`family` 是项目声明的尺寸类型，`placement` 表示常驻或浮层展示。
-- `Tool.function` 是提供给 AI 的函数定义；`target` 是展示位置提示，`layout` 是显示宽高。
-- `OptimizeReport` 和 `FileOptimizeReport` 的大小字段以字节为单位，`saved_bytes` 表示减少的大小；`converted_to_utf8` 表示是否调整过文本编码。
-- 页面、小组件和工具的可空字段使用 `null`。这与 `getTitle()`、`getVersion()`、`getAgentId()` 在没有可用值时返回 `undefined` 不同。
-- `JsonSchema` 保留读取到的 JSON 值。需要验证页面参数说明是否合法时，使用源码检查方法。
+构建产物位于 `crates/aix-web/dist`。自行托管时，请提供完整的产物目录。SDK 使用 `pkg-reader/` 打开包，检查、打包和优化时按需加载 `pkg/`。参见 [WASM 加载说明（英文）](/wasm?lang=en)。
