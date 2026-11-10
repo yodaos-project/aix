@@ -1557,6 +1557,93 @@ mod tests {
     }
 
     #[test]
+    fn checks_default_page_path_against_declared_pages() {
+        for (entry, valid) in [
+            (r#""detail""#, true),
+            ("null", true),
+            (r#""missing""#, false),
+            (r#""../detail""#, false),
+            ("7", false),
+        ] {
+            let app = format!(
+                "{{\n  \"pages\": [\"home\", \"detail\"],\n  \"entryPagePath\": {entry}\n}}"
+            );
+            let report = check_source(vec![
+                InputFile::new("app.json", app.as_bytes()),
+                InputFile::new("home.ink", b"<page><view /></page>"),
+                InputFile::new("detail.ink", b"<page><view /></page>"),
+            ])
+            .unwrap();
+            if valid {
+                assert!(
+                    report.diagnostics.is_empty(),
+                    "{entry}: {:?}",
+                    report.diagnostics
+                );
+            } else {
+                assert_eq!(
+                    report.diagnostics.len(),
+                    1,
+                    "{entry}: {:?}",
+                    report.diagnostics
+                );
+                let diagnostic = &report.diagnostics[0];
+                assert_eq!(diagnostic.code, "AIX048", "{entry}");
+                assert_eq!(diagnostic.severity, Severity::Error, "{entry}");
+                assert_eq!(diagnostic.path, "app.json", "{entry}");
+                assert_eq!((diagnostic.line, diagnostic.column), (3, 3), "{entry}");
+            }
+        }
+    }
+
+    #[test]
+    fn checks_targets_in_traditional_pages_and_ink_definitions() {
+        for (target, valid) in [
+            (r#""_blank""#, true),
+            (r#""_inline""#, true),
+            (r#""_current""#, true),
+            ("null", true),
+            (r#""_widget""#, false),
+            ("false", false),
+            (r#"{"_blank":null}"#, false),
+        ] {
+            let config = format!("{{\n  \"target\": {target}\n}}");
+            let ink = format!("<script def>\n{config}\n</script><page><view /></page>");
+            let report = check_source(vec![
+                InputFile::new("app.json", br#"{"pages":["card","detail"]}"#),
+                InputFile::new("card.ink", ink.as_bytes()),
+                InputFile::new("detail.json", config.as_bytes()),
+                InputFile::new("detail.wxml", b"<view />"),
+            ])
+            .unwrap();
+            if valid {
+                assert!(
+                    report.diagnostics.is_empty(),
+                    "{target}: {:?}",
+                    report.diagnostics
+                );
+            } else {
+                assert_eq!(
+                    report.diagnostics.len(),
+                    2,
+                    "{target}: {:?}",
+                    report.diagnostics
+                );
+                for (diagnostic, (path, line)) in report
+                    .diagnostics
+                    .iter()
+                    .zip([("card.ink", 3), ("detail.json", 2)])
+                {
+                    assert_eq!(diagnostic.code, "AIX049", "{target}");
+                    assert_eq!(diagnostic.severity, Severity::Error, "{target}");
+                    assert_eq!(diagnostic.path, path, "{target}");
+                    assert_eq!((diagnostic.line, diagnostic.column), (line, 3), "{target}");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn diagnoses_page_widget_and_component_structure() {
         for (entry, source, codes) in [
             (
