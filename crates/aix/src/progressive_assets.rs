@@ -151,3 +151,17 @@ mod track_map {
             .collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::TimelineLayout;
+
+    #[test]
+    fn rejects_noncanonical_timeline_track_ids() {
+        let error = serde_json::from_str::<TimelineLayout>(
+            r#"{"init":"init.mp4","tracks":{"01":{"kind":"audio","timescale":48000}},"fragments":[]}"#,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("invalid timeline track key"));
+    }
+}

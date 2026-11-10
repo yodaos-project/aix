@@ -82,6 +82,24 @@ fn progressive_pack_round_trips_typed_fragments_and_receipts() {
     assert!(reader.read_file("ignored.json").is_err());
     assert!(session.candidates().is_err());
     assert!(session.prepare(id.into()).is_err());
+
+    let mut session =
+        ProgressivePackWasm::new(to_value(&progressive_sources()).unwrap(), true).unwrap();
+    let packed = session
+        .finalize(
+            to_value(&serde_json::json!({})).unwrap(),
+            "embedded".into(),
+            None,
+            JsValue::UNDEFINED,
+            None,
+            None,
+        )
+        .unwrap();
+    let reader = AixReader::new(packed.data).unwrap();
+    assert_eq!(
+        reader.read_file("clip.m4a").unwrap(),
+        include_bytes!("../../aix-pack/tests/data/tone-flat.m4a")
+    );
 }
 
 #[wasm_bindgen_test]

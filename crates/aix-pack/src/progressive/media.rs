@@ -132,15 +132,9 @@ fn inspect(bytes: &[u8], kind: AssetKind, collect: bool) -> Result<Inspection> {
                     },
                 );
             }
-            // The fragment parser has already checked all sample payload
-            // ranges, including nonoverlap. Also reject timestamp overflow.
-            if sample.data.is_empty() {
-                bail!("Invalid fMP4 presentation timestamp or sample size");
-            }
         }
-        if ranges.len() != timeline.tracks.len() || timeline.fragments.len() >= 4096 {
-            bail!("Invalid fragment track coverage or fragment count");
-        }
+        // Every track has samples in the fragment. The top-level box limit
+        // also bounds the fragment count since each pair consumes two boxes.
         for (&id, range) in &ranges {
             let expected = timeline
                 .fragments

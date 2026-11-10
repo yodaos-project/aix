@@ -316,11 +316,8 @@ fn rewrite_init(parent: [u8; 4], input: &[u8]) -> Result<Vec<u8>> {
     for child in boxes(input).map_err(|err| anyhow!(err))? {
         match (&parent, &child.kind) {
             (b"moov", b"trak") | (b"trak", b"mdia") | (b"mdia", b"minf") | (b"minf", b"stbl") => {
-                append_box(
-                    &mut output,
-                    &child.kind,
-                    &rewrite_init(child.kind, child.payload)?,
-                )?;
+                let payload = rewrite_init(child.kind, child.payload)?;
+                append_box(&mut output, &child.kind, &payload)?;
             }
             (b"stbl", b"stsd") => {
                 ensure!(
@@ -419,6 +416,31 @@ fn append_box(out: &mut Vec<u8>, kind: &[u8; 4], payload: &[u8]) -> Result<()> {
 mod tests {
     use super::*;
     use crate::progressive::fragment_boxes::{defaults, fragment};
+
+    #[test]
+    fn maps_constant_sample_sizes_across_chunks() {
+        let original = include_bytes!("../../tests/data/tone-flat.m4a");
+        let reader = Mp4Reader::read_header(Cursor::new(original), original.len() as u64).unwrap();
+        let mut track = Mp4Track {
+            trak: reader.moov.traks[0].clone(),
+            trafs: Vec::new(),
+            default_sample_duration: 0,
+        };
+        let table = &mut track.trak.mdia.minf.stbl;
+        let sizes = &mut table.stsz;
+        sizes.sample_size = 3;
+        sizes.sample_count = 4;
+        sizes.sample_sizes.clear();
+        table.stts.entries.truncate(1);
+        table.stts.entries[0].sample_count = 4;
+        table.stsc.entries[0].samples_per_chunk = 2;
+        table.stco.as_mut().unwrap().entries = vec![44, 58];
+
+        let payload = 44..64;
+        let samples = samples(&track, std::slice::from_ref(&payload)).unwrap();
+        let ranges: Vec<_> = samples.into_iter().map(|sample| sample.data).collect();
+        assert_eq!(ranges, [44..47, 47..50, 58..61, 61..64]);
+    }
 
     #[test]
     fn flat_remux_keeps_encoded_samples_and_decode_and_presentation_times() {
