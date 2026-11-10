@@ -759,10 +759,10 @@ fn remuxes_64_bit_chunk_offsets_and_rejects_unsupported_sample_tables() {
     let stco = [*b"moov", *b"trak", *b"mdia", *b"minf", *b"stbl", *b"stco"];
     let co64 = |item: &fragment_boxes::IsoBox<'_>| {
         let mut payload = item.payload[..8].to_vec();
-        for offset in item.payload[8..].chunks_exact(4) {
-            payload.extend_from_slice(
-                &u64::from(u32::from_be_bytes(offset.try_into().unwrap())).to_be_bytes(),
-            );
+        let (offsets, remainder) = item.payload[8..].as_chunks::<4>();
+        assert!(remainder.is_empty());
+        for &offset in offsets {
+            payload.extend_from_slice(&u64::from(u32::from_be_bytes(offset)).to_be_bytes());
         }
         iso_box(b"co64", &payload)
     };
