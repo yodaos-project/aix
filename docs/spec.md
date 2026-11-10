@@ -224,7 +224,7 @@ Each page may be represented as an OpenAI-style function tool:
 ```json
 {
   "type": "function",
-  "target": "_inline",
+  "target": "_current",
   "layout": { "width": 480, "height": 168 },
   "function": {
     "name": "pages/search/index",
@@ -236,7 +236,11 @@ Each page may be represented as an OpenAI-style function tool:
 
 The function name is the logical page path. Description prefers page `description`, then its title. Parameters come from `schema.data`.
 
-The default page and its tool come first. Its target is always `_blank`, even with parameters or an inline target in the page config. Other pages keep their declaration order. They can declare `target` in page JSON or the `.ink` file's `<script def>`. AIX emits `_blank` or `_inline` and accepts `_current` as an alias for `_inline`. Other pages without a target default to `_inline`. Multiple pages may share a target.
+Pages can declare `target` in page JSON or the `.ink` file's `<script def>`. Both `_inline` and `inline` are aliases for `_current`. AIX emits `_blank` or `_current`. Multiple pages may share a target.
+
+With a valid `entryPagePath` or an explicit page target, the default page and its tool come first. The default tool uses `_blank` even if the page has parameters or declares an inline target. Other pages keep their declaration order and use their configured target or `_current`.
+
+With neither field configured, only the first page can be inferred as `_blank`, and only if it has no parameters. All other tools use `_current`.
 
 A default page with an omitted target and no parameters still emits `{}` for parameters.
 
@@ -315,7 +319,7 @@ An AIX implementation is conformant when it can:
 - resolve both multi-file pages and `.ink` single-file pages;
 - preserve page schema data without silently inventing parameters;
 - implement the default `480 × 168`, max-width, stacked-height layout algorithm;
-- emit the default page first with `_blank` and honor the other pages' targets;
+- honor configured page targets and preserve legacy inference for packages that omit them and `entryPagePath`;
 - preserve OAF resources without treating them as AIX metadata;
 - reject invalid engine ranges and unsigned or mismatched signed entries;
 - reproduce the manifest ordering and package-id byte layout.
@@ -422,7 +426,7 @@ For a logical path `p`, a consumer first looks for `p.ink`. If absent, it reads
 | --- | --- | --- | --- | --- |
 | `navigationBarTitleText` | string or null | no | null | Page title. |
 | `description` | string or null | no | null | Natural-language description used for tool metadata. |
-| `target` | string | no | inferred | `_blank` or `_inline`. Accepts `_current` as an inline alias. |
+| `target` | string | no | inferred | `_blank` or `_current`. Accepts `_inline` as an alias for `_current`. |
 | `schema` | object or null | no | absent | Container for the input schema. |
 | `schema.data` | any JSON value | no | `{}` | JSON Schema (or schema-compatible value) passed through as tool parameters. |
 
@@ -456,7 +460,7 @@ height stacks. CSS values without a `px` suffix are ignored.
 | Field | Type | Required | Values and behavior |
 | --- | --- | --- | --- |
 | `type` | string | yes | `function`. |
-| `target` | enum string | yes | `_blank` or `_inline`. The default page always uses `_blank`. |
+| `target` | enum string | yes | `_blank` or `_current`, following the rules in section 6. |
 | `layout` | PageConstraint | yes | Copied from the page's inferred `size`. |
 | `function.name` | string | yes | Logical page path. |
 | `function.description` | string or null | yes | Page description, falling back to title. |

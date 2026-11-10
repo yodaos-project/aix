@@ -352,7 +352,7 @@ Exported `MetadataResolution` has `pages: PageInfo[]`, `tools: Tool[]`, and
 string fields.
 
 #### `getTools(): Tool[]`
-Generates OpenAI-compatible tools from page metadata. The default page (`entryPagePath` or `pages[0]`) comes first with `_blank`. Other pages can declare `target` in page JSON or `<script def>`. Tools emit `_blank` or `_inline` and accept `_current` as an input alias for `_inline`.
+Generates OpenAI-compatible tools with `_blank` or `_current`. Pages can declare `target` in page JSON or `<script def>` and use `_inline` as an alias for `_current`. A valid `entryPagePath` or an explicit page target places the default page first with `_blank`. When both fields are omitted, only a first page without parameters is inferred as `_blank`.
 ```typescript
 const tools = aix.getTools();
 /*
@@ -386,7 +386,7 @@ type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;
 interface JsonObject { [key: string]: JsonValue }
 type JsonSchema = JsonValue;
 interface PageConstraint { width: number; height: number }
-type ToolTarget = '_inline' | '_blank';
+type ToolTarget = '_current' | '_blank';
 type WidgetPlacement = 'persistent' | 'overlay';
 ```
 

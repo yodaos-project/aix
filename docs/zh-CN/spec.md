@@ -153,12 +153,16 @@ META-INF/aix/manifest.json      # 推荐的生成 Manifest
 ## 6. 页面到工具的派生
 
 ```json
-{"type":"function","target":"_inline","layout":{"width":480,"height":168},"function":{"name":"pages/search/index","description":"Search the knowledge base","parameters":{"type":"object","properties":{"query":{"type":"string"}}}}}
+{"type":"function","target":"_current","layout":{"width":480,"height":168},"function":{"name":"pages/search/index","description":"Search the knowledge base","parameters":{"type":"object","properties":{"query":{"type":"string"}}}}}
 ```
 
 `function.name` 是逻辑页面路径，描述优先取页面 `description`，其次取标题。参数来自 `schema.data`。
 
-默认页及其工具排在首位，target 始终为 `_blank`，即使页面有参数或声明了内联 target。其余页面保持声明顺序，可在页面 JSON 或 `.ink` 的 `<script def>` 中声明 `target`。输出为 `_blank` 或 `_inline`，其中 `_current` 是 `_inline` 的输入别名。其余页面省略 target 时使用 `_inline`，多个页面可以共用一个 target。
+页面可以在 JSON 或 `.ink` 的 `<script def>` 中声明 `target`。AIX 输出 `_blank` 或 `_current`，其中 `_inline` 和 `inline` 都是 `_current` 的输入别名。多个页面可以共用一个 target。
+
+配置了有效的 `entryPagePath` 或页面 target 时，默认页及其工具排在首位。默认页即使带参数或声明了内联 target，也输出 `_blank`。其余页面保持声明顺序，使用各自的 target，省略时使用 `_current`。
+
+两个字段都省略时，沿用旧推导规则。只有首项且没有参数的页面输出 `_blank`，其他页面输出 `_current`。
 
 默认页未声明 target 且没有参数时，工具参数输出 `{}`。
 
@@ -247,7 +251,7 @@ Widget 字段：`path` 为必需无扩展名路径，`family` 为必需的宿主
 | --- | --- | --- | --- | --- |
 | `navigationBarTitleText` | string/null | 否 | null | 页面标题。 |
 | `description` | string/null | 否 | null | 工具元数据描述。 |
-| `target` | string | 否 | 自动推导 | `_blank` 或 `_inline`，接受 `_current` 作为内联别名。 |
+| `target` | string | 否 | 自动推导 | `_blank` 或 `_current`，接受 `_inline` 作为内联别名。 |
 | `schema` | object/null | 否 | 无 | 输入 Schema 容器。 |
 | `schema.data` | 任意 JSON | 否 | `{}` | 原样作为工具参数。 |
 
@@ -271,7 +275,7 @@ Widget 字段：`path` 为必需无扩展名路径，`family` 为必需的宿主
 | 字段 | 类型 | 必需 | 值与行为 |
 | --- | --- | --- | --- |
 | `type` | string | 是 | `function`。 |
-| `target` | enum | 是 | `_blank` 或 `_inline`，默认页始终为 `_blank`。 |
+| `target` | enum | 是 | `_blank` 或 `_current`，按第 6 节的规则推导。 |
 | `layout` | PageConstraint | 是 | 页面推导的 size。 |
 | `function.name` | string | 是 | 逻辑页面路径。 |
 | `function.description` | string/null | 是 | description，缺失回退 title。 |

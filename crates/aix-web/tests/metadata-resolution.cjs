@@ -7,11 +7,15 @@ module.exports = async function testMetadataResolution(page) {
     const good = '<script def>{"navigationBarTitleText":"Good"}</script><page><view /></page>';
     const cases = [
       { files: { 'app.json': '{"pages":["card","home","details"],"entryPagePath":"home"}',
-        'card.ink': '<script def>{"target":"_current"}</script><page><view /></page>',
+        'card.ink': '<script def>{"target":"inline"}</script><page><view /></page>',
         'home.ink': good,
         'details.json': '{"target":"_blank"}',
         'details.wxml': '<view />' },
-        names: ['home', 'card', 'details'], targets: ['_blank', '_inline', '_blank'], errors: [], legacy: 3 },
+        names: ['home', 'card', 'details'], targets: ['_blank', '_current', '_blank'], errors: [], legacy: 3 },
+      { files: { 'app.json': '{"pages":["home","card"]}',
+        'home.ink': '<script def>{"schema":{"data":{"type":"string"}}}</script><page><view /></page>',
+        'card.ink': good },
+        names: ['home', 'card'], targets: ['_current', '_current'], errors: [], legacy: 2 },
       { files: { 'app.json': '{"pages":["missing","good"]}', 'good.ink': good },
         names: ['good'], errors: ['missing.json'], legacy: 2 },
       { files: { 'app.json': '{"pages":["good"],"widgets":[{"path":"card","family":"1x1","placement":"invalid"}],"window":{"navigationBarTitleText":"Title"}}', 'good.ink': good },

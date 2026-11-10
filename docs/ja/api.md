@@ -1005,7 +1005,7 @@ interface WidgetInfo {
     description: string | null;
 }
 
-type ToolTarget = '_inline' | '_blank';
+type ToolTarget = '_current' | '_blank';
 
 interface FunctionDefinition {
     name: string;
@@ -1021,7 +1021,7 @@ interface Tool {
 }
 ~~~
 
-ページの `size` とツールの `layout` は幅と高さの制約を表します。ツールの `type` は `'function'`、対象は `'_inline'` または `'_blank'` です。`JsonSchema` は任意の JSON 値です。利用する前に、ソース検査でスキーマ宣言を検証できます。
+ページの `size` とツールの `layout` は幅と高さの制約を表します。ツールの `type` は `'function'`、対象は `'_current'` または `'_blank'` です。`JsonSchema` は任意の JSON 値です。利用する前に、ソース検査でスキーマ宣言を検証できます。
 
 これらのメタデータにない文字列は `null` です。WASM の生の出力も同じです。`getTitle()` や `getVersion()` などの個別メソッドは、値がない場合に `undefined` を返します。
 :::

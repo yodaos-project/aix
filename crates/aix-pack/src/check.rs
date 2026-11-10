@@ -1602,6 +1602,8 @@ mod tests {
             (r#""_blank""#, true),
             (r#""_inline""#, true),
             (r#""_current""#, true),
+            (r#""inline""#, true),
+            (r#""current""#, true),
             ("null", true),
             (r#""_widget""#, false),
             ("false", false),
@@ -1888,7 +1890,7 @@ mod tests {
             );
             let tools = reader.get_tools();
             assert_eq!(tools.len(), 1, "{name}");
-            assert_eq!(tools[0].target, aix::ToolTarget::Blank, "{name}");
+            assert_eq!(tools[0].target, aix::ToolTarget::Current, "{name}");
             assert_eq!(tools[0].function.parameters, pages[0].data_schema, "{name}");
             assert_eq!(tools[0].layout, pages[0].size, "{name}");
         }

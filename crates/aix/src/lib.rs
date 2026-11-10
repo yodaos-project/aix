@@ -166,7 +166,12 @@ pub struct Tool {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum ToolTarget {
     /// Open the page in the current runtime context.
-    #[serde(rename = "_inline", alias = "_current", alias = "current")]
+    #[serde(
+        rename = "_current",
+        alias = "_inline",
+        alias = "current",
+        alias = "inline"
+    )]
     Current,
     /// Open the page in a fresh or blank runtime context.
     #[serde(rename = "_blank", alias = "blank")]
@@ -248,12 +253,12 @@ struct PageSchema {
 struct ResolvedPage {
     info: PageInfo,
     target: Option<ToolTarget>,
-    is_default: bool,
+    is_blank_entry: bool,
 }
 
 impl ResolvedPage {
     fn into_tool(self) -> Tool {
-        let parameters = if self.is_default
+        let parameters = if self.is_blank_entry
             && self.target.is_none()
             && !page_has_parameters(&self.info.data_schema)
         {
@@ -261,7 +266,7 @@ impl ResolvedPage {
         } else {
             self.info.data_schema
         };
-        let target = if self.is_default {
+        let target = if self.is_blank_entry {
             ToolTarget::Blank
         } else {
             self.target.unwrap_or(ToolTarget::Current)
@@ -845,20 +850,20 @@ impl AixReader {
                 return Vec::new();
             }
         };
-        if let Some(entry) = config.entry_page_path {
-            let index = entry
-                .as_str()
-                .and_then(|entry| config.pages.iter().position(|path| path == entry));
-            if let Some(index) = index {
-                config.pages[..=index].rotate_right(1);
-            } else if strict {
-                diagnostics.push(MetadataDiagnostic::new(
-                    "app.json",
-                    "entryPagePath must be a path declared in pages",
-                ));
-            }
+        let entry_index = config
+            .entry_page_path
+            .as_ref()
+            .and_then(serde_json::Value::as_str)
+            .and_then(|entry| config.pages.iter().position(|path| path == entry));
+        if let Some(index) = entry_index {
+            config.pages[..=index].rotate_right(1);
+        } else if strict && config.entry_page_path.is_some() {
+            diagnostics.push(MetadataDiagnostic::new(
+                "app.json",
+                "entryPagePath must be a path declared in pages",
+            ));
         }
-        config
+        let mut pages: Vec<_> = config
             .pages
             .into_iter()
             .enumerate()
@@ -871,7 +876,15 @@ impl AixReader {
                     }
                 },
             )
-            .collect()
+            .collect();
+        if entry_index.is_none() && !pages.iter().any(|page| page.target.is_some()) {
+            // Legacy inference considers the first resolved page, even if strict
+            // resolution skipped the first declared page.
+            if let Some(first) = pages.first_mut() {
+                first.is_blank_entry = !page_has_parameters(&first.info.data_schema);
+            }
+        }
+        pages
     }
 
     fn read_page_text(
@@ -895,7 +908,7 @@ impl AixReader {
     fn resolve_page(
         &self,
         path: &str,
-        is_default: bool,
+        is_blank_entry: bool,
         strict: bool,
     ) -> core::result::Result<ResolvedPage, MetadataDiagnostic> {
         let mut page = ResolvedPage {
@@ -907,7 +920,7 @@ impl AixReader {
                 size: PageConstraint::default(),
             },
             target: None,
-            is_default,
+            is_blank_entry,
         };
         let ink_path = format!("{}.ink", path);
         if let Some(content) = self.read_page_text(&ink_path, strict)? {
@@ -1042,9 +1055,10 @@ impl AixReader {
 
     /// Derives agent-facing tools from the package page list.
     ///
-    /// The default page (`entryPagePath` or the first declared page) is emitted
-    /// first with [`ToolTarget::Blank`]. Other pages use their configured
-    /// target or [`ToolTarget::Current`] when omitted.
+    /// With an `entryPagePath` or an explicit page target, the default page is
+    /// emitted first with [`ToolTarget::Blank`]. Other pages use their configured
+    /// target or [`ToolTarget::Current`] when omitted. Otherwise, only a first
+    /// page without parameters is emitted with [`ToolTarget::Blank`].
     ///
     /// # Returns
     ///
@@ -1223,7 +1237,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["good", "detail"]
         );
-        assert_eq!(report.tools[0].target, ToolTarget::Current);
+        assert_eq!(report.tools[0].target, ToolTarget::Blank);
         assert_eq!(report.tools[1].target, ToolTarget::Current);
         assert_eq!(report.pages[0].title.as_deref(), Some("Good"));
         assert_eq!(report.pages[0].size.width, 120.0);
@@ -1273,7 +1287,7 @@ mod tests {
                     .iter()
                     .map(|tool| tool["target"].as_str().unwrap())
                     .collect::<Vec<_>>(),
-                ["_blank", "_inline", "_blank", "_inline", "_inline"]
+                ["_blank", "_current", "_blank", "_current", "_current"]
             );
             assert_eq!(
                 output[0]["function"]["parameters"],
@@ -1283,6 +1297,35 @@ mod tests {
                 output[2]["function"]["parameters"],
                 serde_json::json!({"type": "string"})
             );
+        }
+    }
+
+    #[test]
+    fn entry_path_or_page_target_selects_blank_default_even_with_parameters() {
+        for (app, card) in [
+            (
+                br#"{"pages":["home","card"],"entryPagePath":"home"}"#.as_slice(),
+                b"<page><view /></page>".as_slice(),
+            ),
+            (
+                br#"{"pages":["home","card"]}"#.as_slice(),
+                br#"<script def>{"target":"_inline"}</script><page><view /></page>"#.as_slice(),
+            ),
+        ] {
+            let reader = archive(vec![
+                ("app.json", app.to_vec()),
+                ("home.ink", br#"<script def>{"schema":{"data":{"type":"string"}}}</script><page><view /></page>"#.to_vec()),
+                ("card.ink", card.to_vec()),
+            ]);
+            let report = reader.resolve_metadata();
+            assert!(report.diagnostics.is_empty());
+            for tools in [reader.get_tools(), report.tools] {
+                assert_eq!(tools.len(), 2);
+                assert_eq!(tools[0].function.name, "home");
+                assert_eq!(tools[0].target, ToolTarget::Blank);
+                assert_eq!(tools[0].function.parameters["type"], "string");
+                assert_eq!(tools[1].target, ToolTarget::Current);
+            }
         }
     }
 
@@ -2332,7 +2375,7 @@ mod tests {
         let tools = reader.get_tools();
         assert_eq!(tools.len(), 1);
         assert_eq!(tools[0].function.name, "pages/index/index");
-        assert_eq!(tools[0].target, ToolTarget::Blank);
+        assert_eq!(tools[0].target, ToolTarget::Current);
         assert_eq!(
             tools[0].function.description,
             Some("Index Page".to_string())
@@ -2342,7 +2385,7 @@ mod tests {
         assert_eq!(tools[0].layout.height, 100.0);
 
         let tool_json = serde_json::to_value(&tools[0]).unwrap();
-        assert_eq!(tool_json["target"], "_blank");
+        assert_eq!(tool_json["target"], "_current");
         assert_eq!(tool_json["function"]["parameters"]["type"], "object");
     }
 
@@ -2633,7 +2676,7 @@ mod tests {
         let tools = reader.get_tools();
         assert_eq!(tools.len(), 2);
         assert_eq!(tools[1].target, ToolTarget::Current);
-        assert_eq!(tools[0].target, ToolTarget::Blank);
+        assert_eq!(tools[0].target, ToolTarget::Current);
         assert_eq!(tools[0].function.name, "pages/home/index");
         assert_eq!(tools[1].function.name, "pages/detail/index");
         assert_eq!(tools[0].function.parameters["type"], "object");

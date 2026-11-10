@@ -1143,7 +1143,7 @@ interface WidgetInfo {
     description: string | null;
 }
 
-type ToolTarget = '_inline' | '_blank';
+type ToolTarget = '_current' | '_blank';
 
 interface FunctionDefinition {
     name: string;
@@ -1160,7 +1160,7 @@ interface Tool {
 ~~~
 
 Page `size` and tool `layout` contain width and height constraints. Tools
-emit `type: 'function'` with a target of `'_inline'` or `'_blank'`. A
+emit `type: 'function'` with a target of `'_current'` or `'_blank'`. A
 `JsonSchema` can contain any JSON value. Use the source checker to validate
 schema declarations before relying on them.
 

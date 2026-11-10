@@ -180,7 +180,7 @@ META-INF/aix/manifest.json      # 推奨される生成 Manifest
 ```json
 {
   "type": "function",
-  "target": "_inline",
+  "target": "_current",
   "layout": { "width": 480, "height": 168 },
   "function": {
     "name": "pages/search/index",
@@ -192,7 +192,11 @@ META-INF/aix/manifest.json      # 推奨される生成 Manifest
 
 function 名は論理ページパスです。description はページの `description`、次にタイトルを使用します。parameters は `schema.data` から取得します。
 
-既定ページは `entryPagePath` で指定します。値は `pages` に含まれるパスで、省略時は `pages` の先頭です。既定ページとそのツールは最初に並び、パラメーターやページ設定にかかわらず `_blank` になります。ほかのページは宣言順で、ページ JSON または `.ink` の `<script def>` で `target` を指定できます。出力は `_blank` または `_inline` で、`_current` は `_inline` の入力時の別名です。ほかのページで target を省略すると `_inline` になります。複数のページで同じ target を指定できます。
+ページ JSON または `.ink` の `<script def>` で `target` を指定できます。出力は `_blank` または `_current` です。`_inline` と `inline` は `_current` の入力時の別名です。複数のページで同じ target を指定できます。
+
+有効な `entryPagePath` またはページの target を指定すると、既定ページとそのツールが先頭に並びます。既定ページはパラメーターやページ設定にかかわらず `_blank` になります。ほかのページは宣言順で、指定された target を使い、省略時は `_current` になります。
+
+両方のフィールドを省略した場合は従来どおり、最初のページにパラメーターがない場合だけ `_blank` になり、ほかのツールは `_current` になります。
 
 既定ページに target の指定もパラメーターもない場合、parameters は `{}` です。
 
@@ -258,7 +262,7 @@ AIX 実装は次を実行できる場合に適合します。
 - 複数ファイルページと `.ink` 単一ファイルページを解決する。
 - parameter を暗黙に作らず、ページ Schema data を保持する。
 - 既定 `480 × 168`、最大幅、高さ合計のレイアウト algorithm を実装する。
-- 既定ページを先頭に `_blank` で出力し、ほかのページの target を反映する。
+- ページの target を反映し、target と `entryPagePath` を省略した場合は従来の推論規則を適用する。
 - OAF リソースを AIX metadata と解釈せず保持する。
 - 不正な engine 範囲、未署名または不一致の署名エントリーを拒否する。
 - Manifest の順序と package-id のバイト配置を再現する。
@@ -349,7 +353,7 @@ OAF `config` は `temperature`、`max_tokens`、`require_confirmation`、入れ�
 | --- | --- | --- | --- | --- |
 | `navigationBarTitleText` | string または null | no | null | ページタイトル。 |
 | `description` | string または null | no | null | tool metadata 用の自然言語説明。 |
-| `target` | string | no | 自動判定 | `_blank` または `_inline`。`_current` は `_inline` の別名。 |
+| `target` | string | no | 自動判定 | `_blank` または `_current`。`_inline` は `_current` の別名。 |
 | `schema` | object または null | no | absent | input Schema の container。 |
 | `schema.data` | 任意の JSON 値 | no | `{}` | tool parameters として渡す JSON Schema または互換値。 |
 
@@ -375,7 +379,7 @@ size はルート XML 要素だけを検査します。外部 selector は id、
 | フィールド | 型 | 必須 | 値と動作 |
 | --- | --- | --- | --- |
 | `type` | string | yes | `function`。 |
-| `target` | enum string | yes | `_blank` または `_inline`。既定ページは常に `_blank`。 |
+| `target` | enum string | yes | `_blank` または `_current`。第 6 節の規則で決まる。 |
 | `layout` | PageConstraint | yes | ページの推定 `size` をコピー。 |
 | `function.name` | string | yes | 論理ページパス。 |
 | `function.description` | string または null | yes | ページ description。なければ title。 |

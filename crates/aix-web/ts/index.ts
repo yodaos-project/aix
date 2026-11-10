@@ -264,8 +264,8 @@ export interface WidgetInfo {
   description: string | null;
 }
 
-/** Resolved presentation target returned by the reader. */
-export type ToolTarget = '_inline' | '_blank';
+/** Serialized output uses the underscore-prefixed names, never input aliases. */
+export type ToolTarget = '_current' | '_blank';
 
 export interface FunctionDefinition {
   name: string;

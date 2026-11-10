@@ -1037,7 +1037,7 @@ interface WidgetInfo {
     description: string | null;
 }
 
-type ToolTarget = '_inline' | '_blank';
+type ToolTarget = '_current' | '_blank';
 
 interface FunctionDefinition {
     name: string;
@@ -1053,7 +1053,7 @@ interface Tool {
 }
 ~~~
 
-页面的 `size` 和工具的 `layout` 包含宽高约束。工具的 `type` 为 `'function'`，目标是 `'_inline'` 或 `'_blank'`。`JsonSchema` 可以是任意 JSON 值，使用前可以通过源码检查验证 Schema 声明。
+页面的 `size` 和工具的 `layout` 包含宽高约束。工具的 `type` 为 `'function'`，目标是 `'_current'` 或 `'_blank'`。`JsonSchema` 可以是任意 JSON 值，使用前可以通过源码检查验证 Schema 声明。
 
 这些元数据对象中缺失的字符串为 `null`，包括 WASM 的原始输出。`getTitle()` 和 `getVersion()` 等独立方法在缺少相应值时返回 `undefined`。
 :::
