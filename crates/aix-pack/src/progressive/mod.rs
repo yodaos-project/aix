@@ -3,6 +3,7 @@ mod imports;
 mod media;
 mod remux;
 #[cfg(test)]
+#[path = "progressive_tests.rs"]
 mod tests;
 
 use crate::{InputFile, PackOptions, PackOutput, PackProgressEvent};
