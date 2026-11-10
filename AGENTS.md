@@ -86,7 +86,7 @@ cd docs && npm install && npm run dev
 
 - Layout analysis (`PageAnalyzer` in `analyzer.rs`) infers width/height from inline styles + `.wxml`/`.wcss` and defaults to `480×168` (`PageConstraint::default()`). Height **stacks**, width takes the **max** across root nodes.
 - `.ink` single-file components are parsed by `xml::parse_sfc` (raw-text blocks); multi-file pages use `xml::parse_xml`.
-- `get_tools()` returns OpenAI-style tools; the **first page with an empty/no-parameter schema** becomes `ToolTarget::Blank`, others `ToolTarget::Current`.
+- `get_tools()` returns OpenAI-style tools. The default page (`entryPagePath` or `pages[0]`) comes first with `_blank`. Other pages use their declared target or `_inline`. The Rust `ToolTarget::Current` variant accepts `_current` and serializes as `_inline`.
 
 ## CLI behavior
 

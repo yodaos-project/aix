@@ -323,8 +323,8 @@ const widgets = aix.getWidgets('en-US');
 
 Returns `{ pages, tools, diagnostics }` synchronously. Missing/unreadable resources,
 UTF-8 errors, and malformed page metadata produce `{ path, message }` diagnostics,
-one per failed page. Failed pages are excluded from both result lists; other
-pages retain declaration order. A valid empty page list has no diagnostics;
+one per failed page. Both result lists put the default page first when it resolves
+and keep the other pages in declaration order. A valid empty page list has no diagnostics;
 invalid/unreadable `app.json.pages` produces an `app.json` diagnostic.
 
 ```typescript
@@ -352,7 +352,7 @@ Exported `MetadataResolution` has `pages: PageInfo[]`, `tools: Tool[]`, and
 string fields.
 
 #### `getTools(): Tool[]`
-Generates a list of OpenAI-compatible tool definitions based on the pages and their schemas.
+Generates OpenAI-compatible tools from page metadata. The default page (`entryPagePath` or `pages[0]`) comes first with `_blank`. Other pages can declare `target` in page JSON or `<script def>`. Tools emit `_blank` or `_inline` and accept `_current` as an input alias for `_inline`.
 ```typescript
 const tools = aix.getTools();
 /*
@@ -361,7 +361,7 @@ const tools = aix.getTools();
   target: "_blank",
   layout: { width: 480, height: 168 },
   function: {
-    name: "pages_index_index",
+    name: "pages/index/index",
     description: "Home",
     parameters: { ... }
   }
@@ -386,7 +386,7 @@ type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;
 interface JsonObject { [key: string]: JsonValue }
 type JsonSchema = JsonValue;
 interface PageConstraint { width: number; height: number }
-type ToolTarget = '_current' | '_blank';
+type ToolTarget = '_inline' | '_blank';
 type WidgetPlacement = 'persistent' | 'overlay';
 ```
 

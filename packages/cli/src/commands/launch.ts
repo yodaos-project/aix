@@ -485,7 +485,10 @@ function resolveOpenRoute(app: Definition, requestedPath?: string, requestedTarg
         return typeof widgetPath === "string" ? [widgetPath] : [];
       })
     : [];
-  const launchPath = requestedPath ?? pages[0];
+  const entryPagePath = typeof app.entryPagePath === "string" && pages.includes(app.entryPagePath)
+    ? app.entryPagePath
+    : pages[0];
+  const launchPath = requestedPath ?? entryPagePath;
   if (!launchPath) throw new Error("No launch path was provided and app.json declares no pages.");
   const isPage = pages.includes(launchPath);
   const isWidget = widgets.includes(launchPath);

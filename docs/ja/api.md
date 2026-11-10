@@ -222,7 +222,7 @@ async function openCheckedPackage(file) {
 ::: details ページを読み取る条件
 ページには、読み取れる `.ink` ファイルか、`.json` と `.wxml` の両方が必要です。`.ink` ファイルが壊れていると、そのページはエラーになります。任意の定義、スキーマ、スタイルは省略できます。スタイルシートが両方ある場合は `.wcss` を優先します。
 
-`app.json.pages` がないか不正な場合は、`app.json` の診断が返ります。空のページ一覧は有効です。読み取りに成功したページの順序は宣言順で、ツールの対象は通常のルールに従います。ウィジェットとタイトルのメタデータは別に読み取ります。
+`app.json.pages` がないか不正な場合は、`app.json` の診断が返ります。空のページ一覧は有効です。既定ページの読み取りに成功した場合は先頭に並び、ほかのページは宣言順です。ウィジェットとタイトルのメタデータは別に読み取ります。
 :::
 
 ## Progressive Assets（段階配信アセット） {#progressive-assets}
@@ -576,7 +576,7 @@ getPages(): PageInfo[]
 
 **引数**はありません。
 
-**戻り値**は、宣言順に並んだページの配列です。ページのファイルが欠けている場合や不正な場合は、既定値を使うことがあります。ページ一覧を読み取れないか不正な場合は `[]` を返します。診断を確認するには [`resolveMetadata()`](#pkg-resolve-metadata) を使います。
+**戻り値**は、既定ページが先頭で、ほかのページが宣言順に並んだ配列です。ページのファイルが欠けている場合や不正な場合は、既定値を使うことがあります。ページ一覧を読み取れないか不正な場合は `[]` を返します。診断を確認するには [`resolveMetadata()`](#pkg-resolve-metadata) を使います。
 
 #### resolveMetadata() {#pkg-resolve-metadata}
 
@@ -1005,7 +1005,7 @@ interface WidgetInfo {
     description: string | null;
 }
 
-type ToolTarget = '_current' | '_blank';
+type ToolTarget = '_inline' | '_blank';
 
 interface FunctionDefinition {
     name: string;
@@ -1021,7 +1021,7 @@ interface Tool {
 }
 ~~~
 
-ページの `size` とツールの `layout` は幅と高さの制約を表します。ツールの `type` は `'function'`、対象は `'_current'` または `'_blank'` です。`JsonSchema` は任意の JSON 値です。利用する前に、ソース検査でスキーマ宣言を検証できます。
+ページの `size` とツールの `layout` は幅と高さの制約を表します。ツールの `type` は `'function'`、対象は `'_inline'` または `'_blank'` です。`JsonSchema` は任意の JSON 値です。利用する前に、ソース検査でスキーマ宣言を検証できます。
 
 これらのメタデータにない文字列は `null` です。WASM の生の出力も同じです。`getTitle()` や `getVersion()` などの個別メソッドは、値がない場合に `undefined` を返します。
 :::

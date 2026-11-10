@@ -66,6 +66,17 @@ test('validates JSON syntax', {
 test('checks Page entry structure', {
   'app.json': '{"pages":["missing"]}',
 }, hasCode('AIX016'));
+test('checks the default Page path and both forms of Page target declaration', {
+  'app.json': '{"pages":["home","detail","card"],"entryPagePath":"other"}',
+  'home.ink': '<script def>{"target":"_widget"}</script><page><view /></page>',
+  'detail.json': '{"target":false}',
+  'detail.wxml': '<view />',
+  'card.ink': '<script def>{"target":"_inline"}</script><page><view /></page>',
+}, (report) => {
+  assert.deepEqual(report.diagnostics.map(({ code, path }) => [code, path]), [
+    ['AIX048', 'app.json'], ['AIX049', 'detail.json'], ['AIX049', 'home.ink'],
+  ]);
+});
 test('checks traditional Page markup in the shared engine', {
   'app.json': '{"pages":["home"]}',
   'home.json': '{}',

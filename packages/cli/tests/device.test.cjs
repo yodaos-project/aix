@@ -123,6 +123,13 @@ test('launch-page sends a declared route, card target, and safely quoted nested 
   assert.deepEqual(calls(f).at(-1).request, { agentId, path: 'pages/home', target: '_blank', params: { input: 'from file' } });
 });
 
+test('launch-page uses entryPagePath when no route is provided', (t) => {
+  const f = setup(t);
+  f.write('agent/app.json', { pages: ['pages/home', 'pages/detail'], entryPagePath: 'pages/detail' });
+  succeeds(f.run(['launch-page', f.project]));
+  assert.deepEqual(calls(f).at(-1).request, { agentId, path: 'pages/detail', target: '_blank', params: {} });
+});
+
 test('launch-page rejects invalid routes and parameters before contacting ADB', async (t) => {
   const f = setup(t);
   for (const [args, error] of [

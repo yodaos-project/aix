@@ -6,7 +6,7 @@ use oxc_ast::ast::{CallExpression, Expression, NewExpression};
 use oxc_ast_visit::{walk, Visit};
 use oxc_parser::Parser;
 use oxc_span::SourceType;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -296,6 +296,20 @@ fn check_files_with_coverage(files: &[InputFile]) -> (CheckReport, CheckCoverage
             "pages must be an array of paths",
         ),
         Some(pages) => {
+            if let Some(entry) = app.get("entryPagePath").filter(|value| !value.is_null()) {
+                if !entry
+                    .as_str()
+                    .is_some_and(|path| valid_path(path) && pages.contains(entry))
+                {
+                    report.error(
+                        "AIX048",
+                        "app.json",
+                        app_text,
+                        field_offset(app_text, "entryPagePath"),
+                        "entryPagePath must be a path declared in pages",
+                    );
+                }
+            }
             let positions = object_field(app_text, 0, "pages")
                 .map(|(_, start, _)| array_items(app_text, start))
                 .unwrap_or_default();
@@ -842,6 +856,7 @@ fn check_page(
                     "Page <script def> must be an object",
                 );
             }
+            check_page_target(&def, &ink, content, report);
             check_page_schema(&def, &ink, content, report, schemas);
             check_components(
                 def.get("usingComponents"),
@@ -876,6 +891,7 @@ fn check_page(
                     "Page config must be an object",
                 );
             }
+            check_page_target(def, &config, content, report);
             check_page_schema(def, &config, content, report, schemas);
             check_components(
                 def.get("usingComponents"),
@@ -889,6 +905,20 @@ fn check_page(
         }
     }
 }
+fn check_page_target(def: &Value, path: &str, content: &str, report: &mut CheckReport) {
+    if let Some(target) = def.get("target").filter(|value| !value.is_null()) {
+        if !target.is_string() || aix::ToolTarget::deserialize(target).is_err() {
+            report.error(
+                "AIX049",
+                path,
+                content,
+                field_offset(content, "target"),
+                "Invalid page target: expected _blank, _inline, or _current",
+            );
+        }
+    }
+}
+
 fn check_page_schema(
     def: &Value,
     path: &str,
@@ -1771,7 +1801,7 @@ mod tests {
             );
             let tools = reader.get_tools();
             assert_eq!(tools.len(), 1, "{name}");
-            assert_eq!(tools[0].target, aix::ToolTarget::Current, "{name}");
+            assert_eq!(tools[0].target, aix::ToolTarget::Blank, "{name}");
             assert_eq!(tools[0].function.parameters, pages[0].data_schema, "{name}");
             assert_eq!(tools[0].layout, pages[0].size, "{name}");
         }

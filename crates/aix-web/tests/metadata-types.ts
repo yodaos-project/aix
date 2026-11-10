@@ -18,7 +18,7 @@ type WidgetShape = Assert<Equal<WidgetInfo, {
   path: string; family: string; placement: WidgetPlacement;
   displayName: string | null; description: string | null;
 }>>;
-type Target = Assert<Equal<ToolTarget, '_current' | '_blank'>>;
+type Target = Assert<Equal<ToolTarget, '_inline' | '_blank'>>;
 type Placement = Assert<Equal<WidgetPlacement, 'persistent' | 'overlay'>>;
 type FunctionShape = Assert<Equal<FunctionDefinition, {
   name: string; description: string | null; parameters: JsonSchema;

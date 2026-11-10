@@ -122,6 +122,7 @@ META-INF/aix/manifest.json      # 推奨される生成 Manifest
 ```json
 {
   "pages": ["pages/index/index", "pages/settings/index"],
+  "entryPagePath": "pages/index/index",
   "widgets": [{
     "path": "widgets/clock/index",
     "family": "1x1",
@@ -148,6 +149,7 @@ META-INF/aix/manifest.json      # 推奨される生成 Manifest
 {
   "navigationBarTitleText": "Search",
   "description": "Search the knowledge base",
+  "target": "_inline",
   "schema": { "data": {
     "type": "object",
     "properties": { "query": { "type": "string" } },
@@ -178,7 +180,7 @@ META-INF/aix/manifest.json      # 推奨される生成 Manifest
 ```json
 {
   "type": "function",
-  "target": "_current",
+  "target": "_inline",
   "layout": { "width": 480, "height": 168 },
   "function": {
     "name": "pages/search/index",
@@ -188,9 +190,11 @@ META-INF/aix/manifest.json      # 推奨される生成 Manifest
 }
 ```
 
-function 名は論理ページパスです。description はページ `description`、次に title を優先します。parameters は `schema.data` そのもので、形式側では Schema の変換や検証を行いません。
+function 名は論理ページパスです。description はページの `description`、次にタイトルを使用します。parameters は `schema.data` から取得します。
 
-最初に宣言されたページには特別な起動規則があります。Schema が null、`{}`、または properties のない object Schema なら、空 parameters と `target: "_blank"` で 1 回出力します。それ以外は `_current` です。後続ページは parameter の有無にかかわらず `_current` です。この規則は位置依存で、`app.json.pages` の順序変更により最初の tool target が変わる場合があります。
+既定ページは `entryPagePath` で指定します。値は `pages` に含まれるパスで、省略時は `pages` の先頭です。既定ページとそのツールは最初に並び、パラメーターやページ設定にかかわらず `_blank` になります。ほかのページは宣言順で、ページ JSON または `.ink` の `<script def>` で `target` を指定できます。出力は `_blank` または `_inline` で、`_current` は `_inline` の入力時の別名です。ほかのページで target を省略すると `_inline` になります。複数のページで同じ target を指定できます。
+
+既定ページに target の指定もパラメーターもない場合、parameters は `{}` です。
 
 ## 7. Manifest、完全性、署名
 
@@ -254,7 +258,7 @@ AIX 実装は次を実行できる場合に適合します。
 - 複数ファイルページと `.ink` 単一ファイルページを解決する。
 - parameter を暗黙に作らず、ページ Schema data を保持する。
 - 既定 `480 × 168`、最大幅、高さ合計のレイアウト algorithm を実装する。
-- 最初のページの `_blank` 規則を正確に適用する。
+- 既定ページを先頭に `_blank` で出力し、ほかのページの target を反映する。
 - OAF リソースを AIX metadata と解釈せず保持する。
 - 不正な engine 範囲、未署名または不一致の署名エントリーを拒否する。
 - Manifest の順序と package-id のバイト配置を再現する。
@@ -314,6 +318,7 @@ OAF `config` は `temperature`、`max_tokens`、`require_confirmation`、入れ�
 | --- | --- | --- | --- | --- |
 | `pages` | string 配列 | yes | none | 空でない論理ページパス。順序に意味がある。 |
 | `widgets` | Widget 配列 | no | `[]` | Widget metadata 解決時に一致する `{path}.ink` が必要。 |
+| `entryPagePath` | string | no | 先頭ページ | `pages` に含まれる既定ページのパス。 |
 | `window` | Window | no | absent | 現在は `navigationBarTitleText` だけを使用。 |
 
 `pages` は存在し、宣言された形でなければなりません。consumer は欠落または不正なフィールドを持つパッケージを拒否でき、ページパスを捏造してはいけません。
@@ -344,10 +349,11 @@ OAF `config` は `temperature`、`max_tokens`、`require_confirmation`、入れ�
 | --- | --- | --- | --- | --- |
 | `navigationBarTitleText` | string または null | no | null | ページタイトル。 |
 | `description` | string または null | no | null | tool metadata 用の自然言語説明。 |
+| `target` | string | no | 自動判定 | `_blank` または `_inline`。`_current` は `_inline` の別名。 |
 | `schema` | object または null | no | absent | input Schema の container。 |
 | `schema.data` | 任意の JSON 値 | no | `{}` | tool parameters として渡す JSON Schema または互換値。 |
 
-`schema.data` が正式な JSON Schema である必要はありません。null、空 object、`properties` が空の object Schema は、最初のページの target 選択時だけ「parameter なし」と扱います。配列、文字列、数値、空でない object は parameter 付き Schema です。
+`schema.data` が正式な JSON Schema である必要はありません。既定ページに target の指定がない場合、null、空 object、または `properties` が空の object Schema は、tool parameters で `{}` に正規化されます。
 
 Ink ファイルは raw-text block を使用します。`script def` に同じページ JSON、`page` または `template` に markup、`style` に CSS を記述します。任意ページファイルが不正でも ZIP は無効にならず、consumer は既定値を保持して diagnostic を出せます。
 
@@ -369,11 +375,11 @@ size はルート XML 要素だけを検査します。外部 selector は id、
 | フィールド | 型 | 必須 | 値と動作 |
 | --- | --- | --- | --- |
 | `type` | string | yes | `function`。 |
-| `target` | enum string | yes | 最初の parameter なしページは `_blank`、それ以外は `_current`。 |
+| `target` | enum string | yes | `_blank` または `_inline`。既定ページは常に `_blank`。 |
 | `layout` | PageConstraint | yes | ページの推定 `size` をコピー。 |
 | `function.name` | string | yes | 論理ページパス。 |
 | `function.description` | string または null | yes | ページ description。なければ title。 |
-| `function.parameters` | JSON 値 | yes | 正確な `schema.data`。最初の `_blank` tool だけ `{}`。 |
+| `function.parameters` | JSON 値 | yes | ページの `schema.data`。既定ページに target の指定がない場合、空の Schema は `{}`。 |
 
 `target` は描画指示でありセキュリティ境界ではありません。`_blank` を新しい surface、分離 context、初期 navigation のいずれとして扱うかはホストが決めます。
 
@@ -443,7 +449,7 @@ consumer は過剰な entry 数、展開後 size、nesting、Schema complexity �
 - 未署名の最小パッケージ。
 - text と binary entry を 1 つずつ持つ署名済みパッケージ。
 - 複数ファイルページと Ink 単一ファイルページ。
-- 空 Schema の最初のページと parameter 付きの最初のページ。
+- 空の Schema を持つ既定ページ、parameter 付きの既定ページ、ほかのページの明示的な target。
 - locale fallback を持つ Widget metadata。
 - 不正パス、正規化後の重複、`VERSION` 欠落、不正な `app.json`。
 - Manifest entry の順序変更、未署名追加 entry、変更された byte、変更された `VERSION`、誤った trusted key。

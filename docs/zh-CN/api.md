@@ -228,7 +228,7 @@ async function openCheckedPackage(file) {
 ::: details 页面解析规则
 页面需要一个可读取的 `.ink` 文件，或者同时提供 `.json` 和 `.wxml`。损坏的 `.ink` 文件会使该页面报错。可选的定义、Schema 和样式可以省略。如果两种样式表同时存在，优先读取 `.wcss`。
 
-`app.json.pages` 缺失或无效时，诊断会指向 `app.json`。空页面列表有效。成功解析的页面保持声明顺序，并沿用常规的工具目标规则。组件与标题的元数据会单独读取。
+`app.json.pages` 缺失或无效时，诊断会指向 `app.json`。空页面列表有效。默认页解析成功时排在首位，其余页面保持声明顺序。组件与标题的元数据会单独读取。
 :::
 
 ## Progressive Assets（渐进资源） {#progressive-assets}
@@ -599,7 +599,7 @@ getPages(): PageInfo[]
 
 **参数** 无。
 
-**返回** 按声明顺序排列的页面。页面资源缺失或无效时可能使用默认值。页面列表无法读取或无效时返回 `[]`。如需页面诊断，使用 [`resolveMetadata()`](#pkg-resolve-metadata)。
+**返回** 默认页排在首位、其余页面按声明顺序排列的列表。页面资源缺失或无效时可能使用默认值。页面列表无法读取或无效时返回 `[]`。如需页面诊断，使用 [`resolveMetadata()`](#pkg-resolve-metadata)。
 
 <div id="pkg-resolvemetadata"></div>
 
@@ -1037,7 +1037,7 @@ interface WidgetInfo {
     description: string | null;
 }
 
-type ToolTarget = '_current' | '_blank';
+type ToolTarget = '_inline' | '_blank';
 
 interface FunctionDefinition {
     name: string;
@@ -1053,7 +1053,7 @@ interface Tool {
 }
 ~~~
 
-页面的 `size` 和工具的 `layout` 包含宽高约束。工具的 `type` 为 `'function'`，目标是 `'_current'` 或 `'_blank'`。`JsonSchema` 可以是任意 JSON 值，使用前可以通过源码检查验证 Schema 声明。
+页面的 `size` 和工具的 `layout` 包含宽高约束。工具的 `type` 为 `'function'`，目标是 `'_inline'` 或 `'_blank'`。`JsonSchema` 可以是任意 JSON 值，使用前可以通过源码检查验证 Schema 声明。
 
 这些元数据对象中缺失的字符串为 `null`，包括 WASM 的原始输出。`getTitle()` 和 `getVersion()` 等独立方法在缺少相应值时返回 `undefined`。
 :::
