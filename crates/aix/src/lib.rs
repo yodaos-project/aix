@@ -28,6 +28,7 @@ use rawzip::{CompressionMethod, ZipArchive, ZipArchiveEntryWayfinder};
 
 pub mod analyzer;
 pub mod crypto;
+pub mod progressive_assets;
 pub mod xml;
 pub use analyzer::{PageAnalyzer, PageConstraint};
 
@@ -1654,6 +1655,7 @@ mod tests {
             },
         ];
         let manifest = crypto::PackageManifest {
+            progressive_assets: None,
             agent_id: None,
             format: "aix".into(),
             version: "build".into(),
@@ -1931,6 +1933,7 @@ mod tests {
                 zip.write_all(b"test-build").unwrap();
 
                 let manifest = crypto::PackageManifest {
+                    progressive_assets: None,
                     agent_id: None,
                     format: "aix".into(),
                     version: "test-build".into(),

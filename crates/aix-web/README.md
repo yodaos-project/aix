@@ -453,3 +453,64 @@ The output will be generated in the `dist` directory, including WASM binaries an
 ## License
 
 MIT
+
+## Progressive Assets
+
+Declare the asset in an ESM module or Ink script.
+
+```js
+import video from './assets/clip.mp4' with {
+  type: 'video',
+  progressive: 'prefer',
+};
+```
+
+The imported value is an opaque `AssetRef`. Pass it to Ink's video or audio consumer. The CLI and Web SDK embed complete assets by default. A Web
+pack caller can choose remote delivery after it stores all prepared objects.
+
+```ts
+const packed = await AIX.packFromSource(files, {
+  signal: controller.signal,
+  async onProgressiveAsset(candidate, context) {
+    if (!candidate.progressiveSupport.supported || !shouldUpload(candidate)) {
+      return { delivery: 'embedded' };
+    }
+
+    const plan = await context.prepare();
+    const receipt = await uploadVerifiedObjects(plan.remoteObjects, {
+      assetVersion: plan.assetVersion,
+      signal: context.signal,
+    });
+    return { delivery: 'progressive', planId: plan.id, receipt };
+  },
+});
+```
+
+The caller owns upload policy, credentials, and cleanup of uploads left
+unreferenced by a failed pack. Return a receipt only after durable storage has
+verified every object. Receipt URLs must be final, immutable HTTPS locators
+without credentials, query strings, or fragments. A rejected callback, invalid
+receipt, or abort fails the pack. `packed.progressiveAssets` reports the
+selected delivery mode and any source bytes retained for ordinary imports.
+
+The media profile accepts ordinary MP4/M4A and prepared fMP4 with
+finite H.264 video, AAC-LC audio, or both. The packer copies encoded samples
+into keyframe-aligned fragments and preserves a single continuous rate-one
+edit per track. Incompatible codecs or timelines can be converted upstream
+or embedded. The Ink runtime must support the selected profile.
+
+The browser integration test runs a local HTTPS Studio stand-in. It receives
+object bytes over HTTP PUT, verifies length and SHA-256 on disk, and issues
+receipts only after the entire inventory is present. Set `INK_WEB_DIST` to a
+built Ink Web SDK to also test browser playback and offline reopening through the same object server.
+
+In [Play's Build view](https://yodaos-project.github.io/aix/play?mode=build),
+select a project directory and choose **Build and download**. Play calls
+`onProgressiveAsset` for each declared asset and simulates the upload for
+supported media. The downloaded package contains placeholder URLs you can
+view in Inspect.
+
+```sh
+npm run build
+AIX_TEST_BROWSER_CHANNEL=chrome node scripts/test-progressive.js
+```

@@ -51,19 +51,19 @@ for (const name of ['results']) {
   }
 }
 
-// 5. Fix import paths
-console.log('Fixing import paths in dist/index.js...');
-const distIndexJs = path.join(distDir, 'index.js');
-const distIndexDts = path.join(distDir, 'index.d.ts');
-
-[distIndexJs, distIndexDts].forEach((file) => {
-  if (fs.existsSync(file)) {
-    let content = fs.readFileSync(file, 'utf-8');
-    content = content.replace(/\.\.\/dist\/pkg\//g, './pkg/');
-    content = content.replace(/\.\.\/dist\/pkg-reader\//g, './pkg-reader/');
-    fs.writeFileSync(file, content);
-  }
-});
+// 5. Make WASM imports relative to each emitted file in dist.
+console.log('Fixing WASM import paths in SDK output...');
+for (const [name, sourcePrefix, outputPrefix] of [
+  ['index.js', '../dist/', './'],
+  ['index.d.ts', '../dist/', './'],
+  ['workers/progressive-worker.js', '../../dist/', '../'],
+]) {
+  const file = path.join(distDir, name);
+  const content = fs.readFileSync(file, 'utf-8')
+    .replaceAll(`${sourcePrefix}pkg/`, `${outputPrefix}pkg/`)
+    .replaceAll(`${sourcePrefix}pkg-reader/`, `${outputPrefix}pkg-reader/`);
+  fs.writeFileSync(file, content);
+}
 
 // 6. Generate package.json for publishing
 console.log('Generating dist/package.json...');

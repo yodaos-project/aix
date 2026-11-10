@@ -2076,6 +2076,57 @@ html[lang="ja"] kbd {
   opacity: 0.62;
 }
 
+.lab-build-assets {
+  padding: 14px 24px;
+  border-top: 1px solid var(--vp-c-divider);
+  color: var(--aix-muted);
+}
+
+.lab-build-assets p {
+  margin: 0;
+}
+
+.lab-build-assets h2 {
+  margin: 0 0 8px;
+  padding: 0;
+  border: 0;
+  color: var(--aix-ink);
+  font-size: 1.05rem;
+}
+
+.lab-build-assets-scroll {
+  margin: 0 0 10px;
+  overflow-x: auto;
+}
+
+.lab-build-assets table {
+  display: table;
+  width: 100%;
+  min-width: 34rem;
+  margin: 0;
+}
+
+.lab-build-assets th,
+.lab-build-assets td {
+  text-align: left;
+  vertical-align: top;
+}
+
+.lab-build-assets td:nth-child(3) {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.lab-build-assets code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.lab-build-assets small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
 .lab-build-result {
   display: flex;
   align-items: center;

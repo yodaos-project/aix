@@ -1,6 +1,149 @@
 use super::*;
 use wasm_bindgen_test::wasm_bindgen_test;
 
+fn progressive_sources() -> Vec<InputFile> {
+    vec![
+        InputFile::new("app.json", br#"{"pages":[]}"#),
+        InputFile::new("app.js", b"import clip from './clip.m4a' with { type: 'audio', progressive: 'prefer' }; export default { clip };"),
+        InputFile::new("clip.m4a", include_bytes!("../../aix-pack/tests/data/tone-flat.m4a")),
+        InputFile::new(".aixignore", b"ignored.json"),
+        InputFile::new("ignored.json", b"not JSON"),
+    ]
+}
+
+#[wasm_bindgen_test]
+fn progressive_pack_round_trips_typed_fragments_and_receipts() {
+    let mut session =
+        ProgressivePackWasm::new(to_value(&progressive_sources()).unwrap(), true).unwrap();
+    let candidates: Vec<serde_json::Value> =
+        serde_wasm_bindgen::from_value(session.candidates().unwrap()).unwrap();
+    assert_eq!(candidates.len(), 1);
+    assert_eq!(candidates[0]["sourcePath"], "clip.m4a");
+    assert_eq!(candidates[0]["progressiveSupport"]["supported"], true);
+    let id = candidates[0]["id"].as_str().unwrap();
+    let plan = session.prepare(id.into()).unwrap();
+    let get = |object: &JsValue, key: &str| js_sys::Reflect::get(object, &key.into()).unwrap();
+    let objects = js_sys::Array::from(&get(&plan, "remoteObjects"));
+    assert!(objects.length() > 1);
+    let receipt_objects: Vec<_> = objects
+        .iter()
+        .map(|object| {
+            use wasm_bindgen::JsCast;
+            let bytes = get(&object, "bytes")
+                .dyn_into::<js_sys::Uint8Array>()
+                .unwrap();
+            let hash = aix::crypto::sha256(&bytes.to_vec());
+            assert_eq!(get(&object, "sha256").as_string().unwrap(), hash);
+            assert_eq!(
+                get(&object, "size").as_f64().unwrap(),
+                f64::from(bytes.length())
+            );
+            serde_json::json!({
+                "id": get(&object, "id").as_string().unwrap(),
+                "size": bytes.length(),
+                "sha256": hash,
+                "url": format!("https://assets.example/{hash}"),
+            })
+        })
+        .collect();
+    let decisions = to_value(&serde_json::json!({
+        id: {
+            "delivery": "progressive",
+            "planId": get(&plan, "id").as_string().unwrap(),
+            "receipt": {
+                "uploadId": "upload",
+                "assetVersion": get(&plan, "assetVersion").as_string().unwrap(),
+                "objects": receipt_objects,
+            }
+        }
+    }))
+    .unwrap();
+    let packed = session
+        .finalize(
+            decisions,
+            "build".into(),
+            None,
+            JsValue::UNDEFINED,
+            None,
+            Some(Function::new_with_args(
+                "event",
+                "if (!event.type) throw Error('missing type');",
+            )),
+        )
+        .unwrap();
+    let report: Vec<serde_json::Value> =
+        serde_wasm_bindgen::from_value(packed.progressive_assets().unwrap()).unwrap();
+    assert_eq!(report[0]["delivery"], "progressive");
+    let reader = AixReader::new(packed.data).unwrap();
+    assert!(reader
+        .read_file(aix::progressive_assets::INDEX_PATH)
+        .is_ok());
+    assert!(reader.read_file("clip.m4a").is_err());
+    assert!(reader.read_file("ignored.json").is_err());
+    assert!(session.candidates().is_err());
+    assert!(session.prepare(id.into()).is_err());
+
+    let mut session =
+        ProgressivePackWasm::new(to_value(&progressive_sources()).unwrap(), true).unwrap();
+    let packed = session
+        .finalize(
+            to_value(&serde_json::json!({})).unwrap(),
+            "embedded".into(),
+            None,
+            JsValue::UNDEFINED,
+            None,
+            None,
+        )
+        .unwrap();
+    let reader = AixReader::new(packed.data).unwrap();
+    assert_eq!(
+        reader.read_file("clip.m4a").unwrap(),
+        include_bytes!("../../aix-pack/tests/data/tone-flat.m4a")
+    );
+}
+
+#[wasm_bindgen_test]
+fn progressive_pack_surfaces_input_and_callback_errors() {
+    assert!(ProgressivePackWasm::new(JsValue::NULL, false).is_err());
+    let invalid = to_value(&vec![InputFile::new(".aixignore", b"[z-a]")]).unwrap();
+    assert!(ProgressivePackWasm::new(invalid, true).is_err());
+    let reserved = to_value(&vec![InputFile::new("VERSION", b"bad")]).unwrap();
+    assert!(ProgressivePackWasm::new(reserved, false).is_err());
+
+    let mut session = ProgressivePackWasm::new(to_value(&files()).unwrap(), false).unwrap();
+    assert!(session.prepare("missing".into()).is_err());
+    let empty = to_value(&serde_json::json!({})).unwrap();
+    assert!(session
+        .finalize(
+            JsValue::NULL,
+            "build".into(),
+            None,
+            JsValue::NULL,
+            None,
+            None
+        )
+        .is_err());
+    let error = session
+        .finalize(
+            empty.clone(),
+            "build".into(),
+            None,
+            JsValue::NULL,
+            None,
+            Some(Function::new_no_args(
+                "throw Error('stop progressive pack');",
+            )),
+        )
+        .err()
+        .unwrap();
+    assert!(error.as_string().unwrap().contains("stop progressive pack"));
+    let error = session
+        .finalize(empty, "build".into(), None, JsValue::NULL, None, None)
+        .err()
+        .unwrap();
+    assert_eq!(error.as_string().as_deref(), Some("pack session finalized"));
+}
+
 fn files() -> Vec<InputFile> {
     vec![
         InputFile::new("app.json", br#"{"pages":["home"],"widgets":[{"path":"card","family":"1x1"}],"window":{"navigationBarTitleText":"Example"}}"#),

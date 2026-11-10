@@ -274,6 +274,24 @@ META-INF/aix/public-key.ed25519  # 32-byte public key
 
 The signature covers the manifest with context `package-manifest` and the domain prefix `AIX-SIGNATURE\0`. Verification checks the algorithm/digest identifiers, engine range, trusted `key_id`, signature, entry ordering, every entry digest and size, absence of unsigned application entries, `manifest.version == VERSION`, and the calculated package id. A valid ZIP is not necessarily a trusted AIX package until these checks pass.
 
+### 7.1 Progressive media metadata {#progressive-media-metadata}
+
+Packages with Progressive Assets include an optional `progressive_assets`
+object in the manifest. Schema version 1 uses `schema_version: 1`,
+`index_path: "META-INF/assets/progressive_assets/index.json"`, and
+`index_sha256` containing the lowercase SHA-256 of the uncompressed index
+bytes. The index and other files under `META-INF/assets/progressive_assets/`
+are application entries and participate in the package digest.
+
+The index maps the identifier in each `aix-asset:<id>` reference to an
+`audio` or `video` entry. An `embedded` entry points to source media in
+the archive. A `progressive` entry points to a hashed descriptor that
+identifies the local initialization segment, track timeline, and external
+fragment objects. Each fragment has an expected size and SHA-256 and
+an HTTPS locator. Playback consumers verify fetched bytes before use.
+The archive carries the initialization segment and metadata for remotely
+delivered media. Playback fragments are delivered separately.
+
 ## 8. Engine Compatibility
 
 The manifest `engine` field is a semver requirement. A bare version such as `0.14.0` is interpreted as `=0.14.0`; ranges such as `^0.14.0`, `>=0.14.0`, and `*` use normal semver matching. Invalid ranges make the package non-conformant.
@@ -454,6 +472,7 @@ whether `_blank` means a new surface, isolated context, or initial navigation.
 | `key_id` | string | yes | `sha256:` plus lowercase hex SHA-256 of the trusted public key; empty for unsigned manifests. |
 | `package_id` | string | yes | `sha256:` plus lowercase hex digest of the canonical entry sequence. |
 | `entries` | array of ManifestEntry | yes | Strictly byte-sorted; excludes all `META-INF/aix/` paths. |
+| `progressive_assets` | object | no | Schema version, package-relative index path, and index SHA-256 for progressive media. |
 
 #### Manifest entry
 

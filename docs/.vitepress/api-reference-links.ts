@@ -21,14 +21,14 @@ function referenceFor(content: string, references: References): string | undefin
   }
 }
 
-/** Link only public symbols documented on the Chinese API page. */
+/** Link public symbols on each localized API page. */
 export function apiReferenceLinks(md: MarkdownRenderer) {
   md.core.ruler.push("aix-api-references", (state) => {
     const env = state.env as ReferenceEnvironment;
-    if (env.relativePath !== "zh-CN/api.md") return;
+    if (!/^(?:(?:zh-CN|ja)\/)?api\.md$/.test(env.relativePath ?? "")) return;
 
     const references: References = {
-      types: new Map([["AIX", "#aix-instance"]]),
+      types: new Map([["AIX", "#instance-methods"]]),
       methods: new Map(),
     };
     for (let index = 0; index < state.tokens.length; index++) {
@@ -41,10 +41,10 @@ export function apiReferenceLinks(md: MarkdownRenderer) {
       }
       if (token.type === "heading_open" && token.tag === "h4") {
         const title = state.tokens[index + 1]?.content ?? "";
-        const method = /^(AIX|pkg)\.([A-Za-z_]\w*)\(/.exec(title);
+        const method = /^(?:(AIX|pkg)\.)?([A-Za-z_]\w*)\(/.exec(title);
         const id = token.attrGet("id");
         if (method && id) {
-          references.methods.set(`${method[1]}.${method[2]}`, `#${id}`);
+          references.methods.set(`${method[1] ?? "pkg"}.${method[2]}`, `#${id}`);
           references.methods.set(method[2], `#${id}`);
         }
       }
@@ -55,7 +55,7 @@ export function apiReferenceLinks(md: MarkdownRenderer) {
     for (let index = 0; index < state.tokens.length; index++) {
       const token = state.tokens[index];
       if (token.type === "heading_open" && token.tag === "h2") {
-        inReference = state.tokens[index + 1]?.content === "API Reference";
+        inReference = token.attrGet("id") === "api-reference";
       }
       let linkDepth = 0;
       for (const child of token.children ?? []) {
