@@ -169,7 +169,7 @@ export default { tone, movie };
     assert(result.paths.includes('META-INF/assets/progressive_assets/index.json'));
     assert(!result.paths.includes('assets/clip.mp4'));
     assert(result.embedded && result.badReceiptRejected && result.uploadAborted);
-    assert(requests.includes('/progressive-worker.js'));
+    assert(requests.includes('/workers/progressive-worker.js'));
     assert(upload.requests.some(([method, pathname]) => method === 'PUT' && pathname.startsWith('/studio/uploads/')));
     assert(upload.requests.some(([method, pathname]) => method === 'GET' && pathname.startsWith('/objects/')));
     console.log('Progressive Asset browser worker, Studio HTTPS upload, flat MP4/M4A, abort, and embedded fallback passed');

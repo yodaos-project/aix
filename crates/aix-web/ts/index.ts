@@ -555,7 +555,7 @@ async function openPackSession(
   let worker: Worker | undefined;
   if (typeof Worker !== 'undefined' && typeof document !== 'undefined') {
     try {
-      worker = new Worker(new URL('./progressive-worker.js', import.meta.url), { type: 'module' });
+      worker = new Worker(new URL('./workers/progressive-worker.js', import.meta.url), { type: 'module' });
     } catch {
       // A host can forbid workers. Use its existing WASM event loop.
     }

@@ -1,11 +1,21 @@
-import init, { ProgressivePackWasm } from '../dist/pkg/aix_web.js';
+/**
+ * Runs one staged AIX pack session in a browser worker. Moving scanning,
+ * media remuxing, and packaging off the main thread keeps the page responsive.
+ *
+ * `open` starts the WASM session and reports candidates. `prepare` returns the
+ * upload plan and transfers its media fragments to the SDK. The caller's
+ * `onProgressiveAsset` callback handles uploads and returns a delivery decision
+ * with a receipt for remote assets. `finalize` passes those decisions to WASM
+ * to validate receipts and build the .aix archive.
+ */
+import init, { ProgressivePackWasm } from '../../dist/pkg/aix_web.js';
 import type {
   AixInputFile,
   OptimizeOptions,
   PackProgressEvent,
   ProgressiveAssetDecision,
   ProgressiveAssetPlan,
-} from './index.js';
+} from '../index.js';
 
 type Request =
   | { type: 'open'; files: AixInputFile[]; fromSource: boolean }
