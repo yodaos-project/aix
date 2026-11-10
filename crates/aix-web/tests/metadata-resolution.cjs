@@ -6,6 +6,16 @@ module.exports = async function testMetadataResolution(page) {
     const { AixReaderWasm } = await import('./pkg/aix_web.js');
     const good = '<script def>{"navigationBarTitleText":"Good"}</script><page><view /></page>';
     const cases = [
+      { files: { 'app.json': '{"pages":["card","home","details"],"entryPagePath":"home"}',
+        'card.ink': '<script def>{"target":"inline"}</script><page><view /></page>',
+        'home.ink': good,
+        'details.json': '{"target":"_blank"}',
+        'details.wxml': '<view />' },
+        names: ['home', 'card', 'details'], targets: ['_blank', '_current', '_blank'], errors: [], legacy: 3 },
+      { files: { 'app.json': '{"pages":["home","card"]}',
+        'home.ink': '<script def>{"schema":{"data":{"type":"string"}}}</script><page><view /></page>',
+        'card.ink': good },
+        names: ['home', 'card'], targets: ['_current', '_current'], errors: [], legacy: 2 },
       { files: { 'app.json': '{"pages":["missing","good"]}', 'good.ink': good },
         names: ['good'], errors: ['missing.json'], legacy: 2 },
       { files: { 'app.json': '{"pages":["good"],"widgets":[{"path":"card","family":"1x1","placement":"invalid"}],"window":{"navigationBarTitleText":"Title"}}', 'good.ink': good },
@@ -40,7 +50,7 @@ module.exports = async function testMetadataResolution(page) {
       catch (error) { widgetError = String(error); }
       results.push({
         report: reader.resolveMetadata(), rawReport: raw.resolve_metadata(),
-        legacy: reader.getPages().length, legacyTools: reader.getTools().length,
+        legacyPages: reader.getPages().map((page) => page.name), legacyTools: reader.getTools(),
         widgetError, title: reader.getTitle(),
         expected: { ...test, files: undefined },
       });
@@ -48,14 +58,19 @@ module.exports = async function testMetadataResolution(page) {
     }
     return results;
   });
-  for (const { report, rawReport, legacy, legacyTools, widgetError, title, expected } of results) {
+  for (const { report, rawReport, legacyPages, legacyTools, widgetError, title, expected } of results) {
     assert.deepEqual(report, rawReport);
     assert.deepEqual(report.pages.map((page) => page.name), expected.names);
     assert.deepEqual(report.tools.map((tool) => tool.function.name), expected.names);
     assert.deepEqual(report.diagnostics.map((diagnostic) => diagnostic.path), expected.errors);
     assert(report.diagnostics.every((diagnostic) => diagnostic.message.length > 0));
-    assert.equal(legacy, expected.legacy);
-    assert.equal(legacyTools, expected.legacy);
+    assert.equal(legacyPages.length, expected.legacy);
+    assert.equal(legacyTools.length, expected.legacy);
+    if (expected.targets) {
+      assert.deepEqual(legacyPages, expected.names);
+      assert.deepEqual(legacyTools, report.tools);
+      assert.deepEqual(report.tools.map((tool) => tool.target), expected.targets);
+    }
     if (expected.widgetError) assert.match(widgetError, /Invalid app.json/);
     if (expected.title) assert.equal(title, expected.title);
     if (expected.width) assert.equal(report.pages[0].size.width, expected.width);

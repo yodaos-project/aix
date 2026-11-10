@@ -116,12 +116,13 @@ META-INF/aix/manifest.json      # 推荐的生成 Manifest
 ```json
 {
   "pages": ["pages/index/index", "pages/settings/index"],
+  "entryPagePath": "pages/index/index",
   "widgets": [{"path":"widgets/clock/index","family":"1x1","placement":"persistent","displayName":"Clock","description":"Current time"}],
   "window": {"navigationBarTitleText":"Example agent"}
 }
 ```
 
-`pages` 是无扩展名逻辑路径且顺序有意义。Widget 的 `placement` 默认为 `persistent`，也可为 `overlay`；locale overlay 可替换 Widget 名称和描述。
+`pages` 是无扩展名的逻辑路径。默认页由 `entryPagePath` 指定，必须是 `pages` 中的路径。省略时取 `pages` 的第一项。Widget 的 `placement` 默认为 `persistent`，也可为 `overlay`；locale overlay 可替换 Widget 名称和描述。
 
 ## 4. 页面与 OAF 资源
 
@@ -131,6 +132,7 @@ META-INF/aix/manifest.json      # 推荐的生成 Manifest
 {
   "navigationBarTitleText":"Search",
   "description":"Search the knowledge base",
+  "target":"_inline",
   "schema":{"data":{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}}
 }
 ```
@@ -154,7 +156,15 @@ META-INF/aix/manifest.json      # 推荐的生成 Manifest
 {"type":"function","target":"_current","layout":{"width":480,"height":168},"function":{"name":"pages/search/index","description":"Search the knowledge base","parameters":{"type":"object","properties":{"query":{"type":"string"}}}}}
 ```
 
-`function.name` 是逻辑页面路径，描述优先页面 `description` 再回退标题，参数严格等于 `schema.data`，格式不做 Schema 转换或验证。第一个声明页面若 Schema 为 null、`{}` 或空 `properties` 对象，则一次性使用 `_blank` 和 `{}`；否则及其余页面均为 `_current`。改变 `app.json.pages` 顺序可能改变初始工具目标。
+`function.name` 是逻辑页面路径，描述优先取页面 `description`，其次取标题。参数来自 `schema.data`。
+
+页面可以在 JSON 或 `.ink` 的 `<script def>` 中声明 `target`。AIX 输出 `_blank` 或 `_current`，其中 `_inline` 和 `inline` 都是 `_current` 的输入别名。多个页面可以共用一个 target。
+
+配置了有效的 `entryPagePath` 或页面 target 时，默认页及其工具排在首位。默认页即使带参数或声明了内联 target，也输出 `_blank`。其余页面保持声明顺序，使用各自的 target，省略时使用 `_current`。
+
+两个字段都省略时，沿用旧推导规则。只有首项且没有参数的页面输出 `_blank`，其他页面输出 `_current`。
+
+默认页未声明 target 且没有参数时，工具参数输出 `{}`。
 
 ## 7. Manifest、完整性与签名
 
@@ -227,6 +237,7 @@ front matter 由 `---` 分隔。首个非空正文行以 `#` 开头时是结构�
 | 字段 | 类型 | 必需 | 默认值 | 约束与行为 |
 | --- | --- | --- | --- | --- |
 | `pages` | string 数组 | 是 | 无 | 非空逻辑路径，顺序有意义。 |
+| `entryPagePath` | string | 否 | 首个页面 | `pages` 中的默认页路径。 |
 | `widgets` | Widget 数组 | 否 | `[]` | 解析时需匹配 `{path}.ink`。 |
 | `window` | Window 对象 | 否 | 无 | 当前只消费 `navigationBarTitleText`。 |
 
@@ -240,10 +251,11 @@ Widget 字段：`path` 为必需无扩展名路径，`family` 为必需的宿主
 | --- | --- | --- | --- | --- |
 | `navigationBarTitleText` | string/null | 否 | null | 页面标题。 |
 | `description` | string/null | 否 | null | 工具元数据描述。 |
+| `target` | string | 否 | 自动推导 | `_blank` 或 `_current`，接受 `_inline` 作为内联别名。 |
 | `schema` | object/null | 否 | 无 | 输入 Schema 容器。 |
 | `schema.data` | 任意 JSON | 否 | `{}` | 原样作为工具参数。 |
 
-只有首页面目标选择把 null、空对象和空 `properties` 当作无参数；其他值均保留。Ink 的 `script def` 提供 JSON，`page`/`template` 提供标记，`style` 提供 CSS。可选页面损坏可回退并诊断。
+默认页未声明 target 时，null、空对象或具有空 `properties` 的对象 Schema 在工具参数里归一为 `{}`。Ink 的 `script def` 提供 JSON，`page`/`template` 提供标记，`style` 提供 CSS。可选页面损坏可回退并诊断。
 
 ### 12.4 派生 `PageInfo` 字段
 
@@ -263,11 +275,11 @@ Widget 字段：`path` 为必需无扩展名路径，`family` 为必需的宿主
 | 字段 | 类型 | 必需 | 值与行为 |
 | --- | --- | --- | --- |
 | `type` | string | 是 | `function`。 |
-| `target` | enum | 是 | 首个无参数页面 `_blank`，其余 `_current`。 |
+| `target` | enum | 是 | `_blank` 或 `_current`，按第 6 节的规则推导。 |
 | `layout` | PageConstraint | 是 | 页面推导的 size。 |
 | `function.name` | string | 是 | 逻辑页面路径。 |
 | `function.description` | string/null | 是 | description，缺失回退 title。 |
-| `function.parameters` | JSON | 是 | 精确 `schema.data`，首个 `_blank` 使用 `{}`。 |
+| `function.parameters` | JSON | 是 | 页面 `schema.data`。默认页未声明 target 时，空 Schema 归一为 `{}`。 |
 
 `target` 是渲染指令，不是安全边界；宿主决定 `_blank` 的实际展示方式。
 

@@ -105,9 +105,10 @@ impl MetadataDiagnostic {
 
 /// Resolved pages and tools, together with failures that tolerant getters hide.
 ///
-/// A failed page is omitted from both lists; other pages retain declaration
-/// order. An empty `diagnostics` list distinguishes a valid empty result from
-/// failed resolution. Widget metadata is resolved separately by `get_widgets`.
+/// A failed page is omitted from both lists. The default page comes first when
+/// resolved, and the remaining pages retain declaration order. An empty
+/// `diagnostics` list distinguishes a valid empty result from failed resolution.
+/// Widget metadata is resolved separately by `get_widgets`.
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct MetadataResolution {
     /// Pages whose required resources and metadata could be read.
@@ -165,7 +166,12 @@ pub struct Tool {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum ToolTarget {
     /// Open the page in the current runtime context.
-    #[serde(rename = "_current", alias = "current")]
+    #[serde(
+        rename = "_current",
+        alias = "_inline",
+        alias = "current",
+        alias = "inline"
+    )]
     Current,
     /// Open the page in a fresh or blank runtime context.
     #[serde(rename = "_blank", alias = "blank")]
@@ -186,6 +192,8 @@ pub struct FunctionDefinition {
 #[derive(Deserialize)]
 struct AppPagesConfig {
     pub pages: Vec<String>,
+    #[serde(rename = "entryPagePath")]
+    pub entry_page_path: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -234,11 +242,46 @@ struct PageConfig {
     pub navigation_bar_title_text: Option<String>,
     pub description: Option<String>,
     pub schema: Option<PageSchema>,
+    pub target: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize, Debug)]
 struct PageSchema {
     pub data: Option<serde_json::Value>,
+}
+
+struct ResolvedPage {
+    info: PageInfo,
+    target: Option<ToolTarget>,
+    is_blank_entry: bool,
+}
+
+impl ResolvedPage {
+    fn into_tool(self) -> Tool {
+        let parameters = if self.is_blank_entry
+            && self.target.is_none()
+            && !page_has_parameters(&self.info.data_schema)
+        {
+            serde_json::json!({})
+        } else {
+            self.info.data_schema
+        };
+        let target = if self.is_blank_entry {
+            ToolTarget::Blank
+        } else {
+            self.target.unwrap_or(ToolTarget::Current)
+        };
+        Tool {
+            r#type: "function".to_string(),
+            target,
+            layout: self.info.size,
+            function: FunctionDefinition {
+                name: self.info.name,
+                description: self.info.description.or(self.info.title),
+                parameters,
+            },
+        }
+    }
 }
 
 /// Reads and inspects `.aix` packages from an in-memory byte buffer.
@@ -759,16 +802,13 @@ impl AixReader {
     ///
     /// Invalid `app.json.pages` returns an empty list. Missing resources and
     /// malformed page metadata retain defaults and may still produce tools.
+    /// The default page comes first; the remaining pages retain declaration order.
     /// Widget and title configuration are parsed independently. Use
     /// [`Self::resolve_metadata`] to observe failures and exclude unresolved pages.
     pub fn get_pages(&self) -> Vec<PageInfo> {
-        let Ok(config) = self.read_app_config::<AppPagesConfig>() else {
-            return Vec::new();
-        };
-        config
-            .pages
+        self.resolve_pages(false, &mut Vec::new())
             .into_iter()
-            .filter_map(|path| self.resolve_page(&path, false).ok())
+            .map(|page| page.info)
             .collect()
     }
 
@@ -781,29 +821,70 @@ impl AixReader {
     /// A broken Ink entry never falls back to traditional files in this API.
     ///
     /// Failed pages are omitted from `pages` and `tools`, with one diagnostic
-    /// per page; other pages remain available in declaration order. An unreadable
-    /// or invalid `app.json.pages` produces an `app.json` diagnostic. Widget and
-    /// title fields are outside page resolution and cannot hide valid pages.
+    /// per page. An invalid `entryPagePath` produces an `app.json` diagnostic
+    /// and falls back to the first declared page. Widget and title fields are
+    /// outside page resolution and cannot hide valid pages.
     ///
     /// This checks resource/metadata resolution, not full Ink syntax, JSON Schema
     /// validity, or runtime execution. Use source checking for those static rules.
     pub fn resolve_metadata(&self) -> MetadataResolution {
         let mut result = MetadataResolution::default();
-        match self.read_app_config::<AppPagesConfig>() {
-            Ok(config) => {
-                for path in config.pages {
-                    match self.resolve_page(&path, true) {
-                        Ok(page) => result.pages.push(page),
-                        Err(diagnostic) => result.diagnostics.push(diagnostic),
-                    }
-                }
-            }
-            Err(error) => result
-                .diagnostics
-                .push(MetadataDiagnostic::new("app.json", error)),
+        for page in self.resolve_pages(true, &mut result.diagnostics) {
+            result.pages.push(page.info.clone());
+            result.tools.push(page.into_tool());
         }
-        result.tools = tools_from_pages(result.pages.clone());
         result
+    }
+
+    fn resolve_pages(
+        &self,
+        strict: bool,
+        diagnostics: &mut Vec<MetadataDiagnostic>,
+    ) -> Vec<ResolvedPage> {
+        let mut config = match self.read_app_config::<AppPagesConfig>() {
+            Ok(config) => config,
+            Err(error) => {
+                if strict {
+                    diagnostics.push(MetadataDiagnostic::new("app.json", error));
+                }
+                return Vec::new();
+            }
+        };
+        let entry_index = config
+            .entry_page_path
+            .as_ref()
+            .and_then(serde_json::Value::as_str)
+            .and_then(|entry| config.pages.iter().position(|path| path == entry));
+        if let Some(index) = entry_index {
+            config.pages[..=index].rotate_right(1);
+        } else if strict && config.entry_page_path.is_some() {
+            diagnostics.push(MetadataDiagnostic::new(
+                "app.json",
+                "entryPagePath must be a path declared in pages",
+            ));
+        }
+        let mut pages: Vec<_> = config
+            .pages
+            .into_iter()
+            .enumerate()
+            .filter_map(
+                |(index, path)| match self.resolve_page(&path, index == 0, strict) {
+                    Ok(page) => Some(page),
+                    Err(diagnostic) => {
+                        diagnostics.push(diagnostic);
+                        None
+                    }
+                },
+            )
+            .collect();
+        if entry_index.is_none() && !pages.iter().any(|page| page.target.is_some()) {
+            // Legacy inference considers the first resolved page, even if strict
+            // resolution skipped the first declared page.
+            if let Some(first) = pages.first_mut() {
+                first.is_blank_entry = !page_has_parameters(&first.info.data_schema);
+            }
+        }
+        pages
     }
 
     fn read_page_text(
@@ -827,14 +908,19 @@ impl AixReader {
     fn resolve_page(
         &self,
         path: &str,
+        is_blank_entry: bool,
         strict: bool,
-    ) -> core::result::Result<PageInfo, MetadataDiagnostic> {
-        let mut page = PageInfo {
-            name: path.to_string(),
-            title: None,
-            description: None,
-            data_schema: serde_json::json!({}),
-            size: PageConstraint::default(),
+    ) -> core::result::Result<ResolvedPage, MetadataDiagnostic> {
+        let mut page = ResolvedPage {
+            info: PageInfo {
+                name: path.to_string(),
+                title: None,
+                description: None,
+                data_schema: serde_json::json!({}),
+                size: PageConstraint::default(),
+            },
+            target: None,
+            is_blank_entry,
         };
         let ink_path = format!("{}.ink", path);
         if let Some(content) = self.read_page_text(&ink_path, strict)? {
@@ -844,7 +930,7 @@ impl AixReader {
                     apply_page_config(&mut page, block.body, &ink_path, strict)?;
                 }
             }
-            page.size = PageAnalyzer::analyze_sfc_blocks(&blocks);
+            page.info.size = PageAnalyzer::analyze_sfc_blocks(&blocks);
         } else {
             let json_path = format!("{}.json", path);
             if let Some(content) = self.read_page_text(&json_path, strict)? {
@@ -876,7 +962,7 @@ impl AixReader {
                     .and_then(|bytes| String::from_utf8(bytes).ok())
             };
             if let Some(markup) = markup {
-                page.size = PageAnalyzer::analyze(Some(&markup), style.as_deref());
+                page.info.size = PageAnalyzer::analyze(Some(&markup), style.as_deref());
             }
         }
         Ok(page)
@@ -969,21 +1055,25 @@ impl AixReader {
 
     /// Derives agent-facing tools from the package page list.
     ///
-    /// The first page without parameters is exposed as [`ToolTarget::Blank`],
-    /// while every other page is emitted as [`ToolTarget::Current`]. Parameter
-    /// schemas and layout hints are taken from [`Self::get_pages`].
+    /// With an `entryPagePath` or an explicit page target, the default page is
+    /// emitted first with [`ToolTarget::Blank`]. Other pages use their configured
+    /// target or [`ToolTarget::Current`] when omitted. Otherwise, only a first
+    /// page without parameters is emitted with [`ToolTarget::Blank`].
     ///
     /// # Returns
     ///
     /// Returns a list of OpenAI-style tool definitions derived from package
     /// pages.
     pub fn get_tools(&self) -> Vec<Tool> {
-        tools_from_pages(self.get_pages())
+        self.resolve_pages(false, &mut Vec::new())
+            .into_iter()
+            .map(ResolvedPage::into_tool)
+            .collect()
     }
 }
 
 fn apply_page_config(
-    page: &mut PageInfo,
+    page: &mut ResolvedPage,
     content: &str,
     resource: &str,
     strict: bool,
@@ -996,14 +1086,29 @@ fn apply_page_config(
     }
     match serde_json::from_str::<PageConfig>(content) {
         Ok(config) => {
-            page.title = config.navigation_bar_title_text;
-            page.description = config.description;
+            if let Some(target) = config.target {
+                match ToolTarget::deserialize(&target) {
+                    Ok(parsed) if target.is_string() => page.target = Some(parsed),
+                    _ => {
+                        let message = "Invalid page target: expected _blank, _inline, or _current";
+                        if strict {
+                            return Err(MetadataDiagnostic::new(resource, message));
+                        }
+                        aix_warn(&format!("{resource}: {message}"));
+                    }
+                }
+            }
+            page.info.title = config.navigation_bar_title_text;
+            page.info.description = config.description;
             match config.schema {
                 Some(schema) => match schema.data {
-                    Some(data) => page.data_schema = data,
-                    None => aix_warn(&format!("Missing 'data' in schema for page: {}", page.name)),
+                    Some(data) => page.info.data_schema = data,
+                    None => aix_warn(&format!(
+                        "Missing 'data' in schema for page: {}",
+                        page.info.name
+                    )),
                 },
-                None => aix_warn(&format!("Missing 'schema' for page: {}", page.name)),
+                None => aix_warn(&format!("Missing 'schema' for page: {}", page.info.name)),
             }
             Ok(())
         }
@@ -1021,50 +1126,6 @@ fn starts_json_object(bytes: &[u8]) -> bool {
         .copied()
         .find(|byte| !byte.is_ascii_whitespace())
         == Some(b'{')
-}
-
-fn tools_from_pages(pages: Vec<PageInfo>) -> Vec<Tool> {
-    let mut tools = Vec::new();
-
-    for (index, page) in pages.into_iter().enumerate() {
-        let has_parameters = page_has_parameters(&page.data_schema);
-        let name = page.name;
-        let description = page.description.or(page.title);
-        let layout = page.size;
-        let parameters = page.data_schema;
-
-        let current_tool = Tool {
-            r#type: "function".to_string(),
-            target: ToolTarget::Current,
-            layout,
-            function: FunctionDefinition {
-                name: name.clone(),
-                description: description.clone(),
-                parameters,
-            },
-        };
-
-        if index == 0 {
-            if has_parameters {
-                tools.push(current_tool);
-            } else {
-                tools.push(Tool {
-                    r#type: "function".to_string(),
-                    target: ToolTarget::Blank,
-                    layout,
-                    function: FunctionDefinition {
-                        name,
-                        description,
-                        parameters: serde_json::json!({}),
-                    },
-                });
-            }
-        } else {
-            tools.push(current_tool);
-        }
-    }
-
-    tools
 }
 
 fn page_has_parameters(data_schema: &serde_json::Value) -> bool {
@@ -1183,6 +1244,120 @@ mod tests {
         assert_eq!(report.diagnostics.len(), 1);
         assert_eq!(report.diagnostics[0].path, "missing.json");
         assert!(report.diagnostics[0].message.contains("missing"));
+    }
+
+    #[test]
+    fn resolves_default_page_first_and_normalizes_explicit_tool_targets() {
+        let reader = archive(vec![
+            ("app.json", br#"{"pages":["auto","detail","home","card","status"],"entryPagePath":"home"}"#.to_vec()),
+            ("auto.ink", b"<page><view /></page>".to_vec()),
+            ("detail.json", br#"{"target":"_blank","schema":{"data":{"type":"string"}}}"#.to_vec()),
+            ("detail.wxml", b"<view />".to_vec()),
+            ("home.ink", br#"<script def>{"target":"_current","schema":{"data":{"type":"number"}}}</script><page><view /></page>"#.to_vec()),
+            ("card.ink", br#"<script def>{"target":"_current"}</script><page><view /></page>"#.to_vec()),
+            ("status.json", br#"{"target":"_inline"}"#.to_vec()),
+            ("status.wxml", b"<view />".to_vec()),
+        ]);
+
+        let names = ["home", "auto", "detail", "card", "status"];
+        let report = reader.resolve_metadata();
+        assert!(report.diagnostics.is_empty());
+        for pages in [reader.get_pages(), report.pages] {
+            assert_eq!(
+                pages
+                    .iter()
+                    .map(|page| page.name.as_str())
+                    .collect::<Vec<_>>(),
+                names
+            );
+        }
+        for tools in [reader.get_tools(), report.tools] {
+            assert_eq!(
+                tools
+                    .iter()
+                    .map(|tool| tool.function.name.as_str())
+                    .collect::<Vec<_>>(),
+                names
+            );
+            let output = serde_json::to_value(tools).unwrap();
+            assert_eq!(
+                output
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|tool| tool["target"].as_str().unwrap())
+                    .collect::<Vec<_>>(),
+                ["_blank", "_current", "_blank", "_current", "_current"]
+            );
+            assert_eq!(
+                output[0]["function"]["parameters"],
+                serde_json::json!({"type": "number"})
+            );
+            assert_eq!(
+                output[2]["function"]["parameters"],
+                serde_json::json!({"type": "string"})
+            );
+        }
+    }
+
+    #[test]
+    fn entry_path_or_page_target_selects_blank_default_even_with_parameters() {
+        for (app, card) in [
+            (
+                br#"{"pages":["home","card"],"entryPagePath":"home"}"#.as_slice(),
+                b"<page><view /></page>".as_slice(),
+            ),
+            (
+                br#"{"pages":["home","card"]}"#.as_slice(),
+                br#"<script def>{"target":"_inline"}</script><page><view /></page>"#.as_slice(),
+            ),
+        ] {
+            let reader = archive(vec![
+                ("app.json", app.to_vec()),
+                ("home.ink", br#"<script def>{"schema":{"data":{"type":"string"}}}</script><page><view /></page>"#.to_vec()),
+                ("card.ink", card.to_vec()),
+            ]);
+            let report = reader.resolve_metadata();
+            assert!(report.diagnostics.is_empty());
+            for tools in [reader.get_tools(), report.tools] {
+                assert_eq!(tools.len(), 2);
+                assert_eq!(tools[0].function.name, "home");
+                assert_eq!(tools[0].target, ToolTarget::Blank);
+                assert_eq!(tools[0].function.parameters["type"], "string");
+                assert_eq!(tools[1].target, ToolTarget::Current);
+            }
+        }
+    }
+
+    #[test]
+    fn reports_invalid_entry_path_and_target_without_hiding_other_tools() {
+        let reader = archive(vec![
+            (
+                "app.json",
+                br#"{"pages":["home","detail"],"entryPagePath":"unlisted"}"#.to_vec(),
+            ),
+            ("home.ink", b"<page><view /></page>".to_vec()),
+            (
+                "detail.json",
+                br#"{"description":"Detail","target":{"_blank":null}}"#.to_vec(),
+            ),
+            ("detail.wxml", b"<view />".to_vec()),
+        ]);
+
+        let tools = reader.get_tools();
+        assert_eq!(tools[0].target, ToolTarget::Blank);
+        assert_eq!(tools[1].target, ToolTarget::Current);
+        assert_eq!(tools[1].function.description.as_deref(), Some("Detail"));
+
+        let report = reader.resolve_metadata();
+        assert_eq!(report.tools.len(), 1);
+        assert_eq!(report.tools[0].target, ToolTarget::Blank);
+        assert_eq!(report.diagnostics[0].path, "app.json");
+        assert!(report.diagnostics[0].message.contains("entryPagePath"));
+        assert_eq!(report.diagnostics[1].path, "detail.json");
+        assert!(report.diagnostics[1]
+            .message
+            .contains("Invalid page target"));
     }
 
     #[test]

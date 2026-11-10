@@ -6,7 +6,7 @@ use oxc_ast::ast::{CallExpression, Expression, NewExpression};
 use oxc_ast_visit::{walk, Visit};
 use oxc_parser::Parser;
 use oxc_span::SourceType;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -296,6 +296,20 @@ fn check_files_with_coverage(files: &[InputFile]) -> (CheckReport, CheckCoverage
             "pages must be an array of paths",
         ),
         Some(pages) => {
+            if let Some(entry) = app.get("entryPagePath").filter(|value| !value.is_null()) {
+                if !entry
+                    .as_str()
+                    .is_some_and(|path| valid_path(path) && pages.contains(entry))
+                {
+                    report.error(
+                        "AIX048",
+                        "app.json",
+                        app_text,
+                        field_offset(app_text, "entryPagePath"),
+                        "entryPagePath must be a path declared in pages",
+                    );
+                }
+            }
             let positions = object_field(app_text, 0, "pages")
                 .map(|(_, start, _)| array_items(app_text, start))
                 .unwrap_or_default();
@@ -842,6 +856,7 @@ fn check_page(
                     "Page <script def> must be an object",
                 );
             }
+            check_page_target(&def, &ink, content, report);
             check_page_schema(&def, &ink, content, report, schemas);
             check_components(
                 def.get("usingComponents"),
@@ -876,6 +891,7 @@ fn check_page(
                     "Page config must be an object",
                 );
             }
+            check_page_target(def, &config, content, report);
             check_page_schema(def, &config, content, report, schemas);
             check_components(
                 def.get("usingComponents"),
@@ -889,6 +905,20 @@ fn check_page(
         }
     }
 }
+fn check_page_target(def: &Value, path: &str, content: &str, report: &mut CheckReport) {
+    if let Some(target) = def.get("target").filter(|value| !value.is_null()) {
+        if !target.is_string() || aix::ToolTarget::deserialize(target).is_err() {
+            report.error(
+                "AIX049",
+                path,
+                content,
+                field_offset(content, "target"),
+                "Invalid page target: expected _blank, _inline, or _current",
+            );
+        }
+    }
+}
+
 fn check_page_schema(
     def: &Value,
     path: &str,
@@ -1524,6 +1554,95 @@ mod tests {
         let prepared = prepare_check_source(vec![InputFile::new("app.json", b"null")]).unwrap();
         assert!(!prepared.coverage.structure);
         assert!(prepared.report.has_errors());
+    }
+
+    #[test]
+    fn checks_default_page_path_against_declared_pages() {
+        for (entry, valid) in [
+            (r#""detail""#, true),
+            ("null", true),
+            (r#""missing""#, false),
+            (r#""../detail""#, false),
+            ("7", false),
+        ] {
+            let app = format!(
+                "{{\n  \"pages\": [\"home\", \"detail\"],\n  \"entryPagePath\": {entry}\n}}"
+            );
+            let report = check_source(vec![
+                InputFile::new("app.json", app.as_bytes()),
+                InputFile::new("home.ink", b"<page><view /></page>"),
+                InputFile::new("detail.ink", b"<page><view /></page>"),
+            ])
+            .unwrap();
+            if valid {
+                assert!(
+                    report.diagnostics.is_empty(),
+                    "{entry}: {:?}",
+                    report.diagnostics
+                );
+            } else {
+                assert_eq!(
+                    report.diagnostics.len(),
+                    1,
+                    "{entry}: {:?}",
+                    report.diagnostics
+                );
+                let diagnostic = &report.diagnostics[0];
+                assert_eq!(diagnostic.code, "AIX048", "{entry}");
+                assert_eq!(diagnostic.severity, Severity::Error, "{entry}");
+                assert_eq!(diagnostic.path, "app.json", "{entry}");
+                assert_eq!((diagnostic.line, diagnostic.column), (3, 3), "{entry}");
+            }
+        }
+    }
+
+    #[test]
+    fn checks_targets_in_traditional_pages_and_ink_definitions() {
+        for (target, valid) in [
+            (r#""_blank""#, true),
+            (r#""_inline""#, true),
+            (r#""_current""#, true),
+            (r#""inline""#, true),
+            (r#""current""#, true),
+            ("null", true),
+            (r#""_widget""#, false),
+            ("false", false),
+            (r#"{"_blank":null}"#, false),
+        ] {
+            let config = format!("{{\n  \"target\": {target}\n}}");
+            let ink = format!("<script def>\n{config}\n</script><page><view /></page>");
+            let report = check_source(vec![
+                InputFile::new("app.json", br#"{"pages":["card","detail"]}"#),
+                InputFile::new("card.ink", ink.as_bytes()),
+                InputFile::new("detail.json", config.as_bytes()),
+                InputFile::new("detail.wxml", b"<view />"),
+            ])
+            .unwrap();
+            if valid {
+                assert!(
+                    report.diagnostics.is_empty(),
+                    "{target}: {:?}",
+                    report.diagnostics
+                );
+            } else {
+                assert_eq!(
+                    report.diagnostics.len(),
+                    2,
+                    "{target}: {:?}",
+                    report.diagnostics
+                );
+                for (diagnostic, (path, line)) in report
+                    .diagnostics
+                    .iter()
+                    .zip([("card.ink", 3), ("detail.json", 2)])
+                {
+                    assert_eq!(diagnostic.code, "AIX049", "{target}");
+                    assert_eq!(diagnostic.severity, Severity::Error, "{target}");
+                    assert_eq!(diagnostic.path, path, "{target}");
+                    assert_eq!((diagnostic.line, diagnostic.column), (line, 3), "{target}");
+                }
+            }
+        }
     }
 
     #[test]

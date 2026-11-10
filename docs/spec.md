@@ -166,6 +166,7 @@ Directories may be present but are not logical file entries. `META-INF/aix/` is 
 ```json
 {
   "pages": ["pages/index/index", "pages/settings/index"],
+  "entryPagePath": "pages/index/index",
   "widgets": [{
     "path": "widgets/clock/index",
     "family": "1x1",
@@ -177,7 +178,7 @@ Directories may be present but are not logical file entries. `META-INF/aix/` is 
 }
 ```
 
-`pages` values are logical paths without a page extension. `window.navigationBarTitleText` is the application title. Widget placement is `persistent` by default and may be `overlay`. Locale overlays can provide localized widget `displayName` and `description`.
+`pages` values are logical paths without a page extension. If set, `entryPagePath` must name a declared page. The default page is `entryPagePath` or the first item in `pages`. `window.navigationBarTitleText` is the application title. Widget placement is `persistent` by default and may be `overlay`. Locale overlays can provide localized widget `displayName` and `description`.
 
 ## 4. Pages and OAF Resources
 
@@ -192,6 +193,7 @@ Page JSON may contain:
 {
   "navigationBarTitleText": "Search",
   "description": "Search the knowledge base",
+  "target": "_inline",
   "schema": { "data": {
     "type": "object",
     "properties": { "query": { "type": "string" } },
@@ -232,9 +234,15 @@ Each page may be represented as an OpenAI-style function tool:
 }
 ```
 
-The function name is the logical page path. Description prefers page `description`, then its title. Parameters are exactly `schema.data`; no schema conversion or validation is performed by the format.
+The function name is the logical page path. Description prefers page `description`, then its title. Parameters come from `schema.data`.
 
-The first declared page has special launch semantics: if its schema is null, `{}`, or an object schema with no properties, it is emitted once with `target: "_blank"` and empty parameters. Otherwise it is `_current`. Every later page is `_current`, including pages with no parameters. This rule is positional: changing `app.json.pages` order can change the initial tool target.
+Pages can declare `target` in page JSON or the `.ink` file's `<script def>`. Both `_inline` and `inline` are aliases for `_current`. AIX emits `_blank` or `_current`. Multiple pages may share a target.
+
+With a valid `entryPagePath` or an explicit page target, the default page and its tool come first. The default tool uses `_blank` even if the page has parameters or declares an inline target. Other pages keep their declaration order and use their configured target or `_current`.
+
+With neither field configured, only the first page can be inferred as `_blank`, and only if it has no parameters. All other tools use `_current`.
+
+A default page with an omitted target and no parameters still emits `{}` for parameters.
 
 ## 7. Manifest, Integrity, and Signatures
 
@@ -311,7 +319,7 @@ An AIX implementation is conformant when it can:
 - resolve both multi-file pages and `.ink` single-file pages;
 - preserve page schema data without silently inventing parameters;
 - implement the default `480 × 168`, max-width, stacked-height layout algorithm;
-- apply the first-page `_blank` rule exactly;
+- honor configured page targets and preserve legacy inference for packages that omit them and `entryPagePath`;
 - preserve OAF resources without treating them as AIX metadata;
 - reject invalid engine ranges and unsigned or mismatched signed entries;
 - reproduce the manifest ordering and package-id byte layout.
@@ -381,6 +389,7 @@ ordering, but a producer must emit valid YAML and UTF-8.
 | Field | Type | Required | Default | Constraints and consumer behavior |
 | --- | --- | --- | --- | --- |
 | `pages` | array of strings | yes | none | Logical page paths, non-empty strings. Order is significant. |
+| `entryPagePath` | string | no | first page | Default page, specified as a path from `pages`. |
 | `widgets` | array of Widget | no | `[]` | Each widget must have a matching `{path}.ink` entry when widget metadata is resolved. |
 | `window` | Window object | no | absent | Only `navigationBarTitleText` is currently consumed. |
 
@@ -417,13 +426,14 @@ For a logical path `p`, a consumer first looks for `p.ink`. If absent, it reads
 | --- | --- | --- | --- | --- |
 | `navigationBarTitleText` | string or null | no | null | Page title. |
 | `description` | string or null | no | null | Natural-language description used for tool metadata. |
+| `target` | string | no | inferred | `_blank` or `_current`. Accepts `_inline` as an alias for `_current`. |
 | `schema` | object or null | no | absent | Container for the input schema. |
 | `schema.data` | any JSON value | no | `{}` | JSON Schema (or schema-compatible value) passed through as tool parameters. |
 
 The format does not require that `schema.data` be a formal JSON Schema. A
 null, empty object, or object schema whose `properties` object is empty is
-treated as “no parameters” only for first-page target selection. Arrays,
-strings, numbers, and non-empty objects are treated as parameterized schemas.
+normalized to `{}` in the default tool when the page has no explicit target.
+Arrays, strings, numbers, and non-empty schemas pass through.
 
 An Ink file uses raw-text blocks. A `script def` block contains the same page
 JSON object, while `page` or `template` supplies markup and `style`
@@ -450,11 +460,11 @@ height stacks. CSS values without a `px` suffix are ignored.
 | Field | Type | Required | Values and behavior |
 | --- | --- | --- | --- |
 | `type` | string | yes | `function`. |
-| `target` | enum string | yes | `_blank` for the first no-parameter page; `_current` otherwise. |
+| `target` | enum string | yes | `_blank` or `_current`, following the rules in section 6. |
 | `layout` | PageConstraint | yes | Copied from the page's inferred `size`. |
 | `function.name` | string | yes | Logical page path. |
 | `function.description` | string or null | yes | Page description, falling back to title. |
-| `function.parameters` | JSON value | yes | Exact page `schema.data` value, except first `_blank` tool uses `{}`. |
+| `function.parameters` | JSON value | yes | Page `schema.data`, with an empty schema normalized to `{}` for a default page with an inferred target. |
 
 `target` is a rendering instruction, not a security boundary. A host decides
 whether `_blank` means a new surface, isolated context, or initial navigation.
@@ -565,7 +575,7 @@ An interoperability test suite SHOULD include:
 - an unsigned minimal package;
 - a signed package with one text and one binary entry;
 - a multi-file page and an Ink single-file page;
-- an empty-schema first page and a parameterized first page;
+- an empty-schema default page, a parameterized default page, and explicit targets on other pages;
 - localized widget metadata with locale fallback;
 - malformed paths, duplicate normalized paths, missing `VERSION`, and invalid
   `app.json`;

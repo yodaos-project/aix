@@ -269,8 +269,8 @@ schemas, and styles may be absent. If both stylesheets exist, `.wcss` takes
 precedence over `.wxss`.
 
 A missing or invalid `app.json.pages` field produces a diagnostic for
-`app.json`. An empty page list is valid. Pages that resolve keep their
-declaration order and the usual tool-targeting rules. Widget and title
+`app.json`. An empty page list is valid. The default page comes first when
+it resolves, and the other pages keep their declaration order. Widget and title
 metadata are read separately.
 :::
 
@@ -688,8 +688,8 @@ getPages(): PageInfo[]
 
 **Parameters** None.
 
-**Returns** the pages in declaration order. Missing or malformed page
-resources can produce defaults. An unreadable or invalid page list yields
+**Returns** the default page first and the remaining pages in declaration order.
+Missing or malformed page resources can produce defaults. An unreadable or invalid page list yields
 `[]`. Use [`resolveMetadata()`](#pkg-resolve-metadata) to get page diagnostics.
 
 #### resolveMetadata() {#pkg-resolve-metadata}
