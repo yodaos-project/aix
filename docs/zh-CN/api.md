@@ -287,11 +287,27 @@ async function packProject(files) {
 | `optimize` | 传入 `{ level: 2 }` 可开启 JSON 和图片优化；`level` 可以是 `1`、`2`、`3`。 |
 | `buildId` | 本次构建的标识。不传会自动生成，一般不用手动设置。 |
 | `onProgress` | 接收打包步骤提示，可用于展示当前操作。适用于 `packFromSource()` 和 `packFromFiles()`。 |
+| `onProgressiveAsset` | 为每个渐进资源选择内嵌或远程交付。 |
+| `signal` | 使用 `AbortSignal` 取消打包，也可以把同一个信号传给上传函数。 |
 
 `agentId` 使用小写英文字母、数字、`_` 或 `-`，不能以 `-` 开头或结尾，也不能为空。
 省略 `optimize` 或设为 `false` 时，不额外优化 JSON 和图片；独立的 JS/TS 文件仍会进行代码压缩。
 
-打包结果中，`data` 是生成的文件内容，`warnings` 是提醒列表，`report` 是文件大小变化报告。
+打包结果中，`data` 是生成的文件内容，`warnings` 是提醒列表，`report` 是文件大小变化报告，`progressiveAssets` 记录每个渐进资源的交付方式和仍留在包内的源文件大小。
+
+### 渐进资源 {#progressive-assets}
+
+在 ECMAScript 模块或 Ink 脚本中声明媒体资源，并把导入得到的 `AssetRef` 传给 Ink 的视频或音频组件。
+
+~~~javascript
+import clip from './assets/clip.mp4' with { type: 'video', progressive: 'prefer' };
+~~~
+
+音频使用 `type: 'audio'`。AIX 默认内嵌源媒体。选择远程交付时，打包器可将符合条件的普通 H.264 MP4 和 AAC-LC M4A 重封装为 fMP4，无需重新编码。
+
+在 `AIX.packFromSource()` 的 `onProgressiveAsset` 回调中调用 `prepare()` 获取分片。上传由调用方完成，回调返回 `{ delivery: 'progressive', planId, receipt }`。AIX 校验回执中的对象标识、大小、SHA-256 和固定 HTTPS 地址后生成包。可以返回 `{ delivery: 'embedded' }` 保留源文件。上传失败、回执无效或取消时，打包会失败。
+
+打开 [Play 的模拟上传演示](/zh-CN/play?demo=progressive)。浏览器会生成真实分片并模拟回执，生成的包使用占位地址，可直接检查包内的渐进资源索引。
 
 ## 5. 优化已有的包
 
@@ -780,6 +796,11 @@ interface PackOptions {
     agentId?: string;
     engine?: string;
     optimize?: false | OptimizeOptions;
+    signal?: AbortSignal;
+    onProgressiveAsset?: (
+        candidate: ProgressiveAssetCandidate,
+        context: ProgressiveAssetPackContext,
+    ) => ProgressiveAssetDecision | Promise<ProgressiveAssetDecision>;
 }
 
 interface PackFromSourceOptions extends PackOptions {
@@ -849,6 +870,7 @@ interface PackResult {
     data: Uint8Array;
     report: OptimizeReport;
     warnings: string[];
+    progressiveAssets: ProgressiveAssetReport[];
 }
 
 interface OptimizeReport {

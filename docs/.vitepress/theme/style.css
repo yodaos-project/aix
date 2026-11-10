@@ -1867,7 +1867,7 @@ html[lang="ja"] kbd {
 
 .lab-mode-switch {
   display: grid;
-  grid-template-columns: repeat(2, minmax(76px, 1fr));
+  grid-template-columns: repeat(2, minmax(76px, 1fr)) max-content;
   padding: 4px;
   border: 1px solid rgba(23, 29, 40, 0.1);
   border-radius: 12px;
@@ -2502,6 +2502,11 @@ html[lang="ja"] kbd {
 
   .lab-topbar-copy {
     grid-column: 1 / -1;
+  }
+
+  .lab-mode-switch {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) max-content;
   }
 
   .lab-topbar-hint {

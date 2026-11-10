@@ -228,6 +228,13 @@ META-INF/aix/public-key.ed25519  # 32-byte 公開鍵
 
 署名対象は context `package-manifest`、domain prefix `AIX-SIGNATURE\0` を付けた Manifest です。検証では algorithm / digest、engine 範囲、信頼済み `key_id`、署名、エントリー順、各 digest と size、未署名アプリケーションエントリーがないこと、`manifest.version == VERSION`、計算済み package id を確認します。有効な ZIP でも、これらが成功するまでは信頼済み AIX パッケージではありません。
 
+### 7.1 段階配信メディアのメタデータ
+
+段階配信アセットを含むパッケージは、Manifest の任意フィールド `progressive_assets` に
+インデックスのバージョン、パス、SHA-256 を記録します。インデックスは `aix-asset:<id>` を
+同梱メディアまたは段階配信記述子に対応付けます。リモート配信では初期化セグメントとメタデータを
+同梱し、再生用のフラグメントを HTTPS で配信します。[仕様の詳細](/spec#progressive-media-metadata)。
+
 ## 8. Engine 互換性
 
 Manifest の `engine` は semver requirement です。`0.14.0` のような裸の version は `=0.14.0`、`^0.14.0`、`>=0.14.0`、`*` は通常の semver matching で解釈します。不正な範囲を持つパッケージは非適合です。

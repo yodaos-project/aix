@@ -177,6 +177,12 @@ META-INF/aix/public-key.ed25519  # 32 字节公钥
 
 签名使用 `package-manifest` 上下文和 `AIX-SIGNATURE\0` 域前缀。验证必须检查算法、摘要、engine、受信任 `key_id`、签名、排序、每项摘要/大小、未签名应用条目、`version == VERSION` 和 package id。有效 ZIP 不自动可信。
 
+### 7.1 渐进媒体元数据
+
+渐进资源包在 Manifest 的可选 `progressive_assets` 字段中保存索引版本、路径和 SHA-256。
+索引将 `aix-asset:<id>` 引用映射到包内媒体或渐进媒体描述符。远程交付的包内含初始化分段和元数据，
+播放分片由 HTTPS 地址单独交付。详见[渐进媒体元数据规范](/spec#progressive-media-metadata)。
+
 ## 8. Engine 兼容性
 
 `engine` 是 semver requirement。裸 `0.14.0` 等于 `=0.14.0`；`^0.14.0`、`>=0.14.0`、`*` 按标准 semver 匹配；无效范围使包不符合规范。

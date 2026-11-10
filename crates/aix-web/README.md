@@ -504,6 +504,10 @@ object bytes over HTTP PUT, verifies length and SHA-256 on disk, and issues
 receipts only after the entire inventory is present. Set `INK_WEB_DIST` to a
 built Ink Web SDK to also test browser playback and offline reopening through the same object server.
 
+[Play's mock upload](https://yodaos-project.github.io/aix/play?demo=progressive)
+prepares sample MP4 fragments and simulates the receipt inside the browser.
+The resulting package can be inspected in Play.
+
 ```sh
 npm run build
 AIX_TEST_BROWSER_CHANNEL=chrome node scripts/test-progressive.js

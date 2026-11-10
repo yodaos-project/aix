@@ -23,6 +23,7 @@ const base = normalizeBasePath(runtimeProcess.process?.env?.BASE_PATH ?? "/aix")
 const docsRoot = new URL("..", import.meta.url).pathname;
 const workspaceRoot = searchForWorkspaceRoot(docsRoot);
 const aixWebRoot = new URL("../../crates/aix-web/", import.meta.url).pathname;
+const progressiveSamplePath = new URL("../../crates/aix-pack/tests/data/pattern-tone-flat.mp4", import.meta.url).pathname;
 
 function queryLanguageBootstrap(basePath: string): string {
   return `(() => {
@@ -52,7 +53,7 @@ export default defineConfig({
     server: {
       port: 5174,
       fs: {
-        allow: [workspaceRoot, aixWebRoot]
+        allow: [workspaceRoot, aixWebRoot, progressiveSamplePath]
       }
     }
   },

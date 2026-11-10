@@ -250,6 +250,50 @@ const files = await Promise.all(Array.from(input.files ?? []).map(async file => 
 const packed = await AIX.packFromSource(files, { agentId: 'my-agent' });
 ~~~
 
+### Progressive Assets {#progressive-assets}
+
+Declare media in an ECMAScript module or an Ink script. The imported value is an
+opaque `AssetRef` that you can pass to an Ink video or audio consumer.
+
+~~~javascript
+import clip from './assets/clip.mp4' with { type: 'video', progressive: 'prefer' };
+~~~
+
+Use `type: 'audio'` for audio. With the supported profile, AIX can remux ordinary
+H.264 MP4 and AAC-LC M4A into fragmented MP4 without re-encoding. It also accepts
+compatible prefragmented files. The default is to embed the source media.
+
+To deliver fragments remotely, provide an `onProgressiveAsset` callback. The
+callback decides whether to embed each candidate and calls `prepare()` to get
+the initialization metadata and remote objects. Your uploader stores the
+objects and returns a receipt.
+
+~~~typescript
+const packed = await AIX.packFromSource(files, {
+  signal: controller.signal,
+  async onProgressiveAsset(candidate, { prepare, signal }) {
+    if (!candidate.progressiveSupport.supported) {
+      return { delivery: 'embedded' };
+    }
+
+    const plan = await prepare();
+    const receipt = await uploadToStorage(plan, signal);
+    return { delivery: 'progressive', planId: plan.id, receipt };
+  },
+});
+~~~
+
+`uploadToStorage` is supplied by the caller. The receipt must cover every
+prepared object with the matching ID, byte length, SHA-256, and a stable HTTPS
+URL without credentials, a query string, or a fragment. AIX checks the
+receipt before writing the package. An upload error, invalid receipt, or
+abort rejects the build. Use `packed.progressiveAssets` to see the selected
+delivery mode and any retained source bytes.
+
+[Try the mock upload in Play](/play?demo=progressive). The demo prepares real
+fragments and builds an inspectable package with placeholder URLs. It
+simulates the uploader entirely in the browser.
+
 ### AIX.optimize(data, options?)
 
 ~~~typescript
@@ -378,6 +422,11 @@ interface PackOptions {
     agentId?: string;
     engine?: string;
     optimize?: false | OptimizeOptions;
+    signal?: AbortSignal;
+    onProgressiveAsset?: (
+        candidate: ProgressiveAssetCandidate,
+        context: ProgressiveAssetPackContext,
+    ) => ProgressiveAssetDecision | Promise<ProgressiveAssetDecision>;
 }
 
 interface OptimizeOptions {
@@ -395,6 +444,7 @@ interface PackResult {
     data: Uint8Array;
     report: OptimizeReport;
     warnings: string[];
+    progressiveAssets: ProgressiveAssetReport[];
 }
 
 interface OptimizeReport {

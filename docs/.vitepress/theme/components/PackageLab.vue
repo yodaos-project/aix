@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, shallowRef } from "vue";
 import type { AIX as AixClass, AixEntry, AixInputFile, OptimizeReport, PageInfo, Tool } from "@yodaos-pkg/aix";
+import ProgressiveAssetDemo from "./ProgressiveAssetDemo.vue";
 
 type SecondaryTab = "meta" | "pages" | "tools";
-type LabMode = "inspect" | "build";
+type LabMode = "inspect" | "build" | "progressive";
 
 function formatBytes(value: number): string {
   if (value < 1024) {
@@ -40,6 +41,7 @@ const locale = ref<"en" | "zh-CN" | "ja">("en");
 
 const text = computed(() => locale.value === "ja" ? {
   play: "プレイ", hint: "ブラウザーで AIX パッケージを検査、作成します。", inspect: "検査", build: "作成",
+  progressive: "段階配信",
   reading: "パッケージを読み込み中…", replacePackage: "パッケージを置換", uploadPackage: "パッケージをアップロード",
   replaceDirectory: "ディレクトリを置換", chooseDirectory: "ディレクトリを選択", error: "エラー：",
   noDirectory: "ディレクトリが選択されていません", directory: "ディレクトリ", files: "ファイル", sourceSize: "ソースサイズ",
@@ -55,6 +57,7 @@ const text = computed(() => locale.value === "ja" ? {
   hint: "在浏览器中检查和构建 AIX 包。",
   inspect: "检查",
   build: "构建",
+  progressive: "渐进资源",
   reading: "正在读取包…",
   replacePackage: "替换包",
   uploadPackage: "上传包",
@@ -94,6 +97,7 @@ const text = computed(() => locale.value === "ja" ? {
   hint: "Inspect and build AIX packages in the browser.",
   inspect: "Inspect",
   build: "Build",
+  progressive: "Progressive Assets",
   reading: "Reading package…",
   replacePackage: "Replace package",
   uploadPackage: "Upload package",
@@ -153,9 +157,11 @@ const directorySize = computed(() => directoryFiles.value.reduce((total, file) =
 const hasDirectory = computed(() => directoryFiles.value.length > 0);
 
 if (typeof window !== "undefined") {
-  const routeLocale = new URLSearchParams(window.location.search).get("lang");
+  const query = new URLSearchParams(window.location.search);
+  const routeLocale = query.get("lang");
   locale.value = routeLocale === "zh-CN" || window.location.pathname.includes("/zh-CN/")
     ? "zh-CN" : routeLocale === "ja" || window.location.pathname.includes("/ja/") ? "ja" : "en";
+  if (query.get("demo") === "progressive") mode.value = "progressive";
 }
 
 function resetState() {
@@ -210,12 +216,21 @@ async function handleFileUpload(event: Event) {
     return;
   }
 
+  try {
+    await inspectPackage(file);
+  } finally {
+    if (input) input.value = "";
+  }
+}
+
+async function inspectPackage(data: File | Uint8Array, entryName?: string) {
+  mode.value = "inspect";
   loading.value = true;
   resetState();
 
   try {
     const { AIX } = await loadAixModule();
-    const aix = await AIX.From(file);
+    const aix = await AIX.From(data);
     const nextEntries = aix.list();
 
     aixInstance.value = aix;
@@ -225,16 +240,13 @@ async function handleFileUpload(event: Event) {
     pages.value = aix.getPages();
     tools.value = aix.getTools();
     currentTab.value = "meta";
-    selectInitialFile(aix, nextEntries);
+    if (entryName) viewFile(entryName);
+    else selectInitialFile(aix, nextEntries);
   } catch (err) {
     console.error("Error parsing AIX:", err);
     error.value = err instanceof Error ? err.message : String(err);
   } finally {
     loading.value = false;
-
-    if (input) {
-      input.value = "";
-    }
   }
 }
 
@@ -344,11 +356,14 @@ function formatTool(tool: Tool): string {
       </div>
 
       <div class="lab-mode-switch">
-        <button type="button" :class="{ 'is-active': mode === 'inspect' }" @click="mode = 'inspect'">
+        <button type="button" :aria-pressed="mode === 'inspect'" :class="{ 'is-active': mode === 'inspect' }" @click="mode = 'inspect'">
           {{ text.inspect }}
         </button>
-        <button type="button" :class="{ 'is-active': mode === 'build' }" @click="mode = 'build'">
+        <button type="button" :aria-pressed="mode === 'build'" :class="{ 'is-active': mode === 'build' }" @click="mode = 'build'">
           {{ text.build }}
+        </button>
+        <button type="button" :aria-pressed="mode === 'progressive'" :class="{ 'is-active': mode === 'progressive' }" @click="mode = 'progressive'">
+          {{ text.progressive }}
         </button>
       </div>
 
@@ -363,7 +378,7 @@ function formatTool(tool: Tool): string {
         <span>{{ loading ? text.reading : hasPackage ? text.replacePackage : text.uploadPackage }}</span>
       </label>
 
-      <label v-else class="lab-upload-button" for="directory-input">
+      <label v-else-if="mode === 'build'" class="lab-upload-button" for="directory-input">
         <input
           id="directory-input"
           type="file"
@@ -428,6 +443,8 @@ function formatTool(tool: Tool): string {
         </div>
       </section>
     </template>
+
+    <ProgressiveAssetDemo v-else-if="mode === 'progressive'" :locale="locale" @inspect="inspectPackage" />
 
     <template v-else>
     <div v-if="error" class="lab-error"><strong>{{ text.error }}</strong> {{ error }}</div>

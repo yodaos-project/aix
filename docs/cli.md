@@ -50,6 +50,9 @@ aix pack ./my-agent -O --opt-level 3
 Without `--engine`, the range comes from `app.json.engine`, then `*`.
 `.aixignore` uses `.gitignore` syntax. `--log-time` timestamps pack logs.
 
+The CLI embeds media declared as Progressive Assets. To store fragments
+remotely, use the [Web SDK upload callback](/api#progressive-assets).
+
 ### `aix check <INPUT_DIR>`
 
 Checks source files without creating an artifact. It validates `app.json`, Page

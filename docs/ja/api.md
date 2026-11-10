@@ -216,6 +216,27 @@ const files = await Promise.all(Array.from(input.files ?? []).map(async file => 
 const packed = await AIX.packFromSource(files, { agentId: 'my-agent' });
 ~~~
 
+### 段階配信アセット {#progressive-assets}
+
+ECMAScript モジュールまたは Ink のスクリプトでメディアを宣言し、インポートした
+`AssetRef` を Ink の映像・音声プレーヤーに渡します。
+
+~~~javascript
+import clip from './assets/clip.mp4' with { type: 'video', progressive: 'prefer' };
+~~~
+
+音声には `type: 'audio'` を使います。既定では元のメディアがパッケージに含まれます。
+リモート配信を選択すると、対応する H.264 MP4 と AAC-LC M4A を再エンコードせずに fMP4 に分割できます。
+
+`AIX.packFromSource()` の `onProgressiveAsset` コールバックで `prepare()` を呼び出すと、アップロード計画を取得できます。
+呼び出し側がオブジェクトを保存し、`{ delivery: 'progressive', planId, receipt }` を返します。
+AIX はオブジェクトの ID、サイズ、SHA-256、固定の HTTPS URL を検証してパッケージを作成します。
+`{ delivery: 'embedded' }` を返すと元のメディアを同梱できます。アップロードエラー、無効な受領証、キャンセル時は処理が失敗します。
+`progressiveAssets` で各アセットの配信方法と同梱した元データのサイズを確認できます。
+
+[Play の模擬アップロード](/ja/play?demo=progressive)では、ブラウザー内で実際の分割データを作成し、
+模擬受領証を使って検査用の AIX パッケージを生成します。
+
 ### AIX.optimize(data, options?)
 
 ~~~typescript
@@ -331,6 +352,11 @@ interface PackOptions {
     agentId?: string;
     engine?: string;
     optimize?: false | OptimizeOptions;
+    signal?: AbortSignal;
+    onProgressiveAsset?: (
+        candidate: ProgressiveAssetCandidate,
+        context: ProgressiveAssetPackContext,
+    ) => ProgressiveAssetDecision | Promise<ProgressiveAssetDecision>;
 }
 
 interface OptimizeOptions {
@@ -348,6 +374,7 @@ interface PackResult {
     data: Uint8Array;
     report: OptimizeReport;
     warnings: string[];
+    progressiveAssets: ProgressiveAssetReport[];
 }
 
 interface OptimizeReport {
