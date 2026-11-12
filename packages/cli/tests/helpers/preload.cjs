@@ -16,6 +16,16 @@ if (config.packageSize !== undefined) {
   };
 }
 
+// Reproduce an editor save between the initial size check and the source read.
+if (config.growInkSourceAfterStat) {
+  const lstat = fs.lstatSync;
+  fs.lstatSync = (file, ...args) => {
+    const value = lstat(file, ...args);
+    if (String(file) === config.growInkSourceAfterStat) fs.appendFileSync(file, ' ');
+    return value;
+  };
+}
+
 globalThis.fetch = async (url, options) => {
   record({ kind: 'fetch', url: String(url), headers: options?.headers });
   if (!/^https:\/\/registry\.(npmjs\.org|npmmirror\.com)\//.test(String(url))) {

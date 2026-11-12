@@ -89,6 +89,15 @@ test('single-file launch accepts the exact 128 KiB boundary', (t) => {
   assert.equal(calls(f).find((call) => call.method === 'push').files[0].bytes, 128 * 1024);
 });
 
+test('single-file launch rejects a source that grows past 128 KiB after its initial size check', (t) => {
+  const f = fixture(t);
+  const input = f.write('growing.ink', source + ' '.repeat(128 * 1024 - Buffer.byteLength(source)));
+  f.configure({ growInkSourceAfterStat: input });
+  fails(f.run(['launch-page', input]), /Ink source is larger than 128 KiB/);
+  assert.equal(fs.statSync(input).size, 128 * 1024 + 1, 'the source must grow after the stat snapshot');
+  assert.deepEqual(calls(f), [], 'a growing source must be rejected before contacting ADB');
+});
+
 test('launch-page rejects source symlinks while preserving symlinked project directories', { skip: process.platform === 'win32' }, (t) => {
   const f = fixture(t);
   const original = f.write('original.ink', source);
