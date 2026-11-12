@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { select } from "@inquirer/prompts";
 import ora from "ora";
 import { cmdPack } from "./legacy";
@@ -12,6 +13,7 @@ const DEVELOP_URI = "content://com.rokid.aiui.develop";
 const STAGING_DIR = "/sdcard/aiui/package/.staging/adb/";
 const PACKAGE_DIR = "/sdcard/aiui/package";
 const MAX_PACKAGE_BYTES = 128 * 1024 * 1024;
+const MAX_INK_SOURCE_BYTES = 128 * 1024;
 
 type Definition = Record<string, unknown> & { agentId?: unknown };
 type DevelopResult = Record<string, unknown>;
@@ -101,6 +103,11 @@ export type PageLaunchOptions = {
 };
 
 export async function cmdLaunchPage(inputValue: string, route: string | undefined, options: PageLaunchOptions) {
+  const input = path.resolve(inputValue);
+  if (path.extname(input).toLowerCase() === ".ink" && !fs.statSync(input).isDirectory()) {
+    await launchInkPage(input, route, options);
+    return;
+  }
   const resolved = resolveDefinition(inputValue);
   const agentId = validateDefinition(resolved.definition);
   const { path: launchPath } = resolveOpenRoute(resolved.app, route, "blank");
@@ -115,19 +122,60 @@ export async function cmdLaunchPage(inputValue: string, route: string | undefine
   finishOpenRequest(serial, request, result, false);
 }
 
+async function launchInkPage(input: string, route: string | undefined, options: PageLaunchOptions): Promise<void> {
+  if (route !== undefined) throw new Error("A single .ink file does not accept a page path.");
+  const stat = fs.lstatSync(input);
+  if (!stat.isFile()) throw new Error("Ink source must be a regular file, not a directory or symbolic link.");
+  if (stat.size > MAX_INK_SOURCE_BYTES) throw new Error("Ink source is larger than 128 KiB.");
+  const data = fs.readFileSync(input);
+  if (data.byteLength > MAX_INK_SOURCE_BYTES) throw new Error("Ink source is larger than 128 KiB.");
+  let source: string;
+  try {
+    source = new TextDecoder("utf-8", { fatal: true }).decode(data);
+  } catch {
+    throw new Error("Ink source must be valid UTF-8.");
+  }
+  if (!source.trim()) throw new Error("Ink source must not be empty.");
+  const params = parseOpenParams(options.params, options.paramsFile);
+  // Keep both the inbox filename and storage identity stable across edits and
+  // spellings of the same path, while isolating files with the same basename.
+  const identity = createHash("sha256").update(fs.realpathSync(input)).digest("hex");
+  const sourceName = `aix-debug-${identity}.ink`;
+  const serial = await selectDevice(options.serial);
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "aix-launch-ink-"));
+  try {
+    // Upload the exact bytes validated above, even if the editor saves again.
+    const local = path.join(temporary, "source.ink");
+    fs.writeFileSync(local, data);
+    const inbox = await runStep("Preparing device", undefined, () => prepareInbox(serial));
+    await runStep("Uploading Ink source", undefined, () => runAdb(serial, [
+      "push", local, `${inbox.replace(/\/$/, "")}/${sourceName}`,
+    ]));
+    const request = { sourceFile: sourceName, sourceName, target: options.card ? "_current" : "_blank", params };
+    const result = await runStep(`Launching ${options.card ? "Card" : "Page"}`, `${options.card ? "Card" : "Page"} launch requested`, () => performOpenRequest(serial, request), (value) => {
+      requireOk(value, "open");
+      return true;
+    });
+    finishOpenRequest(serial, request, result, false, input);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+}
+
 async function performOpenRequest(serial: string, request: Record<string, unknown>): Promise<DevelopResult> {
   return parseDevelopResult(
     await runOpenContentCall(serial, JSON.stringify(request)),
   );
 }
 
-function finishOpenRequest(serial: string, request: Record<string, unknown>, result: DevelopResult, printSuccess = true): void {
+function finishOpenRequest(serial: string, request: Record<string, unknown>, result: DevelopResult, printSuccess = true, sourcePath?: string): void {
   requireOk(result, "open");
   const target = request.target === "_widget" ? "Widget" : request.target === "_current" ? "Card" : "Page";
   process.stdout.write([
     ...(printSuccess ? [`✔ ${target} launch requested`] : []),
-    `  Agent: ${String(request.agentId)}`,
-    `  Path: ${String(request.path)}`,
+    ...(sourcePath
+      ? [`  Source: ${sourcePath}`, `  Source name: ${String(request.sourceName)}`]
+      : [`  Agent: ${String(request.agentId)}`, `  Path: ${String(request.path)}`]),
     `  Device: ${serial}`,
     "  Display: request accepted; rendering is handled asynchronously",
   ].join("\n") + "\n");
@@ -748,8 +796,8 @@ function requireEmptyErrorCode(result: DevelopResult, stage: string) {
       : typeof result.errorMessage === "string" && result.errorMessage
         ? `: ${result.errorMessage}`
         : "";
-    if (stage === "prepare" && result.errorCode === "ENTRYPOINT_DISABLED") {
-      throw new Error(`prepare failed (ENTRYPOINT_DISABLED)${message}\nDevice Developer Mode is disabled. Run \`aix device set-dev\`, then retry the install.`);
+    if ((stage === "prepare" || stage === "open") && result.errorCode === "ENTRYPOINT_DISABLED") {
+      throw new Error(`${stage} failed (ENTRYPOINT_DISABLED)${message}\nDevice Developer Mode is disabled or changed during the request. Run \`aix device set-dev\`, then retry the command.`);
     }
     throw new Error(`${stage} failed (${String(result.errorCode ?? "unknown error")})${message}`);
   }

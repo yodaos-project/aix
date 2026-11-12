@@ -145,14 +145,27 @@ aix uninstall develop.rokid.mobility.ride --serial <serial>
 
 ### `aix launch-page <INPUT> [PATH]`
 
+打开已安装 Agent 的页面，输入可以是项目目录或 `.aix` 文件：
+
 ```bash
 aix launch-page ./my-agent
+aix launch-page ./bundle.aix
 aix launch-page ./my-agent pages/index/index
-aix launch-page ./my-agent pages/index/index --card
-aix launch-page ./my-agent pages/index/index --params '{"id":"123"}'
 ```
 
-文件参数使用 `--params-file <FILE>`。该命令只打开已安装 Agent，不负责安装。
+单文件调试前，连接已通过 ADB 授权的设备，并执行 `aix device set-dev` 开启 AIUI 开发者模式，然后运行：
+
+```bash
+aix launch-page ./counter.ink
+aix launch-page ./counter.ink --card --params '{"count":7}'
+aix launch-page ./counter.ink --params-file ./params.json --serial DEVICE_SERIAL
+```
+
+默认全屏显示，`--card` 改为卡片。使用 `--params <JSON>` 或 `--params-file <FILE>` 传入初始参数，参数必须是 JSON 对象；使用 `--serial <SERIAL>` 选择设备。
+
+`.ink` 文件需要非空、采用 UTF-8 编码且不超过 128 KiB，包含唯一的 `<page>` 块。`<style>` 和 `<script setup>` 可选，`lang="ts"` 支持 TypeScript。单文件输入不能追加 `[PATH]`，不支持 Widget。
+
+修改文件后，重新执行同一命令即可查看变化。页面会重新启动，内存状态也会重置。
 
 ### `aix launch-widget <INPUT> <PATH>`
 

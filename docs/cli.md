@@ -201,15 +201,33 @@ built-in Agents.
 
 ### `aix launch-page <INPUT> [PATH]`
 
+Open an installed Agent page using a project directory or `.aix` file:
+
 ```bash
 aix launch-page ./my-agent
+aix launch-page ./bundle.aix
 aix launch-page ./my-agent pages/index/index
-aix launch-page ./my-agent pages/index/index --card
-aix launch-page ./my-agent pages/index/index --params '{"id":"123"}'
 ```
 
-Use `--params-file <FILE>` for file parameters. This opens an installed Agent;
-it does not install one.
+For single-file debugging, connect an ADB-authorized device and enable AIUI
+Developer Mode with `aix device set-dev`, then run:
+
+```bash
+aix launch-page ./counter.ink
+aix launch-page ./counter.ink --card --params '{"count":7}'
+aix launch-page ./counter.ink --params-file ./params.json --serial DEVICE_SERIAL
+```
+
+Pages open full screen by default. Use `--card` for a card, `--params <JSON>` or
+`--params-file <FILE>` for initial parameters, and `--serial <SERIAL>` to select a
+device. Parameters must be a JSON object.
+
+Use a nonempty UTF-8 `.ink` file no larger than 128 KiB, containing one `<page>`
+block. `<style>` and `<script setup>` are optional; `lang="ts"` supports TypeScript.
+Single-file inputs do not accept an additional `[PATH]` or support Widgets.
+
+After editing, rerun the same command to see the changes. The page restarts and
+its in-memory state resets.
 
 ### `aix launch-widget <INPUT> <PATH>`
 
