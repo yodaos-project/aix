@@ -201,32 +201,33 @@ built-in Agents.
 
 ### `aix launch-page <INPUT> [PATH]`
 
+Open an installed Agent page using a project directory or `.aix` file:
+
 ```bash
 aix launch-page ./my-agent
+aix launch-page ./bundle.aix
 aix launch-page ./my-agent pages/index/index
-aix launch-page ./my-agent pages/index/index --card
-aix launch-page ./my-agent pages/index/index --params '{"id":"123"}'
-aix launch-page ./counter.ink
-aix launch-page ./counter.ink --card --params '{"count":7}'
 ```
 
-Opens full screen by default; `--card` opens a card. Use `--params-file <FILE>`
-for file parameters and `--serial <SERIAL>` to select a device. Project directories
-and `.aix` inputs open an installed Agent without installing it.
+For single-file debugging, connect an ADB-authorized device and enable AIUI
+Developer Mode with `aix device set-dev`, then run:
 
-A standalone `.ink` input runs `prepare -> push -> open` in AIUI Developer Mode.
-Enable it explicitly with `aix device set-dev`; launch never switches modes.
-No `app.json`, AIX package, Definition, Agent ID, or phone connection is needed.
-The source must be a regular file (not a symbolic link), nonempty, valid UTF-8,
-and at most 128 KiB. It must contain one `<page>` block; `<style>` and
-`<script setup>` (including `lang="ts"`) are optional. Widgets are not supported.
-An additional `[PATH]` is rejected for single-file input.
+```bash
+aix launch-page ./counter.ink
+aix launch-page ./counter.ink --card --params '{"count":7}'
+aix launch-page ./counter.ink --params-file ./params.json --serial DEVICE_SERIAL
+```
 
-The canonical local path determines a stable source name, so reopening the same
-file replaces its debug instance and keeps its storage identity; identically
-named files in different directories are isolated. After editing, rerun the
-command to upload a new snapshot and recreate the page with fresh in-memory
-state. Success means the Open request was accepted, not that rendering finished.
+Pages open full screen by default. Use `--card` for a card, `--params <JSON>` or
+`--params-file <FILE>` for initial parameters, and `--serial <SERIAL>` to select a
+device. Parameters must be a JSON object.
+
+Use a nonempty UTF-8 `.ink` file no larger than 128 KiB, containing one `<page>`
+block. `<style>` and `<script setup>` are optional; `lang="ts"` supports TypeScript.
+Single-file inputs do not accept an additional `[PATH]` or support Widgets.
+
+After editing, rerun the same command to see the changes. The page restarts and
+its in-memory state resets.
 
 ### `aix launch-widget <INPUT> <PATH>`
 

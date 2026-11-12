@@ -96,20 +96,27 @@ aix install ./my-agent --definition ./agent.json --serial <serial>
 
 ### `aix launch-page <INPUT> [PATH]`
 
+プロジェクトディレクトリまたは `.aix` ファイルを指定して、インストール済み Agent のページを開きます。
+
 ```bash
 aix launch-page ./my-agent
+aix launch-page ./bundle.aix
 aix launch-page ./my-agent pages/index/index
-aix launch-page ./my-agent pages/index/index --card
-aix launch-page ./my-agent pages/index/index --params '{"id":"123"}'
-aix launch-page ./counter.ink
-aix launch-page ./counter.ink --card --params '{"count":7}'
 ```
 
-既定では全画面で開き、`--card` でカード表示に切り替えます。ファイル形式のパラメーターには `--params-file <FILE>`、デバイス選択には `--serial <SERIAL>` を使用します。ディレクトリと `.aix` 入力では、インストール済み Agent を開きます。
+単一ファイルをデバッグするには、ADB 認証済みのデバイスを接続し、`aix device set-dev` で AIUI Developer Mode を有効にしてから実行します。
 
-単独の `.ink` 入力は AIUI Developer Mode で `prepare -> push -> open` を実行します。事前に `aix device set-dev` を明示的に実行してください。このコマンドはモードを切り替えません。`app.json`、AIX パッケージ、Definition、Agent ID、スマートフォンへの接続は不要です。ソースは空でない UTF-8 の通常ファイルで、上限は 128 KiB です。シンボリックリンクは受け付けません。`<page>` ブロックは 1 個必須で、`<style>` と `<script setup>`（`lang="ts"` 対応）は省略できます。Widget と追加の `[PATH]` はサポートしません。
+```bash
+aix launch-page ./counter.ink
+aix launch-page ./counter.ink --card --params '{"count":7}'
+aix launch-page ./counter.ink --params-file ./params.json --serial DEVICE_SERIAL
+```
 
-正規化されたローカルパスから安定したソース名を生成します。同じファイルを再度開くとストレージの識別子を保ってデバッグインスタンスを置き換え、別ディレクトリの同名ファイルは分離します。編集後はコマンドを再実行して新しいソースをアップロードし、メモリー上の状態を初期化してページを作り直します。成功は Open リクエストの受け付けを示し、描画完了を保証しません。
+既定では全画面で開き、`--card` でカード表示に切り替えます。初期パラメーターには `--params <JSON>` または `--params-file <FILE>` を使用し、JSON オブジェクトを指定してください。`--serial <SERIAL>` でデバイスを選択できます。
+
+`.ink` ファイルは空でない UTF-8、128 KiB 以下で、`<page>` ブロックを 1 個含む必要があります。`<style>` と `<script setup>` は省略でき、`lang="ts"` で TypeScript を使用できます。単一ファイル入力では追加の `[PATH]` と Widget はサポートしません。
+
+編集後は同じコマンドを再実行して変更を確認してください。ページは再起動し、メモリー上の状態はリセットされます。
 
 ### `aix launch-widget <INPUT> <PATH>`
 
