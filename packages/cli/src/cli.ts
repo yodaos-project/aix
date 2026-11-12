@@ -127,7 +127,7 @@ async function main() {
   program
     .command("launch-page <input> [path]")
     .helpGroup(DEVICE_COMMANDS)
-    .description("Open an installed AIX Agent Page on Rokid Glasses")
+    .description("Open an installed AIX Agent Page or debug a local .ink file on Rokid Glasses")
     .option("--card", "Open as a card instead of full screen")
     .option("--params <json>", "Parameters as a JSON object")
     .option("--params-file <file>", "Read parameters from a JSON file")

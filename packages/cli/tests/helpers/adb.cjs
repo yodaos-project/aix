@@ -19,6 +19,7 @@ if (command[0] === 'push') {
   entry.files = command.slice(1, -1).map((file) => ({
     path: file,
     bytes: fs.statSync(file).size,
+    source: path.extname(file) === '.ink' ? fs.readFileSync(file).toString('base64') : undefined,
     json: path.extname(file) === '.json' ? JSON.parse(fs.readFileSync(file, 'utf8')) : undefined,
   }));
 }

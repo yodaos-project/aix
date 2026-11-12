@@ -150,9 +150,15 @@ aix launch-page ./my-agent
 aix launch-page ./my-agent pages/index/index
 aix launch-page ./my-agent pages/index/index --card
 aix launch-page ./my-agent pages/index/index --params '{"id":"123"}'
+aix launch-page ./counter.ink
+aix launch-page ./counter.ink --card --params '{"count":7}'
 ```
 
-文件参数使用 `--params-file <FILE>`。该命令只打开已安装 Agent，不负责安装。
+默认全屏，`--card` 改为卡片。文件参数使用 `--params-file <FILE>`，设备选择使用 `--serial <SERIAL>`。目录和 `.aix` 输入打开已安装 Agent，不负责安装。
+
+独立 `.ink` 输入在 AIUI 开发者模式下执行 `prepare -> push -> open`。请先显式执行 `aix device set-dev`，启动命令不会自动切换模式。无需 `app.json`、AIX 包、Definition、Agent ID 或手机连接。源码必须是非空、有效 UTF-8、最多 128 KiB 的普通文件，不接受符号链接。文件中需要唯一的 `<page>` 块，`<style>` 和 `<script setup>`（支持 `lang="ts"`）可选，不支持 Widget。单文件输入不能追加 `[PATH]`。
+
+规范化本地路径决定稳定的源码名称：同一文件重开会替换调试实例并保持存储身份，不同目录的同名文件相互隔离。修改后重新执行命令，上传新的源码快照并重建页面，内存状态重新初始化。成功仅表示 Open 请求已接受，不代表画面已经显示。
 
 ### `aix launch-widget <INPUT> <PATH>`
 

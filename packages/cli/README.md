@@ -197,10 +197,27 @@ aix launch-page ./my-agent
 aix launch-page ./my-agent pages/index/index
 aix launch-page ./my-agent pages/index/index --card
 aix launch-page ./my-agent pages/index/index --params '{"id":"123"}'
+aix launch-page ./counter.ink
+aix launch-page ./counter.ink --card --params '{"count":7}'
 ```
 
-Use `--params-file <FILE>` for file parameters. This opens an installed Agent;
-it does not install one.
+Opens full screen by default; `--card` opens a card. Use `--params-file <FILE>`
+for file parameters and `--serial <SERIAL>` to select a device. Project directories
+and `.aix` inputs open an installed Agent without installing it.
+
+A standalone `.ink` input runs `prepare -> push -> open` in AIUI Developer Mode.
+Enable it explicitly with `aix device set-dev`; launch never switches modes.
+No `app.json`, AIX package, Definition, Agent ID, or phone connection is needed.
+The source must be a regular file (not a symbolic link), nonempty, valid UTF-8,
+and at most 128 KiB. It must contain one `<page>` block; `<style>` and
+`<script setup>` (including `lang="ts"`) are optional. Widgets are not supported.
+An additional `[PATH]` is rejected for single-file input.
+
+The canonical local path determines a stable source name, so reopening the same
+file replaces its debug instance and keeps its storage identity; identically
+named files in different directories are isolated. After editing, rerun the
+command to upload a new snapshot and recreate the page with fresh in-memory
+state. Success means the Open request was accepted, not that rendering finished.
 
 ### `aix launch-widget <INPUT> <PATH>`
 
