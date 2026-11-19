@@ -233,7 +233,7 @@ async function openCheckedPackage(file) {
 
 ## Progressive Assets（渐进资源） {#progressive-assets}
 
-渐进资源允许 AIUI 分片播放媒体。选择远程交付后，只要合并大小不超过 4 MiB，AIX 就把第一个完整媒体分片写入 `init.mp4`。
+渐进资源允许 AIUI 分片播放媒体。选择远程交付后，初始化段与首个完整媒体分片合计不超过 64 KiB 时，AIX 会把首段写入 `init.mp4`。超出预算时，AIX 只存入初始化段。
 兼容的运行时可以从包内播放首段，再按需下载其余分片。MP3 仍以完整文件内嵌。
 
 在 JavaScript 模块或 `.ink` 脚本中声明媒体。导入得到的 `AssetRef` 形如 `aix-asset:<id>`，可以直接交给 AIUI 的视频或音频组件。

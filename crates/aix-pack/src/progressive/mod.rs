@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 pub(crate) const REF_DIR: &str = "__aix_asset_refs/";
 const OBJECT_LIMIT: usize = 32 * 1024 * 1024;
-const INIT_WITH_PREFIX_LIMIT: usize = 4 * 1024 * 1024;
+const INIT_WITH_PREFIX_LIMIT: usize = 64 * 1024;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

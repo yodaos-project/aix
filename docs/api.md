@@ -278,9 +278,11 @@ metadata are read separately.
 
 A Progressive Asset lets AIUI play media in smaller pieces. For remote
 delivery, AIX includes the first complete playback fragment in `init.mp4`
-when the combined file fits within 4 MiB. A compatible runtime can play
-this opening portion from the package before downloading the remaining
-fragments. MP3 is embedded as a complete file.
+when the initialization segment and first fragment together fit within 64 KiB.
+If the combined size exceeds the budget, AIX stores only the initialization
+segment. When the first fragment fits, a compatible runtime can play it
+from the package and download the remaining fragments as needed. MP3 is
+embedded as a complete file.
 
 Declare the media in a JavaScript module or a script in an `.ink` file.
 The import returns an `AssetRef` such as `aix-asset:<id>`. Pass it to an

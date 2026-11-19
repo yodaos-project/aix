@@ -910,6 +910,47 @@ fn rejects_fmp4_with_invalid_fragment_payload_or_timeline() {
 }
 
 #[test]
+fn applies_the_startup_budget_to_initialization_and_the_first_fragment_together() {
+    let source = include_bytes!("../../tests/data/blue-tone-fragmented.mp4");
+    let (_, init, layout, objects) = media::prepare(source, AssetKind::Video).unwrap();
+    let first_size = objects[&layout.fragments[0].object].len();
+    let boxes = fragment_boxes::boxes(source).unwrap();
+    let moov = boxes.iter().find(|item| item.kind == *b"moov").unwrap();
+    let moov_end = moov.offset + moov.bytes.len();
+    let limit = 64 * 1024;
+    for overflow in [0, 1] {
+        let padding = limit + overflow - init.len() - first_size;
+        // Add a free box to the initialization segment without changing media samples.
+        let mut video = source[..moov_end].to_vec();
+        let moov_size = u32::try_from(moov.bytes.len() + padding).unwrap();
+        video[moov.offset..moov.offset + 4].copy_from_slice(&moov_size.to_be_bytes());
+        video.extend_from_slice(&u32::try_from(padding).unwrap().to_be_bytes());
+        video.extend_from_slice(b"free");
+        video.resize(moov_end + padding, 0);
+        video.extend_from_slice(&source[moov_end..]);
+
+        let mut files = fixture();
+        let media = files
+            .iter_mut()
+            .find(|file| file.path == "assets/nested/clip.mp4")
+            .unwrap();
+        *media = InputFile::new("assets/nested/clip.mp4", video);
+        let mut pack = ProgressivePack::discover(files).unwrap();
+        let id = pack.candidates()[0].id.clone();
+        let plan = pack.prepare(&id).unwrap();
+        assert_eq!(
+            plan.local_metadata["init.mp4"].size,
+            if overflow == 0 {
+                limit
+            } else {
+                init.len() + padding
+            } as u64
+        );
+        assert_eq!(plan.layout.fragments[0].object, layout.fragments[0].object);
+    }
+}
+
+#[test]
 fn embeds_only_the_first_fragment_for_muxed_and_audio_assets() {
     let video = include_bytes!("../../tests/data/blue-tone-fragmented.mp4").as_slice();
     let audio = include_bytes!("../../tests/data/tone-fragmented.m4a").as_slice();
