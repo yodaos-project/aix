@@ -76,6 +76,7 @@ dependencies = [
  "oxc_parser",
  "oxc_span",
  "percent-encoding",
+ "semver",
  "serde",
  "serde_bytes",
  "serde_json",

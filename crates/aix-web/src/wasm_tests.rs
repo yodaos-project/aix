@@ -13,8 +13,12 @@ fn progressive_sources() -> Vec<InputFile> {
 
 #[wasm_bindgen_test]
 fn progressive_pack_round_trips_typed_fragments_and_receipts() {
-    let mut session =
-        ProgressivePackWasm::new(to_value(&progressive_sources()).unwrap(), true).unwrap();
+    let mut session = ProgressivePackWasm::new(
+        to_value(&progressive_sources()).unwrap(),
+        true,
+        Some("^0.22.0".into()),
+    )
+    .unwrap();
     let candidates: Vec<serde_json::Value> =
         serde_wasm_bindgen::from_value(session.candidates().unwrap()).unwrap();
     assert_eq!(candidates.len(), 1);
@@ -75,6 +79,18 @@ fn progressive_pack_round_trips_typed_fragments_and_receipts() {
         serde_wasm_bindgen::from_value(packed.progressive_assets().unwrap()).unwrap();
     assert_eq!(report[0]["delivery"], "progressive");
     let reader = AixReader::new(packed.data).unwrap();
+    assert_eq!(reader.get_manifest().unwrap().unwrap().engine, "^0.22.0");
+    let asset_version = report[0]["assetVersion"].as_str().unwrap();
+    let descriptor_path = format!(
+        "{}{asset_version}/asset.json",
+        aix::progressive_assets::PREFIX
+    );
+    let descriptor: aix::progressive_assets::Descriptor =
+        serde_json::from_slice(&reader.read_file(&descriptor_path).unwrap()).unwrap();
+    assert_eq!(
+        descriptor.profile.embedded_prefix.unwrap().fragment_count,
+        1
+    );
     assert!(reader
         .read_file(aix::progressive_assets::INDEX_PATH)
         .is_ok());
@@ -84,7 +100,7 @@ fn progressive_pack_round_trips_typed_fragments_and_receipts() {
     assert!(session.prepare(id.into()).is_err());
 
     let mut session =
-        ProgressivePackWasm::new(to_value(&progressive_sources()).unwrap(), true).unwrap();
+        ProgressivePackWasm::new(to_value(&progressive_sources()).unwrap(), true, None).unwrap();
     let packed = session
         .finalize(
             to_value(&serde_json::json!({})).unwrap(),
@@ -104,13 +120,13 @@ fn progressive_pack_round_trips_typed_fragments_and_receipts() {
 
 #[wasm_bindgen_test]
 fn progressive_pack_surfaces_input_and_callback_errors() {
-    assert!(ProgressivePackWasm::new(JsValue::NULL, false).is_err());
+    assert!(ProgressivePackWasm::new(JsValue::NULL, false, None).is_err());
     let invalid = to_value(&vec![InputFile::new(".aixignore", b"[z-a]")]).unwrap();
-    assert!(ProgressivePackWasm::new(invalid, true).is_err());
+    assert!(ProgressivePackWasm::new(invalid, true, None).is_err());
     let reserved = to_value(&vec![InputFile::new("VERSION", b"bad")]).unwrap();
-    assert!(ProgressivePackWasm::new(reserved, false).is_err());
+    assert!(ProgressivePackWasm::new(reserved, false, None).is_err());
 
-    let mut session = ProgressivePackWasm::new(to_value(&files()).unwrap(), false).unwrap();
+    let mut session = ProgressivePackWasm::new(to_value(&files()).unwrap(), false, None).unwrap();
     assert!(session.prepare("missing".into()).is_err());
     let empty = to_value(&serde_json::json!({})).unwrap();
     assert!(session

@@ -408,7 +408,11 @@ pub struct ProgressivePackWasm {
 #[wasm_bindgen]
 impl ProgressivePackWasm {
     #[wasm_bindgen(constructor)]
-    pub fn new(files: JsValue, from_source: bool) -> Result<ProgressivePackWasm, JsValue> {
+    pub fn new(
+        files: JsValue,
+        from_source: bool,
+        engine: Option<String>,
+    ) -> Result<ProgressivePackWasm, JsValue> {
         let files: Vec<InputFile> = serde_wasm_bindgen::from_value(files).map_err(js_error)?;
         let files = if from_source {
             aix_pack::collector::collect_inputs(files, &CollectOptions::default())
@@ -416,8 +420,9 @@ impl ProgressivePackWasm {
         } else {
             files
         };
-        let session = aix_pack::progressive::ProgressivePack::discover(files)
-            .map_err(|e| js_error(format!("{e:#}")))?;
+        let session =
+            aix_pack::progressive::ProgressivePack::discover_with_engine(files, engine.as_deref())
+                .map_err(|e| js_error(format!("{e:#}")))?;
         Ok(Self {
             session: Some(session),
         })

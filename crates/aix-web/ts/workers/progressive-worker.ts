@@ -18,13 +18,12 @@ import type {
 } from '../index.js';
 
 type Request =
-  | { type: 'open'; files: AixInputFile[]; fromSource: boolean }
+  | { type: 'open'; files: AixInputFile[]; fromSource: boolean; engine?: string }
   | { type: 'prepare'; id: string }
   | {
       type: 'finalize';
       decisions: Record<string, ProgressiveAssetDecision>;
       buildId: string;
-      engine?: string;
       optimize?: OptimizeOptions;
       agentId?: string;
     };
@@ -42,7 +41,7 @@ port.onmessage = async ({ data }) => {
     switch (data.type) {
       case 'open': {
         await init();
-        session = new ProgressivePackWasm(data.files, data.fromSource);
+        session = new ProgressivePackWasm(data.files, data.fromSource, data.engine);
         port.postMessage({ result: session.candidates() });
         break;
       }
@@ -54,7 +53,7 @@ port.onmessage = async ({ data }) => {
       }
       case 'finalize': {
         if (!session) throw new Error('Progressive Asset session is closed');
-        const packed = session.finalize(data.decisions, data.buildId, data.engine, data.optimize, data.agentId,
+        const packed = session.finalize(data.decisions, data.buildId, undefined, data.optimize, data.agentId,
           (progress: PackProgressEvent) => port.postMessage({ progress }));
         try {
           const bytes = packed.data;

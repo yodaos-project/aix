@@ -9,12 +9,15 @@ mod tests;
 use crate::{InputFile, PackOptions, PackOutput, PackProgressEvent};
 use aix::{crypto::sha256, progressive_assets::*};
 use anyhow::{anyhow, bail, Result};
+use semver::{Op, Version, VersionReq};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 pub(crate) const REF_DIR: &str = "__aix_asset_refs/";
 const OBJECT_LIMIT: usize = 32 * 1024 * 1024;
+const INIT_WITH_PREFIX_LIMIT: usize = 64 * 1024;
+const EMBEDDED_PREFIX_MIN_ENGINE: Version = Version::new(0, 22, 0);
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -127,6 +130,7 @@ struct Prepared {
 /// only the receipt and plan ID are accepted back from the caller.
 pub struct ProgressivePack {
     files: BTreeMap<String, Arc<[u8]>>,
+    engine_override: Option<String>,
     candidates: BTreeMap<String, ProgressiveAssetCandidate>,
     ordinary: BTreeSet<String>,
     prepared: BTreeMap<String, Prepared>,
@@ -134,6 +138,11 @@ pub struct ProgressivePack {
 
 impl ProgressivePack {
     pub fn discover(files: Vec<InputFile>) -> Result<Self> {
+        Self::discover_with_engine(files, None)
+    }
+
+    /// Use a pack engine override when preparing upload plans and writing the manifest.
+    pub fn discover_with_engine(files: Vec<InputFile>, engine: Option<&str>) -> Result<Self> {
         let mut files = files;
         files.sort_by(|a, b| a.path.cmp(&b.path));
         crate::validate_paths(&files)?;
@@ -238,6 +247,7 @@ impl ProgressivePack {
         }
         Ok(Self {
             files,
+            engine_override: engine.map(str::to_owned),
             candidates,
             ordinary,
             prepared: BTreeMap::new(),
@@ -265,8 +275,28 @@ impl ProgressivePack {
                         .unwrap_or("unsupported profile")
                 );
             }
-            let (local_name, local_bytes, layout, objects) =
+            let engine = crate::resolve_engine_range(
+                self.files.get("app.json").map(AsRef::as_ref),
+                self.engine_override.as_deref(),
+            )?;
+            let (local_name, mut local_bytes, layout, objects) =
                 media::prepare(&self.files[&candidate.source_path], candidate.kind)?;
+            let embedded_prefix = layout
+                .fragments
+                .first()
+                .filter(|_| supports_embedded_prefix(&engine))
+                .and_then(|fragment| objects.get(&fragment.object))
+                .filter(|bytes| {
+                    local_bytes.len().saturating_add(bytes.len()) <= INIT_WITH_PREFIX_LIMIT
+                })
+                .map(|bytes| {
+                    let init_size = local_bytes.len() as u64;
+                    local_bytes.extend_from_slice(bytes);
+                    EmbeddedPrefix {
+                        init_size,
+                        fragment_count: 1,
+                    }
+                });
             let profile_name = candidate
                 .progressive_support
                 .profile
@@ -275,6 +305,7 @@ impl ProgressivePack {
                 profile: profile_name.into(),
                 required_capabilities: vec![profile_name.into()],
                 local_metadata: BTreeMap::from([(local_name.clone(), identity(&local_bytes))]),
+                embedded_prefix,
                 objects: objects
                     .iter()
                     .map(|(id, bytes)| {
@@ -322,9 +353,14 @@ impl ProgressivePack {
     pub fn finalize(
         self,
         decisions: BTreeMap<String, Decision>,
-        options: PackOptions<'_>,
+        mut options: PackOptions<'_>,
         progress: impl FnMut(PackProgressEvent) -> Result<()>,
     ) -> Result<PackOutput> {
+        let incompatible_override = options
+            .engine
+            .as_deref()
+            .is_some_and(|engine| !supports_embedded_prefix(engine));
+        options.engine = options.engine.or(self.engine_override);
         let mut files = self.files;
         if decisions.keys().any(|id| !self.candidates.contains_key(id)) {
             bail!("decision supplied for an unknown asset");
@@ -354,6 +390,9 @@ impl ProgressivePack {
                         .prepared
                         .get(&id)
                         .ok_or_else(|| anyhow!("progressive decision has no prepared plan"))?;
+                    if prepared.profile.embedded_prefix.is_some() && incompatible_override {
+                        bail!("the final engine range does not support the prepared media prefix; set it before preparing the upload plan");
+                    }
                     let locators = verify_receipt(prepared, plan_id, receipt)?;
                     let version = prepared.plan.asset_version.clone();
                     let descriptor = Descriptor {
@@ -427,6 +466,57 @@ impl ProgressivePack {
         output.progressive_assets = report;
         Ok(output)
     }
+}
+
+fn supports_embedded_prefix(engine: &str) -> bool {
+    let engine = engine.trim();
+    // AIX treats a bare full version as exact.
+    if let Ok(version) = Version::parse(engine) {
+        return version.cmp_precedence(&EMBEDDED_PREFIX_MIN_ENGINE).is_ge();
+    }
+    let Ok(requirement) = VersionReq::parse(engine) else {
+        return false;
+    };
+    let min = EMBEDDED_PREFIX_MIN_ENGINE;
+    let minimum = (min.major, min.minor, min.patch);
+    let mentions_minimum_prerelease = requirement.comparators.iter().any(|comparator| {
+        comparator.major == min.major
+            && comparator.minor == Some(min.minor)
+            && comparator.patch == Some(min.patch)
+            && !comparator.pre.is_empty()
+    });
+    // Semver joins its comparators with AND. Require one to establish a lower
+    // bound at the feature version so broad ranges keep the legacy profile.
+    requirement.comparators.iter().any(|comparator| {
+        let core = (
+            comparator.major,
+            comparator.minor.unwrap_or(0),
+            comparator.patch.unwrap_or(0),
+        );
+        match comparator.op {
+            Op::Greater if comparator.pre.is_empty() => {
+                // For a strict comparison like >0.21, the entire 0.21 series
+                // is excluded. A separate comparator can admit 0.22.0 prereleases.
+                let last_excluded = (
+                    comparator.major,
+                    comparator.minor.unwrap_or(u64::MAX),
+                    comparator.patch.unwrap_or(u64::MAX),
+                );
+                last_excluded >= minimum
+                    || (last_excluded == (min.major, min.minor - 1, u64::MAX)
+                        && !mentions_minimum_prerelease)
+            }
+            Op::Exact | Op::Wildcard | Op::Greater | Op::GreaterEq | Op::Tilde | Op::Caret => {
+                core > minimum
+                    || (core == minimum
+                        && comparator.pre.is_empty()
+                        && (comparator.op != Op::Caret
+                            || comparator.patch.is_some()
+                            || !mentions_minimum_prerelease))
+            }
+            _ => false,
+        }
+    })
 }
 
 fn verify_receipt(

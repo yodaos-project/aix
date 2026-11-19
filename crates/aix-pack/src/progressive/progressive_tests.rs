@@ -39,8 +39,102 @@ fn receipt(plan: &ProgressiveAssetPlan) -> ProgressiveAssetUploadReceipt {
 }
 
 #[test]
-fn lowers_all_declarations_and_packages_only_metadata_after_verified_receipt() {
-    let mut builder = ProgressivePack::discover(fixture()).unwrap();
+fn requires_a_minimum_ink_022_engine_for_the_embedded_prefix() {
+    for (engine, supported) in [
+        ("*", false),
+        ("0.*", false),
+        ("0.21.9", false),
+        ("<=0.23.0", false),
+        (">=0.21.0, <0.23.0", false),
+        ("0.22.0-rc.1", false),
+        (">=0.22.0-rc.1", false),
+        ("^0.22, >=0.22.0-rc.1", false),
+        (">0.21, >=0.22.0-rc.1", false),
+        ("0.22.0", true),
+        ("0.22", true),
+        ("0.22.*", true),
+        ("^0.22", true),
+        ("~0.22", true),
+        (">0.21", true),
+        (">0", true),
+        (">=0.22.0, <0.23.0", true),
+        (">=0.22.0, >0.22.0-rc.1", true),
+        ("^0.23.0", true),
+    ] {
+        assert_eq!(supports_embedded_prefix(engine), supported, "{engine}");
+    }
+}
+
+#[test]
+fn keeps_the_legacy_profile_when_an_older_engine_can_open_the_package() {
+    let files = fixture();
+    let (_, legacy_init, _, _) = media::prepare(&files[3].data, AssetKind::Video).unwrap();
+    for engine in [None, Some(">=0.21.0")] {
+        let mut pack = ProgressivePack::discover_with_engine(files.clone(), engine).unwrap();
+        let id = pack.candidates()[0].id.clone();
+        let plan = pack.prepare(&id).unwrap();
+        assert_eq!(plan.local_metadata["init.mp4"].sha256, sha256(&legacy_init));
+        let version = plan.asset_version.clone();
+        let decision = Decision::Progressive {
+            plan_id: plan.id.clone(),
+            receipt: receipt(plan),
+        };
+        let output = pack
+            .finalize(
+                BTreeMap::from([(id, decision)]),
+                PackOptions::new("legacy"),
+                |_| Ok(()),
+            )
+            .unwrap();
+        let archive = aix::AixReader::new(output.data).unwrap();
+        assert_eq!(
+            archive.get_manifest().unwrap().unwrap().engine,
+            engine.unwrap_or("*")
+        );
+        let descriptor: serde_json::Value = serde_json::from_slice(
+            &archive
+                .read_file(&format!("{PREFIX}{version}/asset.json"))
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(descriptor.get("embedded_prefix").is_none());
+        assert_eq!(
+            archive
+                .read_file(&format!("{PREFIX}{version}/init.mp4"))
+                .unwrap(),
+            legacy_init
+        );
+    }
+}
+
+#[test]
+fn rejects_a_final_engine_override_that_cannot_open_the_prepared_prefix() {
+    let mut pack = ProgressivePack::discover_with_engine(fixture(), Some("^0.22.0")).unwrap();
+    let id = pack.candidates()[0].id.clone();
+    let plan = pack.prepare(&id).unwrap();
+    let decision = Decision::Progressive {
+        plan_id: plan.id.clone(),
+        receipt: receipt(plan),
+    };
+    let error = pack
+        .finalize(
+            BTreeMap::from([(id, decision)]),
+            PackOptions {
+                engine: Some("*".into()),
+                ..PackOptions::new("downgrade")
+            },
+            |_| Ok(()),
+        )
+        .err()
+        .unwrap();
+    assert!(error.to_string().contains("final engine range"));
+}
+
+#[test]
+fn lowers_declarations_and_packages_an_embedded_prefix_after_verified_receipt() {
+    let mut files = fixture();
+    files[0].data = br#"{"pages":["pages/index"],"engine":"^0.22.0"}"#.to_vec();
+    let mut builder = ProgressivePack::discover(files).unwrap();
     let candidates = builder.candidates();
     assert_eq!(candidates.len(), 1);
     let candidate = candidates[0];
@@ -50,6 +144,13 @@ fn lowers_all_declarations_and_packages_only_metadata_after_verified_receipt() {
     assert!(candidate.dependencies.is_empty());
     let plan = builder.prepare(&id).unwrap();
     assert!(plan.remote_objects.len() >= 2);
+    let first = plan
+        .remote_objects
+        .iter()
+        .find(|object| object.id == plan.layout.fragments[0].object)
+        .unwrap()
+        .bytes
+        .clone();
     let version = plan.asset_version.clone();
     let plan_id = plan.id.clone();
     let receipt = receipt(plan);
@@ -69,6 +170,7 @@ fn lowers_all_declarations_and_packages_only_metadata_after_verified_receipt() {
     let reader = aix::AixReader::new(output.data.clone()).unwrap();
     reader.verify_signature(&key.public_key()).unwrap();
     let manifest = reader.get_manifest().unwrap().unwrap();
+    assert_eq!(manifest.engine, "^0.22.0");
     let index = reader.read_file(INDEX_PATH).unwrap();
     assert_eq!(
         manifest.progressive_assets.unwrap().index_sha256,
@@ -77,6 +179,19 @@ fn lowers_all_declarations_and_packages_only_metadata_after_verified_receipt() {
     let init = reader
         .read_file(&format!("{PREFIX}{version}/init.mp4"))
         .unwrap();
+    let descriptor: Descriptor = serde_json::from_slice(
+        &reader
+            .read_file(&format!("{PREFIX}{version}/asset.json"))
+            .unwrap(),
+    )
+    .unwrap();
+    let prefix = descriptor.profile.embedded_prefix.unwrap();
+    assert_eq!(prefix.fragment_count, 1);
+    assert_eq!(&init[prefix.init_size as usize..], first.as_ref());
+    assert_eq!(
+        descriptor.profile.local_metadata["init.mp4"].sha256,
+        sha256(&init)
+    );
     assert!(reader.read_file("assets/nested/clip.mp4").is_err());
     let app = String::from_utf8(reader.read_file("app.js").unwrap()).unwrap();
     assert!(!app.contains("progressive"));
@@ -890,7 +1005,48 @@ fn rejects_fmp4_with_invalid_fragment_payload_or_timeline() {
 }
 
 #[test]
-fn prepares_muxed_and_audio_fragments_without_embedding_segment_zero() {
+fn applies_the_startup_budget_to_initialization_and_the_first_fragment_together() {
+    let source = include_bytes!("../../tests/data/blue-tone-fragmented.mp4");
+    let (_, init, layout, objects) = media::prepare(source, AssetKind::Video).unwrap();
+    let first_size = objects[&layout.fragments[0].object].len();
+    let boxes = fragment_boxes::boxes(source).unwrap();
+    let moov = boxes.iter().find(|item| item.kind == *b"moov").unwrap();
+    let moov_end = moov.offset + moov.bytes.len();
+    let limit = 64 * 1024;
+    for overflow in [0, 1] {
+        let padding = limit + overflow - init.len() - first_size;
+        // Add a free box to the initialization segment without changing media samples.
+        let mut video = source[..moov_end].to_vec();
+        let moov_size = u32::try_from(moov.bytes.len() + padding).unwrap();
+        video[moov.offset..moov.offset + 4].copy_from_slice(&moov_size.to_be_bytes());
+        video.extend_from_slice(&u32::try_from(padding).unwrap().to_be_bytes());
+        video.extend_from_slice(b"free");
+        video.resize(moov_end + padding, 0);
+        video.extend_from_slice(&source[moov_end..]);
+
+        let mut files = fixture();
+        let media = files
+            .iter_mut()
+            .find(|file| file.path == "assets/nested/clip.mp4")
+            .unwrap();
+        *media = InputFile::new("assets/nested/clip.mp4", video);
+        let mut pack = ProgressivePack::discover_with_engine(files, Some("0.22.0")).unwrap();
+        let id = pack.candidates()[0].id.clone();
+        let plan = pack.prepare(&id).unwrap();
+        assert_eq!(
+            plan.local_metadata["init.mp4"].size,
+            if overflow == 0 {
+                limit
+            } else {
+                init.len() + padding
+            } as u64
+        );
+        assert_eq!(plan.layout.fragments[0].object, layout.fragments[0].object);
+    }
+}
+
+#[test]
+fn embeds_only_the_first_fragment_for_muxed_and_audio_assets() {
     let video = include_bytes!("../../tests/data/blue-tone-fragmented.mp4").as_slice();
     let audio = include_bytes!("../../tests/data/tone-fragmented.m4a").as_slice();
     for (kind, path, bytes, track_count) in [
@@ -914,7 +1070,7 @@ fn prepares_muxed_and_audio_fragments_without_embedding_segment_zero() {
             InputFile::new("app.js", format!("import clip from './{path}' with {{ type: '{kind}', progressive: 'prefer' }}; export default {{ clip }};").into_bytes()),
             InputFile::new(path, bytes),
         ];
-        let mut pack = ProgressivePack::discover(files).unwrap();
+        let mut pack = ProgressivePack::discover_with_engine(files, Some("0.22.0")).unwrap();
         let candidate = pack.candidates()[0];
         assert!(
             candidate.progressive_support.supported,
@@ -952,7 +1108,7 @@ fn prepares_muxed_and_audio_fragments_without_embedding_segment_zero() {
         let boxes = fragment_boxes::boxes(&init).unwrap();
         assert_eq!(
             boxes.iter().map(|b| &b.kind).collect::<Vec<_>>(),
-            [b"ftyp", b"moov"]
+            [b"ftyp", b"moov", b"moof", b"mdat"]
         );
         assert!(reader.read_file(path).is_err());
         assert!(reader

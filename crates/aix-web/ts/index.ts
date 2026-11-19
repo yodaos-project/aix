@@ -355,7 +355,7 @@ export class AIX {
   ): Promise<ProgressiveAssetCandidate[]> {
     const signal = options?.signal ?? new AbortController().signal;
     signal.throwIfAborted();
-    const session = await openPackSession(snapshotFiles(files), false, signal, () => {});
+    const session = await openPackSession(snapshotFiles(files), false, undefined, signal, () => {});
     try {
       signal.throwIfAborted();
       return session.candidates;
@@ -555,7 +555,6 @@ interface PackSession {
   finalize(
     decisions: Record<string, ProgressiveAssetDecision>,
     buildId: string,
-    engine?: string,
     optimize?: OptimizeOptions,
     agentId?: string,
   ): Promise<PackResult>;
@@ -565,6 +564,7 @@ interface PackSession {
 async function openPackSession(
   files: AixInputFile[],
   fromSource: boolean,
+  engine: string | undefined,
   signal: AbortSignal,
   progress: (event: PackProgressEvent) => void,
 ): Promise<PackSession> {
@@ -579,13 +579,13 @@ async function openPackSession(
   if (!worker) {
     const tooling = await loadTooling();
     signal.throwIfAborted();
-    const session = new tooling.ProgressivePackWasm(files, fromSource);
+    const session = new tooling.ProgressivePackWasm(files, fromSource, engine);
     try {
       return {
         candidates: session.candidates() as ProgressiveAssetCandidate[],
         prepare: async (id) => session.prepare(id) as ProgressiveAssetPlan,
-        finalize: async (decisions, buildId, engine, optimize, agentId) =>
-          packResult(session.finalize(decisions, buildId, engine, optimize, agentId, progress)),
+        finalize: async (decisions, buildId, optimize, agentId) =>
+          packResult(session.finalize(decisions, buildId, undefined, optimize, agentId, progress)),
         close: () => session.free(),
       };
     } catch (error) {
@@ -616,12 +616,12 @@ async function openPackSession(
       port.postMessage(request, transfer);
     }));
   try {
-    const candidates = await call<ProgressiveAssetCandidate[]>({ type: 'open', files, fromSource }, files.map((file) => file.data.buffer as ArrayBuffer));
+    const candidates = await call<ProgressiveAssetCandidate[]>({ type: 'open', files, fromSource, engine }, files.map((file) => file.data.buffer as ArrayBuffer));
     return {
       candidates,
       prepare: (id) => call({ type: 'prepare', id }),
-      finalize: (decisions, buildId, engine, optimize, agentId) =>
-        call({ type: 'finalize', decisions, buildId, engine, optimize, agentId }),
+      finalize: (decisions, buildId, optimize, agentId) =>
+        call({ type: 'finalize', decisions, buildId, optimize, agentId }),
       close: () => port.terminate(),
     };
   } catch (error) {
@@ -652,7 +652,7 @@ async function stagedPack(
   };
   progress({ type: 'transferring_files_to_wasm' });
   if (fromSource) progress({ type: 'collecting_source_inputs' });
-  const session = await openPackSession(snapshot, fromSource, signal, progress);
+  const session = await openPackSession(snapshot, fromSource, engine, signal, progress);
   try {
     const decisions: Record<string, ProgressiveAssetDecision> = Object.create(null);
     if (onProgressiveAsset) {
@@ -683,7 +683,7 @@ async function stagedPack(
       }
     }
     signal.throwIfAborted();
-    return await session.finalize(decisions, buildId, engine, optimize, agentId);
+    return await session.finalize(decisions, buildId, optimize, agentId);
   } finally {
     session.close();
   }

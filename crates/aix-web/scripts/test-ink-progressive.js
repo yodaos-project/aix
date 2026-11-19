@@ -45,7 +45,7 @@ export default {
 </page>`,
     };
     const inputs = [
-      ['app.json', JSON.stringify({ pages: Object.keys(pages) })],
+      ['app.json', JSON.stringify({ pages: Object.keys(pages), engine: '^0.22.0' })],
       ...Object.entries(pages).map(([name, source]) => [name + '.ink', source]),
       ['tone.m4a', Uint8Array.from(media.tone)],
       ['movie.mp4', Uint8Array.from(media.video)],
@@ -90,7 +90,10 @@ export default {
         appId: id,
         files: Object.fromEntries(Object.entries(bundle.files).map(([name, bytes]) => [name, Uint8Array.from(bytes)])),
         initialPage: mode,
-        hostOptions: { initialTarget: '_blank' },
+        hostOptions: {
+          initialTarget: '_blank',
+          progressiveAssetPolicy: { allowedOrigins: [window.location.origin] },
+        },
       });
     }, { bundle, mode, id });
   };

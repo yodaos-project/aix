@@ -297,8 +297,12 @@ the archive. A `progressive` entry points to a hashed descriptor that
 identifies the local initialization segment, track timeline, and external
 fragment objects. Each fragment has an expected size and SHA-256 and
 an HTTPS locator. Playback consumers verify fetched bytes before use.
-The archive carries the initialization segment and metadata for remotely
-delivered media. Playback fragments are delivered separately.
+For `fmp4-h264-aac-v1`, an optional `embedded_prefix` object in the
+content profile gives `init_size` in bytes and a positive `fragment_count`.
+`init.mp4` contains the initialization segment followed by that many
+complete playback fragments in timeline order. The metadata digest covers
+the whole file, and each embedded fragment must also match its object size
+and digest. Packages with a prefix require a runtime that supports it.
 
 ## 8. Engine Compatibility
 
