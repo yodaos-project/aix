@@ -39,8 +39,102 @@ fn receipt(plan: &ProgressiveAssetPlan) -> ProgressiveAssetUploadReceipt {
 }
 
 #[test]
+fn requires_a_minimum_ink_022_engine_for_the_embedded_prefix() {
+    for (engine, supported) in [
+        ("*", false),
+        ("0.*", false),
+        ("0.21.9", false),
+        ("<=0.23.0", false),
+        (">=0.21.0, <0.23.0", false),
+        ("0.22.0-rc.1", false),
+        (">=0.22.0-rc.1", false),
+        ("^0.22, >=0.22.0-rc.1", false),
+        (">0.21, >=0.22.0-rc.1", false),
+        ("0.22.0", true),
+        ("0.22", true),
+        ("0.22.*", true),
+        ("^0.22", true),
+        ("~0.22", true),
+        (">0.21", true),
+        (">0", true),
+        (">=0.22.0, <0.23.0", true),
+        (">=0.22.0, >0.22.0-rc.1", true),
+        ("^0.23.0", true),
+    ] {
+        assert_eq!(supports_embedded_prefix(engine), supported, "{engine}");
+    }
+}
+
+#[test]
+fn keeps_the_legacy_profile_when_an_older_engine_can_open_the_package() {
+    let files = fixture();
+    let (_, legacy_init, _, _) = media::prepare(&files[3].data, AssetKind::Video).unwrap();
+    for engine in [None, Some(">=0.21.0")] {
+        let mut pack = ProgressivePack::discover_with_engine(files.clone(), engine).unwrap();
+        let id = pack.candidates()[0].id.clone();
+        let plan = pack.prepare(&id).unwrap();
+        assert_eq!(plan.local_metadata["init.mp4"].sha256, sha256(&legacy_init));
+        let version = plan.asset_version.clone();
+        let decision = Decision::Progressive {
+            plan_id: plan.id.clone(),
+            receipt: receipt(plan),
+        };
+        let output = pack
+            .finalize(
+                BTreeMap::from([(id, decision)]),
+                PackOptions::new("legacy"),
+                |_| Ok(()),
+            )
+            .unwrap();
+        let archive = aix::AixReader::new(output.data).unwrap();
+        assert_eq!(
+            archive.get_manifest().unwrap().unwrap().engine,
+            engine.unwrap_or("*")
+        );
+        let descriptor: serde_json::Value = serde_json::from_slice(
+            &archive
+                .read_file(&format!("{PREFIX}{version}/asset.json"))
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(descriptor.get("embedded_prefix").is_none());
+        assert_eq!(
+            archive
+                .read_file(&format!("{PREFIX}{version}/init.mp4"))
+                .unwrap(),
+            legacy_init
+        );
+    }
+}
+
+#[test]
+fn rejects_a_final_engine_override_that_cannot_open_the_prepared_prefix() {
+    let mut pack = ProgressivePack::discover_with_engine(fixture(), Some("^0.22.0")).unwrap();
+    let id = pack.candidates()[0].id.clone();
+    let plan = pack.prepare(&id).unwrap();
+    let decision = Decision::Progressive {
+        plan_id: plan.id.clone(),
+        receipt: receipt(plan),
+    };
+    let error = pack
+        .finalize(
+            BTreeMap::from([(id, decision)]),
+            PackOptions {
+                engine: Some("*".into()),
+                ..PackOptions::new("downgrade")
+            },
+            |_| Ok(()),
+        )
+        .err()
+        .unwrap();
+    assert!(error.to_string().contains("final engine range"));
+}
+
+#[test]
 fn lowers_declarations_and_packages_an_embedded_prefix_after_verified_receipt() {
-    let mut builder = ProgressivePack::discover(fixture()).unwrap();
+    let mut files = fixture();
+    files[0].data = br#"{"pages":["pages/index"],"engine":"^0.22.0"}"#.to_vec();
+    let mut builder = ProgressivePack::discover(files).unwrap();
     let candidates = builder.candidates();
     assert_eq!(candidates.len(), 1);
     let candidate = candidates[0];
@@ -76,6 +170,7 @@ fn lowers_declarations_and_packages_an_embedded_prefix_after_verified_receipt() 
     let reader = aix::AixReader::new(output.data.clone()).unwrap();
     reader.verify_signature(&key.public_key()).unwrap();
     let manifest = reader.get_manifest().unwrap().unwrap();
+    assert_eq!(manifest.engine, "^0.22.0");
     let index = reader.read_file(INDEX_PATH).unwrap();
     assert_eq!(
         manifest.progressive_assets.unwrap().index_sha256,
@@ -935,7 +1030,7 @@ fn applies_the_startup_budget_to_initialization_and_the_first_fragment_together(
             .find(|file| file.path == "assets/nested/clip.mp4")
             .unwrap();
         *media = InputFile::new("assets/nested/clip.mp4", video);
-        let mut pack = ProgressivePack::discover(files).unwrap();
+        let mut pack = ProgressivePack::discover_with_engine(files, Some("0.22.0")).unwrap();
         let id = pack.candidates()[0].id.clone();
         let plan = pack.prepare(&id).unwrap();
         assert_eq!(
@@ -975,7 +1070,7 @@ fn embeds_only_the_first_fragment_for_muxed_and_audio_assets() {
             InputFile::new("app.js", format!("import clip from './{path}' with {{ type: '{kind}', progressive: 'prefer' }}; export default {{ clip }};").into_bytes()),
             InputFile::new(path, bytes),
         ];
-        let mut pack = ProgressivePack::discover(files).unwrap();
+        let mut pack = ProgressivePack::discover_with_engine(files, Some("0.22.0")).unwrap();
         let candidate = pack.candidates()[0];
         assert!(
             candidate.progressive_support.supported,

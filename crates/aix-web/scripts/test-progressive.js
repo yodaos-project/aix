@@ -91,6 +91,7 @@ export default { data: { source: clip } };
       let calls = 0;
       const studioUpload = Function('return (' + studioUploadSource + ')')();
       const packed = await AIX.packFromSource(files, {
+        engine: '^0.22.0',
         async onProgressiveAsset(candidate, context) {
           calls += 1;
           if (candidate.kind !== 'video' || candidate.references.length !== 1) throw new Error('Unexpected candidate');
@@ -105,6 +106,11 @@ export default { data: { source: clip } };
       });
       const archive = await AIX.From(packed.data);
       const paths = archive.list().map(({name}) => name);
+      const readJson = (archive, path) => JSON.parse(new TextDecoder().decode(archive.readFile(path)));
+      const manifest = readJson(archive, 'META-INF/aix/manifest.json');
+      const version = packed.progressiveAssets[0].assetVersion;
+      const prefix = readJson(archive, 'META-INF/assets/progressive_assets/' + version + '/asset.json')
+        .embedded_prefix;
       let badReceiptRejected = false;
       try {
         await AIX.pack(inputs(), { async onProgressiveAsset(_, context) {
@@ -156,13 +162,20 @@ export default { tone, movie };
       });
       const embedded = await AIX.pack(inputs());
       const fallback = await AIX.From(embedded.data);
+      const legacyArchive = await AIX.From(media.data);
+      const legacyHasPrefix = media.progressiveAssets.some(({ assetVersion }) =>
+        'embedded_prefix' in readJson(legacyArchive, 'META-INF/assets/progressive_assets/' + assetVersion + '/asset.json'));
       return {
         calls, paths, report: packed.progressiveAssets,
+        engine: manifest.engine, prefix, legacyHasPrefix,
         embedded: fallback.list().some(({name}) => name === 'assets/clip.mp4'),
         badReceiptRejected, uploadAborted, media: media.progressiveAssets.map(({ delivery }) => delivery),
       };
     }, { tone, video, studioUploadSource: studioUpload.toString() });
     assert.equal(result.calls, 1);
+    assert.equal(result.engine, '^0.22.0');
+    assert.equal(result.prefix.fragment_count, 1);
+    assert.equal(result.legacyHasPrefix, false);
     assert.deepEqual(result.media, ['progressive', 'progressive']);
     assert.equal(result.report[0].delivery, 'progressive');
     assert.equal(result.report[0].retainedSourceBytes, 0);

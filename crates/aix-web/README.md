@@ -502,7 +502,8 @@ or embedded. The Ink runtime must support the selected profile.
 The browser integration test runs a local HTTPS Studio stand-in. It receives
 object bytes over HTTP PUT, verifies length and SHA-256 on disk, and issues
 receipts only after the entire inventory is present. Set `INK_WEB_DIST` to a
-built Ink Web SDK to also test browser playback and offline reopening through the same object server.
+built Ink Web SDK with the Ink 0.22 progressive media support to also test
+browser playback and offline reopening through the same object server.
 
 In [Play's Build view](https://yodaos-project.github.io/aix/play?mode=build),
 select a project directory and choose **Build and download**. Play calls

@@ -278,11 +278,14 @@ metadata are read separately.
 
 A Progressive Asset lets AIUI play media in smaller pieces. For remote
 delivery, AIX includes the first complete playback fragment in `init.mp4`
-when the initialization segment and first fragment together fit within 64 KiB.
-If the combined size exceeds the budget, AIX stores only the initialization
-segment. When the first fragment fits, a compatible runtime can play it
-from the package and download the remaining fragments as needed. MP3 is
-embedded as a complete file.
+when the package's `engine` range requires Ink 0.22.0 or later and the
+initialization segment and first fragment together fit within 64 KiB.
+Set `"engine": "^0.22.0"` in `app.json` or pass an `engine` override to the
+packer to target Ink 0.22. If the range allows older engines (including the
+default `*`) or the combined size exceeds the budget, AIX stores only the
+initialization segment. Ink can play an embedded first fragment from the
+package and download the remaining fragments as needed. MP3 is embedded as
+a complete file.
 
 Declare the media in a JavaScript module or a script in an `.ink` file.
 The import returns an `AssetRef` such as `aix-asset:<id>`. Pass it to an

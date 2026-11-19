@@ -183,7 +183,11 @@ where
     validate_paths(&files)?;
     let warnings = validate_app_config(&files)?;
     progress(PackProgressEvent::ResolvingEngine)?;
-    let engine = resolve_engine_range(&files, options.engine.as_deref())?;
+    let app_json = files
+        .iter()
+        .find(|file| file.path == "app.json")
+        .map(|file| file.data.as_slice());
+    let engine = resolve_engine_range(app_json, options.engine.as_deref())?;
     aix::crypto::validate_engine_range(&engine)
         .map_err(|error| anyhow!("invalid engine range: {}", error))?;
 
@@ -365,16 +369,16 @@ fn build_manifest(
     }
 }
 
-fn resolve_engine_range(files: &[InputFile], override_engine: Option<&str>) -> Result<String> {
+fn resolve_engine_range(app_json: Option<&[u8]>, override_engine: Option<&str>) -> Result<String> {
     if let Some(engine) = override_engine {
         return Ok(engine.into());
     }
 
-    let Some(app_json) = files.iter().find(|file| file.path == "app.json") else {
+    let Some(app_json) = app_json else {
         return Ok("*".into());
     };
 
-    let (utf8, _) = normalize_text_to_utf8("app.json", &app_json.data)?;
+    let (utf8, _) = normalize_text_to_utf8("app.json", app_json)?;
     let value: serde_json::Value = serde_json::from_slice(&utf8)
         .map_err(|error| anyhow!("Invalid JSON in app.json: {}", error))?;
     Ok(value
@@ -816,7 +820,7 @@ mod tests {
             .unwrap_err();
             assert_eq!(error.to_string(), "cancelled");
         }
-        assert_eq!(resolve_engine_range(&[], None).unwrap(), "*");
+        assert_eq!(resolve_engine_range(None, None).unwrap(), "*");
         assert!(
             validate_app_config(&[InputFile::new("app.json", b"\xef\xbb\xbf\xff")])
                 .unwrap()
