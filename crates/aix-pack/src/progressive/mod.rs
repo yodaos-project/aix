@@ -15,6 +15,7 @@ use std::sync::Arc;
 
 pub(crate) const REF_DIR: &str = "__aix_asset_refs/";
 const OBJECT_LIMIT: usize = 32 * 1024 * 1024;
+const INIT_WITH_PREFIX_LIMIT: usize = 4 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -265,8 +266,23 @@ impl ProgressivePack {
                         .unwrap_or("unsupported profile")
                 );
             }
-            let (local_name, local_bytes, layout, objects) =
+            let (local_name, mut local_bytes, layout, objects) =
                 media::prepare(&self.files[&candidate.source_path], candidate.kind)?;
+            let embedded_prefix = layout
+                .fragments
+                .first()
+                .and_then(|fragment| objects.get(&fragment.object))
+                .filter(|bytes| {
+                    local_bytes.len().saturating_add(bytes.len()) <= INIT_WITH_PREFIX_LIMIT
+                })
+                .map(|bytes| {
+                    let init_size = local_bytes.len() as u64;
+                    local_bytes.extend_from_slice(bytes);
+                    EmbeddedPrefix {
+                        init_size,
+                        fragment_count: 1,
+                    }
+                });
             let profile_name = candidate
                 .progressive_support
                 .profile
@@ -275,6 +291,7 @@ impl ProgressivePack {
                 profile: profile_name.into(),
                 required_capabilities: vec![profile_name.into()],
                 local_metadata: BTreeMap::from([(local_name.clone(), identity(&local_bytes))]),
+                embedded_prefix,
                 objects: objects
                     .iter()
                     .map(|(id, bytes)| {

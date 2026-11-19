@@ -190,8 +190,10 @@ META-INF/aix/public-key.ed25519  # 32 字节公钥
 ### 7.1 渐进媒体元数据
 
 渐进资源包在 Manifest 的可选 `progressive_assets` 字段中保存索引版本、路径和 SHA-256。
-索引将 `aix-asset:<id>` 引用映射到包内媒体或渐进媒体描述符。远程交付的包内含初始化分段和元数据，
-播放分片由 HTTPS 地址单独交付。详见[渐进媒体元数据规范](/spec#progressive-media-metadata)。
+索引将 `aix-asset:<id>` 引用映射到包内媒体或渐进媒体描述符。描述符中的可选
+`embedded_prefix` 记录初始化段字节数 `init_size` 和连续内嵌分片数 `fragment_count`。
+内嵌分片按时间线顺序紧跟在 `init.mp4` 的初始化段之后。包内首段需要兼容的运行时。
+详见[渐进媒体元数据规范](/spec#progressive-media-metadata)。
 
 ## 8. Engine 兼容性
 

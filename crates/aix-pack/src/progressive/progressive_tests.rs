@@ -39,7 +39,7 @@ fn receipt(plan: &ProgressiveAssetPlan) -> ProgressiveAssetUploadReceipt {
 }
 
 #[test]
-fn lowers_all_declarations_and_packages_only_metadata_after_verified_receipt() {
+fn lowers_declarations_and_packages_an_embedded_prefix_after_verified_receipt() {
     let mut builder = ProgressivePack::discover(fixture()).unwrap();
     let candidates = builder.candidates();
     assert_eq!(candidates.len(), 1);
@@ -50,6 +50,13 @@ fn lowers_all_declarations_and_packages_only_metadata_after_verified_receipt() {
     assert!(candidate.dependencies.is_empty());
     let plan = builder.prepare(&id).unwrap();
     assert!(plan.remote_objects.len() >= 2);
+    let first = plan
+        .remote_objects
+        .iter()
+        .find(|object| object.id == plan.layout.fragments[0].object)
+        .unwrap()
+        .bytes
+        .clone();
     let version = plan.asset_version.clone();
     let plan_id = plan.id.clone();
     let receipt = receipt(plan);
@@ -77,6 +84,19 @@ fn lowers_all_declarations_and_packages_only_metadata_after_verified_receipt() {
     let init = reader
         .read_file(&format!("{PREFIX}{version}/init.mp4"))
         .unwrap();
+    let descriptor: Descriptor = serde_json::from_slice(
+        &reader
+            .read_file(&format!("{PREFIX}{version}/asset.json"))
+            .unwrap(),
+    )
+    .unwrap();
+    let prefix = descriptor.profile.embedded_prefix.unwrap();
+    assert_eq!(prefix.fragment_count, 1);
+    assert_eq!(&init[prefix.init_size as usize..], first.as_ref());
+    assert_eq!(
+        descriptor.profile.local_metadata["init.mp4"].sha256,
+        sha256(&init)
+    );
     assert!(reader.read_file("assets/nested/clip.mp4").is_err());
     let app = String::from_utf8(reader.read_file("app.js").unwrap()).unwrap();
     assert!(!app.contains("progressive"));
@@ -890,7 +910,7 @@ fn rejects_fmp4_with_invalid_fragment_payload_or_timeline() {
 }
 
 #[test]
-fn prepares_muxed_and_audio_fragments_without_embedding_segment_zero() {
+fn embeds_only_the_first_fragment_for_muxed_and_audio_assets() {
     let video = include_bytes!("../../tests/data/blue-tone-fragmented.mp4").as_slice();
     let audio = include_bytes!("../../tests/data/tone-fragmented.m4a").as_slice();
     for (kind, path, bytes, track_count) in [
@@ -952,7 +972,7 @@ fn prepares_muxed_and_audio_fragments_without_embedding_segment_zero() {
         let boxes = fragment_boxes::boxes(&init).unwrap();
         assert_eq!(
             boxes.iter().map(|b| &b.kind).collect::<Vec<_>>(),
-            [b"ftyp", b"moov"]
+            [b"ftyp", b"moov", b"moof", b"mdat"]
         );
         assert!(reader.read_file(path).is_err());
         assert!(reader

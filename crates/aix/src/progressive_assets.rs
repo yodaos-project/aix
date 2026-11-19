@@ -63,8 +63,19 @@ pub struct Profile {
     pub profile: String,
     pub required_capabilities: Vec<String>,
     pub local_metadata: BTreeMap<String, Content>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embedded_prefix: Option<EmbeddedPrefix>,
     pub objects: BTreeMap<String, Content>,
     pub layout: TimelineLayout,
+}
+
+/// Initialization bytes and the number of consecutive media fragments
+/// stored after them in the same file.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EmbeddedPrefix {
+    pub init_size: u64,
+    pub fragment_count: usize,
 }
 
 impl Profile {

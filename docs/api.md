@@ -277,8 +277,10 @@ metadata are read separately.
 ## Progressive Assets {#progressive-assets}
 
 A Progressive Asset lets AIUI play media in smaller pieces. For remote
-delivery, the package keeps the information needed to start playback and
-AIUI downloads the pieces it needs.
+delivery, AIX includes the first complete playback fragment in `init.mp4`
+when the combined file fits within 4 MiB. A compatible runtime can play
+this opening portion from the package before downloading the remaining
+fragments. MP3 is embedded as a complete file.
 
 Declare the media in a JavaScript module or a script in an `.ink` file.
 The import returns an `AssetRef` such as `aix-asset:<id>`. Pass it to an

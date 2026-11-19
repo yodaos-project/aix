@@ -240,8 +240,10 @@ META-INF/aix/public-key.ed25519  # 32-byte 公開鍵
 
 段階配信アセットを含むパッケージは、Manifest の任意フィールド `progressive_assets` に
 インデックスのバージョン、パス、SHA-256 を記録します。インデックスは `aix-asset:<id>` を
-同梱メディアまたは段階配信記述子に対応付けます。リモート配信では初期化セグメントとメタデータを
-同梱し、再生用のフラグメントを HTTPS で配信します。[仕様の詳細](/spec#progressive-media-metadata)。
+同梱メディアまたは段階配信記述子に対応付けます。任意の `embedded_prefix` は初期化セグメントの
+バイト数 `init_size` と同梱フラグメント数 `fragment_count` を記録します。フラグメントは
+`init.mp4` の初期化セグメントに続けてタイムライン順で格納されます。同梱フラグメントの再生には
+対応ランタイムが必要です。[仕様の詳細](/spec#progressive-media-metadata)。
 
 ## 8. Engine 互換性
 
