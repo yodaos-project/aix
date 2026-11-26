@@ -112,8 +112,8 @@ impl Imports<'_> {
             };
             let source =
                 source.ok_or_else(|| anyhow!("progressive import requires a literal path"))?;
-            if !source.starts_with("./") && !source.starts_with("../") {
-                bail!("progressive imports require a relative package path");
+            if !source.starts_with('/') && !source.starts_with("./") && !source.starts_with("../") {
+                bail!("progressive imports require a package-root or module-relative path");
             }
             let source_path = resolve_path(self.path, source)?;
             self.declarations.push(Declaration {

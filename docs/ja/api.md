@@ -236,6 +236,8 @@ JavaScript モジュールまたは `.ink` ファイルのスクリプトでメ�
 import clip from './assets/clip.mp4' with { type: 'video', progressive: 'prefer' };
 ~~~
 
+`/assets/clip.mp4` はパッケージのルートから解決されます。`./` または `../` で始まるパスは、インポート元のモジュールがあるディレクトリから解決されます。
+
 音声には `type: 'audio'` を使います。現在のプロファイルは H.264 の MP4 と AAC-LC の M4A に対応しています。条件を満たす通常のファイルは、再エンコードせずにフラグメント化された MP4 に変換できます。
 
 ### 断片の保存先を選ぶ {#choose-where-the-pieces-are-stored}

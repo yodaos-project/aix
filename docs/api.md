@@ -295,6 +295,9 @@ AIUI video or audio component.
 import clip from './assets/clip.mp4' with { type: 'video', progressive: 'prefer' };
 ~~~
 
+Use `/assets/clip.mp4` to resolve from the package root. Paths starting with
+`./` or `../` resolve from the importing module's directory.
+
 Use `type: 'audio'` for audio. The current profile supports H.264 MP4 and
 AAC-LC M4A. For compatible ordinary files, AIX can split the media into
 fragmented MP4 without re-encoding it.
