@@ -571,6 +571,10 @@ fn identity(bytes: &[u8]) -> Content {
 }
 
 fn resolve_path(owner: &str, uri: &str) -> Result<String> {
+    let (directory, uri) = match uri.strip_prefix('/') {
+        Some(path) => ("", path),
+        None => (owner.rsplit_once('/').map_or("", |(dir, _)| dir), uri),
+    };
     let decoded = percent_encoding::percent_decode_str(uri).decode_utf8()?;
     if decoded.is_empty()
         || decoded.starts_with('/')
@@ -578,7 +582,6 @@ fn resolve_path(owner: &str, uri: &str) -> Result<String> {
     {
         bail!("unsupported local resource URI");
     }
-    let (directory, _) = owner.rsplit_once('/').unwrap_or(("", owner));
     let mut parts: Vec<_> = directory.split('/').filter(|p| !p.is_empty()).collect();
     for part in decoded.split('/') {
         match part {

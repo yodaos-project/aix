@@ -80,7 +80,7 @@ async function main() {
         ...Object.entries({
           'app.json': '{"pages":["pages/index"]}',
           'pages/index.ink': `<script setup>
-import clip from '../assets/clip.mp4' with { type: 'video', progressive: 'prefer' };
+import clip from '/assets/clip.mp4' with { type: 'video', progressive: 'prefer' };
 export default { data: { source: clip } };
 </script>
 <page><video src="{{source}}" style="width: 96px; height: 96px;" /></page>`,
@@ -94,7 +94,9 @@ export default { data: { source: clip } };
         engine: '^0.22.0',
         async onProgressiveAsset(candidate, context) {
           calls += 1;
-          if (candidate.kind !== 'video' || candidate.references.length !== 1) throw new Error('Unexpected candidate');
+          if (candidate.kind !== 'video' || candidate.sourcePath !== 'assets/clip.mp4' || candidate.references.length !== 1) {
+            throw new Error('Unexpected candidate');
+          }
           files[2].data.fill(0);
           const [first, second] = await Promise.all([context.prepare(), context.prepare()]);
           if (first.id !== second.id || first.layout.fragments.length < 2) throw new Error('Unexpected plan');

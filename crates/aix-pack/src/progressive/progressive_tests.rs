@@ -6,15 +6,16 @@ fn fixture() -> Vec<InputFile> {
         InputFile::new("app.json", br#"{"pages":["pages/index"]}"#),
         InputFile::new("pages/index.ink", br#"<script def>{}</script>
 <script setup lang="TypeScript">
-import clip from '../assets/nested/clip.mp4' with { type: 'video', progressive: 'prefer' };
+import clip from '/assets/nested/clip.mp4' with { type: 'video', progressive: 'prefer' };
 const src: string = clip;
 export default { data: { src } };
 </script>
 <page><video src="{{src}}" /></page>"#),
         InputFile::new("app.js", br#"
         // import unused from './missing.mp4' with { type: 'video', progressive: 'prefer' };
-        const first = () => import('./assets/nested/clip.mp4', { with: { progressive: 'prefer', type: 'video' } });
-        export { default as second } from './assets/nested/clip.mp4' with { type: 'video', progressive: 'prefer' };
+        const first = () => import('/assets/nested/clip.mp4', { with: { progressive: 'prefer', type: 'video' } });
+        export { default as second } from '/assets/nested/clip.mp4' with { type: 'video', progressive: 'prefer' };
+        export { default as third } from './assets/nested/clip.mp4' with { type: 'video', progressive: 'prefer' };
         export default { first };
         "#),
         InputFile::new("assets/nested/clip.mp4", video),
@@ -139,8 +140,9 @@ fn lowers_declarations_and_packages_an_embedded_prefix_after_verified_receipt() 
     assert_eq!(candidates.len(), 1);
     let candidate = candidates[0];
     let id = candidate.id.clone();
-    assert_eq!(candidate.references.len(), 3);
-    assert_eq!(candidate.references[2].line, 3);
+    assert_eq!(candidate.references.len(), 4);
+    assert_eq!(candidate.references[3].line, 3);
+    assert_eq!(candidate.source_path, "assets/nested/clip.mp4");
     assert!(candidate.dependencies.is_empty());
     let plan = builder.prepare(&id).unwrap();
     assert!(plan.remote_objects.len() >= 2);
@@ -195,7 +197,7 @@ fn lowers_declarations_and_packages_an_embedded_prefix_after_verified_receipt() 
     assert!(reader.read_file("assets/nested/clip.mp4").is_err());
     let app = String::from_utf8(reader.read_file("app.js").unwrap()).unwrap();
     assert!(!app.contains("progressive"));
-    assert!(app.contains(&id));
+    assert_eq!(app.matches(&format!("./{REF_DIR}{id}.js")).count(), 3);
     let page = String::from_utf8(reader.read_file("pages/index.ink").unwrap()).unwrap();
     assert!(page.contains(&format!("../{REF_DIR}{id}.js")));
     let module =
@@ -301,7 +303,7 @@ fn rejects_malformed_imports_and_escaping_paths_before_pack() {
         ),
         (
             "import x from 'clip' with { type: 'video', progressive: 'prefer' };",
-            "require a relative package path",
+            "require a package-root or module-relative path",
         ),
         (
             "import x from '../clip' with { type: 'video', progressive: 'prefer' };",
@@ -320,8 +322,32 @@ fn rejects_malformed_imports_and_escaping_paths_before_pack() {
             "unsupported local resource URI",
         ),
         (
-            "import x from './META-INF/clip' with { type: 'video', progressive: 'prefer' };",
+            "import x from '/META-INF/clip' with { type: 'video', progressive: 'prefer' };",
             "points to generated metadata",
+        ),
+        (
+            "import x from '/assets/../__aix_asset_refs/clip' with { type: 'video', progressive: 'prefer' };",
+            "points to generated metadata",
+        ),
+        (
+            "import x from '/%2e%2e/clip' with { type: 'video', progressive: 'prefer' };",
+            "escapes the package root",
+        ),
+        (
+            "import x from '//cdn.example/clip.mp4' with { type: 'video', progressive: 'prefer' };",
+            "unsupported local resource URI",
+        ),
+        (
+            "import x from '/%2fcdn.example/clip.mp4' with { type: 'video', progressive: 'prefer' };",
+            "unsupported local resource URI",
+        ),
+        (
+            "import x from 'https://cdn.example/clip.mp4' with { type: 'video', progressive: 'prefer' };",
+            "require a package-root or module-relative path",
+        ),
+        (
+            "import x from '/clip.mp4?query' with { type: 'video', progressive: 'prefer' };",
+            "unsupported local resource URI",
         ),
         (
             "import x from './missing' with { type: 'video', progressive: 'prefer' };",
@@ -358,21 +384,21 @@ fn rejects_malformed_imports_and_escaping_paths_before_pack() {
 fn preserves_ordinary_and_type_only_imports_while_lowering_progressive_exports() {
     let mut files = fixture();
     files.push(InputFile::new(
-        "types.ts",
+        "pages/player/types.ts",
         br#"
 export type { Clip } from './missing' with { type: 'video', progressive: 'prefer' };
 import { type Clip as Other } from './also-missing' with { type: 'video', progressive: 'prefer' };
-export * from './assets/nested/clip.mp4' with { "type": 'video', "progressive": 'prefer' };
-import embedded from './assets/nested/clip.mp4' with { type: 'video' };
-import fallback from './assets/nested/clip.mp4';
+export * from '/assets/nested/clip.mp4' with { "type": 'video', "progressive": 'prefer' };
+import embedded from '/assets/nested/clip.mp4' with { type: 'video' };
+import fallback from '/assets/nested/clip.mp4';
 export { embedded, fallback };
-export const load = (options: ImportCallOptions) => import('./assets/nested/clip.mp4', options);
-export const ordinary = () => import('./assets/nested/clip.mp4', { with: 'asset', other: true });
+export const load = (options: ImportCallOptions) => import('/assets/nested/clip.mp4', options);
+export const ordinary = () => import('/assets/nested/clip.mp4', { with: 'asset', other: true });
 "#,
     ));
     let mut pack = ProgressivePack::discover(files).unwrap();
     let candidate = pack.candidates()[0];
-    assert_eq!(candidate.references.len(), 4);
+    assert_eq!(candidate.references.len(), 5);
     let id = candidate.id.clone();
     let plan = pack.prepare(&id).unwrap();
     let plan_id = plan.id.clone();
@@ -385,6 +411,7 @@ export const ordinary = () => import('./assets/nested/clip.mp4', { with: 'asset'
         )
         .unwrap();
     let source = include_bytes!("../../tests/data/pattern-tone-flat.mp4");
+    assert_eq!(output.progressive_assets[0].delivery, "progressive");
     assert_eq!(
         output.progressive_assets[0].retained_source_bytes,
         source.len() as u64

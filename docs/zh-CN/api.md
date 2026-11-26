@@ -243,6 +243,8 @@ Ink 可以从包内播放已内嵌的首段，再按需下载其余分片。MP3 
 import clip from './assets/clip.mp4' with { type: 'video', progressive: 'prefer' };
 ~~~
 
+`/assets/clip.mp4` 从包根目录解析。以 `./` 或 `../` 开头的路径从导入模块所在的目录解析。
+
 音频使用 `type: 'audio'`。目前支持 H.264 MP4 和 AAC-LC M4A。对于符合条件的普通媒体文件，AIX 可以将其分片封装为 MP4，无需重新编码。
 
 ### 选择分片的存放位置 {#choose-where-the-pieces-are-stored}
